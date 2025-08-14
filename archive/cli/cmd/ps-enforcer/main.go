@@ -16,13 +16,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-// These variables may be overridden at build time via -ldflags
-var (
-	version   = "0.2.0"
-	commit    = "dev"
-	buildDate = "unknown"
-)
-
 func main() {
 	license.Check()
 	addr := os.Getenv("PS_ENFORCER_ADDR")
@@ -41,8 +34,8 @@ func main() {
 		}
 	}
 	if enabled && (endpoint != "" || file != "") {
-		telemetry = tel.New(tel.Options{Enabled: true, Endpoint: endpoint, File: file, Sample: sample, Service: "ps-enforcer", Version: version})
-		telemetry.Collect("startup", map[string]any{"version": version, "commit": commit, "build_date": buildDate})
+		telemetry = tel.New(tel.Options{Enabled: true, Endpoint: endpoint, File: file, Sample: sample, Service: "ps-enforcer", Version: "0.2.0"})
+		telemetry.Collect("startup", map[string]any{"version": "0.2.0", "commit": "dev", "build_date": "unknown"})
 	}
 
 	srv := enforcerhttp.Serve(addr)
