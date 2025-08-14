@@ -12,15 +12,9 @@ import (
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
 	"github.com/promptshield/promptshield/internal/license"
+	"github.com/promptshield/promptshield/internal/version"
 	tel "github.com/promptshield/promptshield/internal/observability/telemetry"
 	"google.golang.org/grpc"
-)
-
-// These variables may be overridden at build time via -ldflags
-var (
-	version   = "0.2.0"
-	commit    = "dev"
-	buildDate = "unknown"
 )
 
 func main() {
@@ -41,8 +35,8 @@ func main() {
 		}
 	}
 	if enabled && (endpoint != "" || file != "") {
-		telemetry = tel.New(tel.Options{Enabled: true, Endpoint: endpoint, File: file, Sample: sample, Service: "ps-enforcer", Version: version})
-		telemetry.Collect("startup", map[string]any{"version": version, "commit": commit, "build_date": buildDate})
+		telemetry = tel.New(tel.Options{Enabled: true, Endpoint: endpoint, File: file, Sample: sample, Service: "ps-enforcer", Version: version.Version})
+		telemetry.Collect("startup", map[string]any{"version": version.Version, "commit": version.Commit, "build_date": version.BuildDate})
 	}
 
 	srv := enforcerhttp.Serve(addr)
