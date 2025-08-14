@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	appscan "github.com/promptshield/promptshield/internal/application/scan"
 	"github.com/promptshield/promptshield/internal/discovery"
 	"github.com/promptshield/promptshield/internal/license"
@@ -82,11 +83,15 @@ func NewMux() http.Handler {
 	// Prometheus metrics endpoint
 	r.Handle("/metrics", promhttp.Handler())
 
+	// Mount v1 API
+	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
+	r.Mount("/v1", api.NewMux(api.Options{AdminToken: adminToken}))
+
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		// Optional bearer token check
 		reqToken := os.Getenv("PS_ENFORCER_AUTH_TOKEN")
 		if reqToken != "" {
-			if !httpAuthOK(r, reqToken) {
+			if !HttpAuthOK(r, reqToken) {
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte("unauthorized"))
 				enforcerRequests.WithLabelValues("/check", "401").Inc()
@@ -284,13 +289,14 @@ func generateRequestID() string {
 	return uuid.NewString()
 }
 
-func httpAuthOK(r *http.Request, want string) bool {
+// exported for reuse in api
+func HttpAuthOK(r *http.Request, want string) bool {
 	if want == "" {
 		return true
 	}
 	// Authorization: Bearer <token>
 	if v := r.Header.Get("Authorization"); v != "" {
-		if len(v) >= 7 && (v[:7] == "Bearer " || v[:7] == "bearer ") {
+		if len(v) >= 7 && (strings.HasPrefix(v, "Bearer ") || strings.HasPrefix(v, "bearer ")) {
 			if v[7:] == want {
 				return true
 			}
