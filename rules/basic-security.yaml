@@ -1,0 +1,55 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: basic-security
+  version: 0.1.0
+  description: High-confidence defaults for first-run experience
+rules:
+  - id: prompt-injection-ignore-previous
+    name: Detect prompt injection phrase 'ignore previous instructions'
+    level: 1
+    severity: CRITICAL
+    keywords: ["ignore previous instructions"]
+
+  - id: pii-ssn
+    name: US Social Security Number pattern
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+
+  - id: pii-credit-card
+    name: Credit card number pattern (basic)
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "\\b(?:\\d{4}-){3}\\d{4}\\b"
+
+  # Response-side examples
+  - id: response-secrets-api-key
+    name: Response leaked string 'api_key'
+    level: 1
+    severity: HIGH
+    when:
+      match:
+        direction: ["response"]
+    keywords: ["api_key"]
+
+  - id: response-credential-leak
+    name: Response leaked 'password' token
+    level: 1
+    severity: HIGH
+    when:
+      match:
+        direction: ["response"]
+    keywords: ["password"]
+
+  - id: response-api-key-any
+    name: Response contains api_key assignment
+    level: 2
+    severity: HIGH
+    when:
+      match:
+        direction: ["response"]
+    patterns:
+      - regex: "api_key\\s*[:=]"

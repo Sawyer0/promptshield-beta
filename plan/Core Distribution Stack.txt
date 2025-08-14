@@ -1,0 +1,149 @@
+Core Distribution Stack 
+
+GitHub Releases + GoReleaser as the foundation. 
+
+This combination gives PS maximum impact with minimal complexity. 
+
+GoReleaser is specifically designed for Go CLI tools and handles most of the heavy lifting 
+automatically. 
+
+GoReleaser integrates with GitHub Actions to automatically build and publish releases when 
+you create a Git tag. 
+
+It handles cross-compilation, creates archives, generates checksums, and publishes everything 
+to GitHub Releases with zero manual intervention. 
+
+Package Manager Strategy 
+
+Starting with Homebrew because it's the easiest to implement and covers our most likely early 
+adopters (developers on macOS). 
+
+GoReleaser can automatically create and submit Homebrew formulas. 
+
+brews: 
+
+- name: promptshield 
+
+homepage: https://github.com/yourusername/promptshield 
+
+description: "CLI tool for securing GenAI applications" 
+
+repository: 
+
+owner: yourusername 
+
+name: homebrew-promptshield 
+
+install: | 
+
+bin.install "promptshield" 
+
+test: | 
+
+system "#{bin}/promptshield --version" 
+
+This automatically creates a Homebrew tap at yourusername/homebrew-promptshield. 
+
+Users install with: 
+
+brew tap yourusername/promptshield 
+
+brew install promptshield 
+
+Linux Strategy 
+
+We'll focus on Snap packages initially. They work across distributions and GoReleaser supports 
+them. 
+
+snapcrafts: 
+
+- name: promptshield 
+
+summary: CLI tool for securing GenAI applications 
+
+description: | 
+
+PromptShield scans prompts and responses for risks such as 
+
+prompt injection, PII, and compliance violations. 
+
+grade: stable 
+
+confinement: strict 
+
+apps: 
+
+promptshield: 
+
+command: promptshield 
+
+Windows, add Chocolatey support 
+
+chocolateys: 
+
+- name: promptshield 
+
+title: PromptShield 
+
+authors: Your Name 
+
+project_url: https://github.com/yourusername/promptshield 
+
+description: CLI tool for securing GenAI applications 
+
+summary: Scan prompts for security risks 
+
+Container Distribution 
+
+Create a simple Dockerfile. 
+
+FROM alpine:latest 
+
+RUN apk --no-cache add ca-certificates 
+
+WORKDIR /root/ 
+
+COPY promptshield . 
+
+CMD ["./promptshield"] 
+
+Update Mechanism 
+
+Implement a simple update checker in the CLI and call it asynchronously in the root command, 
+but make it configurable. 
+
+Documentation Structure 
+
+These files will be created in the repository: 
+
+INSTALL.md - Platform-specific installation instructions 
+
+docs/installation/ - Detailed guides for each method 
+
+examples/docker-compose.yml - Ready-to-use container examples 
+
+scripts/install.sh - Curl-to-bash installer for Linux/macOS 
+
+Cost and Maintenance Considerations 
+
+This entire stack is free for open-source projects: 
+
+GitHub Actions: 2,000 minutes/month free 
+
+GitHub Releases: Unlimited storage 
+
+Docker Hub: 1 free public repository 
+
+Package managers: Free for open-source 
+
+Maintenance overhead is minimal because GoReleaser handles the complexity. 
+
+We just tag releases and everything else happens automatically. 
+
+The beauty of this approach is that it grows with PS. 
+
+Start with GitHub Releases and Homebrew, then add more distribution methods as our user 
+base expands and requests them. 
+
+ 
+

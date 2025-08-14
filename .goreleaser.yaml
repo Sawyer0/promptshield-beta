@@ -1,0 +1,81 @@
+project_name: promptshield
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: promptshield
+    main: ./cmd/promptshield
+    binary: promptshield
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w
+      - -X github.com/promptshield/promptshield/cmd.version={{.Version}}
+      - -X github.com/promptshield/promptshield/cmd.commit={{.Commit}}
+      - -X github.com/promptshield/promptshield/cmd.buildDate={{.Date}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+  - id: ps-enforcer
+    main: ./cmd/ps-enforcer
+    binary: ps-enforcer
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - LICENSE*
+      - README.md
+
+checksums:
+  name_template: 'checksums.txt'
+
+sboms:
+  - artifacts: [binary]
+
+release:
+  draft: false
+  prerelease: false
+
+brews:
+  - name: promptshield
+    ids: [promptshield]
+    tap:
+      owner: promptshield
+      name: homebrew-tap
+    folder: Formula
+    commit_author:
+      name: promptshield-bot
+      email: bot@promptshield.io
+    homepage: https://github.com/promptshield/promptshield
+    description: CLI scanner and enforcer for LLM safety (PromptShield)
+    license: MIT
+    install: |
+      bin.install "promptshield"
+    test: |
+      system "#{bin}/promptshield", "version"
+
+scoops:
+  - name: promptshield
+    ids: [promptshield]
+    bucket:
+      owner: promptshield
+      name: scoop-bucket
+      branch: main
+      folder: bucket
+    homepage: https://github.com/promptshield/promptshield
+    description: CLI scanner and enforcer for LLM safety (PromptShield)
+    license: MIT
+
+signs:
+  - id: cosign-checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    args: ["sign-blob", "--yes", "--output-signature", "${signature}", "${artifact}"]
+
+

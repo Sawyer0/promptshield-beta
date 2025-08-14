@@ -1,0 +1,32 @@
+Understanding PS's Data's Sensitivity Profile 
+
+What types of data the tool will encounter and why each type presents different risks. 
+
+PS will process three distinct categories of data, each with different security implications 
+
+●  First, there are the prompts themselves, which could contain anything from harmless test 
+
+queries to proprietary business logic, customer data, or even trade secrets. 
+
+( e.g A developer accidentally scans a prompt containing "Our new product launch strategy 
+targets customers earning over $150,000 in the healthcare sector" - that's competitive 
+intelligence that could damage the company if leaked.) 
+
+●  Second, you're collecting metadata about scanning patterns, which might seem 
+
+innocuous but can reveal significant information about an organization's AI usage, 
+security concerns, and operational patterns. 
+
+(e.g If someone could see that a company suddenly started scanning for financial compliance 
+violations every Friday afternoon, they might infer something about the company's regulatory 
+challenges or business cycles.) 
+
+●  Third, the scan results themselves create a permanent record of what security issues 
+
+were detected, when, and how the system responded. 
+
+(e.g This audit trail is valuable for compliance but also represents a concentrated collection of 
+your organization's security vulnerabilities and response patterns.) 
+
+ 
+

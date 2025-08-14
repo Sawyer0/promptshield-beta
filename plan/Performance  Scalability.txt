@@ -1,0 +1,568 @@
+# PromptShield Performance & Scalability Architecture 
+
+## Executive Summary 
+
+PromptShield’s performance architecture enables scanning of gigabyte-scale files through 
+streaming processing, intelligent parallelization, and bounded memory usage. Our CLI-first 
+approach prioritizes local processing speed over network-dependent solutions, positioning us as 
+the fastest LLM security scanner for development and CI/CD workflows. 
+
+**Key Performance Targets:** 
+
+- Process 1GB JSON files in <30 seconds on standard developer hardware 
+- Maintain <500MB memory usage regardless of file size 
+- Linear scaling with CPU cores for multi-file processing 
+- Sub-second response for files <1MB 
+
+## Core Architecture Principles 
+
+### 1. Streaming-First Design 
+
+Never load entire files into memory. All processing uses bounded buffers and streaming parsers 
+to maintain predictable resource usage. 
+
+### 2. Progressive Feedback 
+
+Users see results as they’re discovered, not after complete processing. This builds confidence 
+during long operations and enables early termination on critical findings. 
+
+### 3. Configurable Performance Profiles 
+
+Developers can optimize for speed, thoroughness, or resource constraints based on their 
+specific environment and requirements. 
+
+## Technical Architecture 
+
+### Streaming Processing Pipeline 
+
+``` 
+Input → Tokenizer → Pre-filter → Rule Engine → Aggregator → Output 
+  ↓         ↓           ↓            ↓            ↓          ↓ 
+Stream   Bounded    Bloom Filter  Parallel    Priority    Progressive 
+Reader   Buffer     + Keywords    Matching     Queue       Reporter 
+``` 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Each stage operates independently with channels providing backpressure control. This 
+architecture ensures: 
+
+- Maximum memory usage is deterministic 
+- Early detection enables fast-fail scenarios 
+- Natural integration with Unix pipes and CI/CD tools 
+
+### Memory Management Strategy 
+
+#### Three-Tier Memory Model 
+
+**Tier 1: Working Memory (Default 128MB)** 
+
+- Active processing buffers 
+- Compiled regex cache 
+- Rule engine state 
+
+**Tier 2: Cache Memory (Default 256MB)** 
+
+- Recently evaluated patterns 
+- LRU finding deduplication 
+- Temporary result storage 
+
+**Tier 3: Spill-to-Disk (Automatic)** 
+
+- Findings exceeding memory limits 
+- Large intermediate results 
+- Memory-mapped file access 
+
+#### Configuration Options 
+
+```yaml 
+performance: 
+  max_memory: 512MB      # Hard limit for total usage 
+  buffer_size: 8MB       # Per-file streaming buffer 
+  cache_size: 256MB      # Pattern and result caching 
+  enable_mmap: true      # Memory-mapped file support 
+  low_memory_mode: false # Aggressive memory optimization 
+``` 
+
+### Parallelization Strategy 
+
+#### File-Level Parallelism 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+**Adaptive Worker Pool:** 
+
+- Default: `runtime.NumCPU()` workers 
+- Monitors system load and adjusts dynamically 
+- Prioritizes small files for quick feedback 
+- Maintains deterministic output ordering 
+
+**Smart Scheduling Algorithm:** 
+
+1. Sort files by size (ascending) 
+1. Process small files first for immediate feedback 
+1. Distribute large files across available workers 
+1. Merge results maintaining original order 
+
+#### Intra-File Parallelism 
+
+For files >100MB, we partition at natural boundaries: 
+
+**JSON Arrays:** Split on array elements 
+**JSONL/Logs:** Split on line boundaries   
+**Nested JSON:** Split on top-level objects 
+
+Each partition processes independently with configurable overlap for context-dependent rules. 
+
+## Performance Optimization Strategies 
+
+### Rule Engine Optimizations 
+
+#### Pattern Matching Hierarchy 
+
+1. **Bloom Filters** (Nanoseconds) 
+- Quick negative filtering 
+- Eliminates 90%+ of non-matches 
+- Negligible memory overhead 
+1. **Keyword Indexing** (Microseconds) 
+- Trie-based keyword matching 
+- Early termination on matches 
+- Shared across rules 
+1. **Regex Evaluation** (Milliseconds) 
+- Compiled pattern cache 
+- SIMD acceleration where available 
+- Lazy evaluation on demand 
+1. **LLM Semantic Analysis** (Seconds) 
+- Only for high-confidence threats 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+- Batched API calls 
+- Response caching 
+
+### File Type Specific Optimizations 
+
+#### JSON/JSONL Files 
+
+**SAX-Style Parsing:** 
+
+- Event-driven processing without DOM construction 
+- Path-based filtering for targeted scanning 
+- Lazy number/string parsing 
+
+**Implementation:** 
+
+```go 
+scanner := NewJSONScanner(reader) 
+scanner.OnPath("$.users[*].email", checkPII) 
+scanner.OnPath("$.messages[*].content", checkInjection) 
+scanner.Stream() // Processes without loading full file 
+``` 
+
+#### Log Files 
+
+**Line-Based Streaming:** 
+
+- Configurable look-ahead/behind windows 
+- Pattern-based line aggregation 
+- Automatic format detection 
+
+#### Binary/Encoded Data 
+
+**Smart Detection:** 
+
+- Magic byte identification 
+- Automatic encoding detection 
+- Base64/hex decoding on-demand 
+- Clear unsupported format messages 
+
+## Benchmark Framework 
+
+### Standard Benchmark Suite 
+
+```bash 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+promptshield benchmark --suite=standard 
+``` 
+
+**Test Scenarios:** 
+
+1. **Large Single File:** 10GB JSON with deep nesting 
+1. **Many Small Files:** 10,000 files (1-10KB each) 
+1. **Mixed Workload:** Various sizes and formats 
+1. **Worst Case:** Deeply nested recursive structures 
+1. **Best Case:** Flat JSONL streams 
+
+### Performance Metrics 
+
+**Throughput Metrics:** 
+
+- MB/second processing rate 
+- Rules evaluated per second 
+- Files processed per minute 
+
+**Resource Metrics:** 
+
+- Peak/average memory usage 
+- CPU utilization by component 
+- I/O wait time percentage 
+
+**Latency Metrics:** 
+
+- Time to first result (TTFR) 
+- P50/P95/P99 processing times 
+- End-to-end completion time 
+
+### Regression Testing 
+
+```yaml 
+# .github/workflows/performance.yml 
+performance_regression: 
+  threshold: 10%  # Fail if >10% slower 
+  benchmarks: 
+    - large_file_streaming 
+    - parallel_processing 
+    - memory_usage 
+  comparison: previous_release 
+``` 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+## Progressive Performance Roadmap 
+
+### Phase 1: Foundation (v0.9 → v1.0) 
+
+- ✅ Basic JSON streaming 
+- ✅ Simple worker pool 
+- ✅ Fixed memory buffers 
+- ✅ Progress reporting 
+
+### Phase 2: Optimization (v1.x) 
+
+- Adaptive parallelism 
+- Regex compilation cache 
+- Bloom filter pre-screening 
+- Performance profiling commands 
+
+### Phase 3: Advanced Scale (v2.x) 
+
+- Distributed scanning coordinator 
+- Incremental file scanning 
+- GPU pattern matching 
+- Real-time streaming mode 
+
+### Phase 4: Enterprise Scale (v3.x) 
+
+- Cluster deployment support 
+- Petabyte-scale processing 
+- Hardware acceleration (SIMD/AVX) 
+- Custom index building 
+
+## User Experience Features 
+
+### Progress Reporting 
+
+```bash 
+Scanning dataset.json (2.3GB)... 
+[████████░░░░] 1.4GB/2.3GB | 423MB/s | ~3s remaining 
+↳ 1,247 findings (823 critical, 424 high) | 1.2M lines processed 
+``` 
+
+### Interruption & Resume 
+
+```bash 
+^C Scan interrupted. Partial results saved. 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Resume with: promptshield scan --resume=session-43fg2 
+``` 
+
+### Performance Modes 
+
+```bash 
+# Fast mode - pre-filters only 
+promptshield scan --mode=fast large.json 
+
+# Balanced mode - default 
+promptshield scan large.json 
+
+# Thorough mode - all rules, deep analysis 
+promptshield scan --mode=thorough large.json 
+
+# Custom performance tuning 
+PS_WORKERS=8 promptshield scan --max-memory=2GB large.json
+``` 
+
+## Configuration Profiles 
+
+### Development Profile 
+
+```yaml 
+performance: 
+  mode: balanced 
+  max_memory: 1GB 
+  workers: 4 
+  verbose_progress: true 
+  cache_enabled: true 
+``` 
+
+### CI/CD Profile 
+
+```yaml 
+performance: 
+  mode: fast 
+  max_memory: 2GB 
+  workers: auto 
+  fail_fast: true 
+  quiet_mode: true 
+``` 
+
+### Production Profile 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+```yaml 
+performance: 
+  mode: thorough 
+  max_memory: unlimited 
+  workers: 16 
+  enable_profiling: true 
+  audit_performance: true 
+``` 
+
+## Implementation Priorities 
+
+### Must-Have for Launch 
+
+1. **Streaming JSON Processing** - Core requirement for large files 
+1. **Basic Parallelism** - Multi-file processing capability 
+1. **Memory Bounds** - Predictable resource usage 
+1. **Progress Reporting** - User confidence during long operations 
+
+### Should-Have Features 
+
+1. **Adaptive Performance** - System-aware optimization 
+1. **Resume Capability** - Interruption tolerance 
+1. **Performance Profiling** - Diagnostic commands 
+
+### Could-Have Enhancements 
+
+1. **Incremental Scanning** - Change detection 
+1. **Distributed Mode** - Multi-machine coordination 
+1. **GPU Acceleration** - Advanced pattern matching 
+
+## Success Metrics 
+
+### Launch Targets (v1.0) 
+
+- ✓ 1GB file in <30 seconds 
+- ✓ Memory usage <500MB 
+- ✓ Linear CPU scaling 
+- ✓ 100+ rules per second 
+
+### Growth Targets (v2.0) 
+
+- 10GB file in <2 minutes 
+- 100+ parallel files 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+- Sub-second small files 
+- 1000+ rules per second 
+
+### Leadership Targets (v3.0) 
+
+- Fastest LLM security scanner 
+- Terabyte-scale datasets 
+- Real-time streaming 
+- 10,000+ rules per second 
+
+## Risk Mitigation 
+
+### Performance Risks 
+
+- **Memory Exhaustion:** Hard limits with graceful degradation 
+- **CPU Saturation:** Adaptive worker management 
+- **I/O Bottlenecks:** Async I/O with buffering 
+- **Network Latency:** Local caching of LLM calls 
+
+### Mitigation Strategies 
+
+- Automated performance regression tests 
+- Resource monitoring and alerts 
+- Gradual rollout of optimizations 
+- Performance documentation and best practices 
+
+## Competitive Positioning 
+
+### vs. API-Based Solutions (Lakera) 
+
+**Our Advantages:** 
+
+- No network latency 
+- No data transfer costs 
+- Works offline 
+- Predictable performance 
+
+### vs. Traditional Scanners 
+
+**Our Advantages:** 
+
+- Purpose-built for LLM content 
+- 10x faster for AI patterns 
+- Streaming architecture 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+- Progressive feedback 
+
+## Next Steps 
+
+### Immediate (Week 1-2) 
+
+1. Implement streaming JSON parser in Go 
+1. Build basic worker pool system 
+1. Create memory management framework 
+1. Design progress reporting system 
+
+### Short-term (Week 3-4) 
+
+1. Add performance benchmarking suite 
+1. Implement interruption/resume capability 
+1. Build performance regression tests 
+1. Create profiling commands 
+
+### Medium-term (Month 2-3) 
+
+1. Optimize rule engine with caching 
+1. Add adaptive parallelism 
+1. Implement bloom filters 
+1. Build distributed scanning coordinator 
+
+## Conclusion 
+
+PromptShield’s performance architecture positions us as the fastest, most efficient LLM security 
+scanner for developer workflows. By prioritizing streaming processing, intelligent parallelization, 
+and bounded memory usage, we deliver enterprise-scale capability in a developer-friendly CLI 
+tool. This performance foundation becomes our competitive moat—something API-based 
+competitors cannot match for local, large-scale scanning scenarios. 
+
+The streaming-first architecture ensures we can handle any file size, while our progressive 
+feedback approach keeps developers informed and confident. Combined with configurable 
+performance profiles and comprehensive benchmarking, PromptShield delivers the “it just 
+works” experience that developers expect from modern CLI tools.                 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+

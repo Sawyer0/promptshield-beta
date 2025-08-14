@@ -1,0 +1,32 @@
+Protecting Data in Transit 
+
+PS communicates with external LLM APIs, which means sensitive prompts are leaving our 
+user's environment and traveling across the internet. This creates several attack vectors we 
+need to address. 
+
+●  Ensure all API communications use TLS encryption 
+● 
+
+Implement certificate pinning for the LLM providers we support (e.g OpenAI, Anthropic) 
+to prevent man-in-the-middle attacks 
+Implement prompt sanitization before transmission. By stripping out obvious PII or 
+sensitive patterns before sending data to external services 
+Implementing a "privacy-first" scanning mode where the tool performs local regex and 
+keyword scanning first, and only sends prompts to external LLMs if they pass certain 
+safety thresholds. 
+
+● 
+
+● 
+
+(This reduces the risk of accidentally transmitting highly sensitive data while still providing the 
+benefits of semantic analysis for borderline cases.) 
+
+** Considering providing hash-based scanning options where the tool sends cryptographic 
+hashes of certain prompt patterns to the LLM provider instead of the raw text 
+
+** While this limits the semantic analysis capabilities, it provides a way to detect known 
+problematic patterns without exposing the actual content. 
+
+ 
+

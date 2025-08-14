@@ -1,0 +1,331 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: legal-industry
+  version: 1.0.0
+  description: Legal industry compliance and attorney-client privilege protection
+  authors:
+    - PromptShield Security Team
+  tags:
+    - legal
+    - attorney-client-privilege
+    - confidentiality
+    - litigation
+    - compliance
+
+# Extends base PII detection with legal focus
+extends:
+  - path: ./pii-detection.yaml
+    override:
+      context:
+        document_type: "legal"
+        sensitivity_level: "privileged"
+
+rules:
+  # Level 1: Legal terminology and privilege markers
+  - id: legal-privilege-markers
+    name: Attorney-client privilege indicators
+    description: Detects privilege and confidentiality markers
+    level: 1
+    severity: CRITICAL
+    keywords:
+      - "attorney-client privilege"
+      - "privileged and confidential"
+      - "attorney work product"
+      - "confidential communication"
+      - "legal advice"
+      - "in confidence"
+      - "privileged information"
+      - "litigation hold"
+      - "do not forward"
+      - "for counsel only"
+    response:
+      action: block
+      message: "Privileged legal communication detected"
+
+  - id: legal-case-info
+    name: Case and matter information
+    description: Detects case numbers and legal matter references
+    level: 1
+    severity: HIGH
+    keywords:
+      - "case number"
+      - "docket number"
+      - "matter number"
+      - "client matter"
+      - "litigation"
+      - "plaintiff"
+      - "defendant"
+      - "petitioner"
+      - "respondent"
+      - "claimant"
+      - "opposing counsel"
+    response:
+      action: warn
+      message: "Legal case information detected"
+
+  - id: legal-court-docs
+    name: Court document terminology
+    description: Detects court filing and document references
+    level: 1
+    severity: HIGH
+    keywords:
+      - "complaint"
+      - "motion"
+      - "brief"
+      - "memorandum"
+      - "discovery"
+      - "deposition"
+      - "interrogatories"
+      - "subpoena"
+      - "summons"
+      - "verdict"
+      - "judgment"
+      - "settlement"
+      - "plea"
+      - "affidavit"
+    response:
+      action: warn
+      message: "Court document terminology detected"
+
+  - id: legal-contract-terms
+    name: Contract and agreement terms
+    description: Detects contract-related terminology
+    level: 1
+    severity: WARNING
+    keywords:
+      - "whereas"
+      - "hereinafter"
+      - "force majeure"
+      - "indemnification"
+      - "non-disclosure"
+      - "NDA"
+      - "confidentiality agreement"
+      - "terms and conditions"
+      - "breach of contract"
+      - "liquidated damages"
+      - "arbitration clause"
+      - "governing law"
+    response:
+      action: flag
+      message: "Contract terminology detected"
+
+  # Level 2: Legal document patterns
+  - id: legal-case-number-pattern
+    name: Case number patterns
+    description: Detects various case number formats
+    level: 2
+    severity: HIGH
+    patterns:
+      # Federal case format
+      - regex: "\\b[0-9]{1,2}:[0-9]{2}-[a-z]{2}-[0-9]{4,5}\\b"
+        flags: [ignorecase]
+      # State case format
+      - regex: "\\b[A-Z]{2,4}[-\\s]?[0-9]{4,6}[-\\s]?[A-Z]{1,3}\\b"
+      # Generic docket number
+      - regex: "(?i)(?:case|docket|matter)\\s*(?:no\\.?|number|#)[:\\s]*[A-Z0-9-]{5,}"
+        flags: [ignorecase]
+    response:
+      action: warn
+      message: "Legal case number detected"
+
+  - id: legal-bar-number
+    name: Bar admission number patterns
+    description: Detects attorney bar numbers
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "(?i)bar\\s*(?:no\\.?|number|#)[:\\s]*[0-9]{4,8}"
+        flags: [ignorecase]
+      - regex: "\\b[A-Z]{2}\\s*Bar\\s*[0-9]{4,8}\\b"
+    response:
+      action: flag
+      message: "Attorney bar number detected"
+
+  - id: legal-citation-pattern
+    name: Legal citation patterns
+    description: Detects legal citations and references
+    level: 2
+    severity: LOW
+    patterns:
+      # US Reporter citations
+      - regex: "\\b[0-9]{1,3}\\s+(?:U\\.S\\.|F\\.|F\\.2d|F\\.3d|F\\.Supp\\.)\\s+[0-9]{1,4}\\b"
+      # Bluebook citation format
+      - regex: "\\b(?:Id\\.|Ibid\\.|Supra|Infra)(?:\\s+at\\s+[0-9]+)?"
+      # Section references
+      - regex: "§+\\s*[0-9]+(?:\\.[0-9]+)*"
+    response:
+      action: flag
+      message: "Legal citation detected"
+
+  - id: legal-email-disclaimer
+    name: Legal email disclaimer patterns
+    description: Detects legal disclaimers in communications
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "(?i)this\\s+(?:email|message|communication)\\s+(?:is|may\\s+be)\\s+(?:confidential|privileged)"
+        flags: [ignorecase, multiline]
+      - regex: "(?i)if\\s+you\\s+(?:are\\s+not|have\\s+received)\\s+(?:the\\s+intended|this\\s+in\\s+error)"
+        flags: [ignorecase, multiline]
+    response:
+      action: flag
+      message: "Legal disclaimer detected"
+
+  # Level 3: Context-aware legal analysis
+  - id: legal-privilege-analysis
+    name: Attorney-client privilege analysis
+    description: Comprehensive privilege detection using context
+    level: 3
+    severity: CRITICAL
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Analyze for attorney-client privileged communications:
+        1. Legal advice from attorney to client
+        2. Client communications seeking legal counsel
+        3. Attorney work product and strategy
+        4. Internal legal memoranda
+        5. Settlement negotiations
+        6. Litigation strategy discussions
+        
+        Privileged content must be protected from disclosure.
+        
+        Text: {input}
+        
+        Respond VIOLATION if privileged content detected, SAFE otherwise.
+        Include confidence score (0.0-1.0).
+      confidence_threshold: 0.75
+      fallback_on_error: true
+    fallback:
+      keywords: ["privileged", "confidential", "attorney", "counsel"]
+    response:
+      action: block
+      message: "Attorney-client privileged communication detected"
+
+  - id: legal-conflict-check
+    name: Conflict of interest detection
+    description: Detects potential conflicts of interest
+    level: 3
+    severity: HIGH
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Check for legal conflicts of interest:
+        1. Representation of adverse parties
+        2. Former client confidential information
+        3. Personal interests affecting representation
+        4. Business relationships with parties
+        5. Third-party payment conflicts
+        
+        Text: {input}
+        
+        Respond VIOLATION if conflict indicators detected, SAFE otherwise.
+      confidence_threshold: 0.70
+      fallback_on_error: false
+    response:
+      action: warn
+      message: "Potential conflict of interest detected - review required"
+
+  - id: legal-unauthorized-practice
+    name: Unauthorized practice of law
+    description: Detects unauthorized legal advice
+    level: 3
+    severity: CRITICAL
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Detect unauthorized practice of law:
+        1. Specific legal advice without attorney credentials
+        2. Drafting legal documents for others
+        3. Representing parties in legal matters
+        4. Interpreting laws for specific situations
+        5. Negotiating legal rights of others
+        
+        Text: {input}
+        
+        Respond VIOLATION if UPL detected, SAFE otherwise.
+      confidence_threshold: 0.75
+      fallback_on_error: true
+    fallback:
+      patterns:
+        - regex: "(?i)(legal advice|you should sue|file a claim|your rights)"
+          flags: [ignorecase]
+    response:
+      action: block
+      message: "Potential unauthorized practice of law detected"
+
+  - id: legal-discovery-protection
+    name: Discovery and litigation hold
+    description: Protects discovery materials and litigation holds
+    level: 3
+    severity: HIGH
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Identify discovery materials and litigation hold content:
+        1. Documents subject to discovery requests
+        2. Litigation hold notices
+        3. Preserved evidence
+        4. Discovery responses and objections
+        5. Protective order materials
+        6. Confidential discovery designations
+        
+        Text: {input}
+        
+        Respond VIOLATION if protected discovery content detected, SAFE otherwise.
+      confidence_threshold: 0.80
+      fallback_on_error: true
+    fallback:
+      keywords: ["discovery", "litigation hold", "document preservation"]
+    response:
+      action: warn
+      message: "Protected discovery material detected"
+
+  - id: legal-ethics-compliance
+    name: Legal ethics compliance
+    description: Ensures compliance with professional ethics rules
+    level: 3
+    severity: HIGH
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Check for legal ethics violations:
+        1. Client confidentiality breaches
+        2. Improper client solicitation
+        3. Fee splitting or referral issues
+        4. Advertising violations
+        5. Trust account problems
+        6. Competence and diligence issues
+        
+        Text: {input}
+        
+        Respond VIOLATION if ethics issues detected, SAFE otherwise.
+      confidence_threshold: 0.75
+      fallback_on_error: false
+    response:
+      action: warn
+      message: "Potential legal ethics issue detected"
+
+# Composition settings
+composition:
+  strategy: first_match  # Stop on first critical privilege detection
+  priority_order: ["legal-privilege-markers", "legal-privilege-analysis"]
+  
+# Performance tuning
+performance:
+  buffer_bytes: 131072   # Large buffer for legal documents
+  chunk_overlap: 1024    # More overlap for context
+  per_rule_timeout: 200ms
+  case_sensitive: false
+  whole_word: false
+
+# Legal industry context
+context:
+  industry: "legal"
+  document_classification: "privileged"
+  require_encryption: true
+  require_audit_log: true
+  retention_policy: "7_years"
+  jurisdiction: "US"
+

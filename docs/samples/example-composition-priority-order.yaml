@@ -1,0 +1,17 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: example-priority-order
+  version: 1.0.0
+extends: [base-security]
+composition:
+  strategy: priority_order
+rules:
+  - id: injection-001
+    name: Prefer earlier rule definition
+    level: 2
+    severity: ERROR
+    patterns:
+      - regex: "(?i)drop\\s+table"
+
+

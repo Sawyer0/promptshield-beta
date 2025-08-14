@@ -1,0 +1,24 @@
+Audit Trails and Monitoring 
+
+Every scan operation should generate an audit record that includes not just what was scanned 
+and what was found, but also: 
+
+●  Contextual information like the user who performed the scan 
+●  The source of the prompt (if available) 
+●  And the specific RulePack and models used 
+
+The audit logs themselves also need protection. If an attacker can modify or delete audit 
+records, they can cover their tracks and compromise our entire security posture. 
+
+Implement append-only audit logs with cryptographic integrity checks, or use tamper-evident 
+logging systems that make unauthorized modifications detectable. 
+
+What should trigger security alerts in your system. Obviously, detected security violations in 
+prompts should be logged, but maybe also: 
+
+●  Alerting on unusual patterns like a sudden spike in scanning activity 
+●  Repeated failures to access external APIs 
+●  Attempts to scan from unusual locations or times 
+
+ 
+

@@ -1,0 +1,27 @@
+The Principle of Data Minimization 
+
+Only collect and store what we absolutely need, and only keep it as long as necessary. 
+
+This means making storage configurable rather than mandatory. 
+
+Implement multiple storage modes: 
+
+●  A full audit mode that retains everything 
+●  A metrics-only mode that keeps aggregate statistics but not the actual prompts 
+●  And an ephemeral mode that performs scans without any persistent storage 
+
+Here's how we might structure this choice in our configuration: 
+
+data_retention: 
+
+mode: "metrics-only" ( Options: "full-audit", "metrics-only", "ephemeral") 
+
+retention_days: 90 ( How long to keep data (only applies to non-ephemeral modes) ) 
+
+auto_purge: true ( Automatically delete old data) 
+
+This approach lets security-conscious organizations choose their comfort level while still 
+providing the functionality they need. 
+
+ 
+

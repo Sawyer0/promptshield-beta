@@ -1,0 +1,20 @@
+-- rules/rp.yaml --
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: rp
+  version: 0.1.0
+rules:
+  - id: hello
+    level: 1
+    severity: WARNING
+    keywords: ["hello"]
+
+-- input.txt --
+hello
+
+-- script --
+go run ./cmd/promptshield --output-format=github scan:file --rulepack rules input.txt
+stdout '^::warning '
+stdout 'file=.*input.txt'
+

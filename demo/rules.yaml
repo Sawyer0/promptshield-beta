@@ -1,0 +1,26 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: demo-pack
+  version: 0.1.0
+  description: Demo rules for PromptShield onboarding
+composition:
+  strategy: first_match
+rules:
+  - id: system-prompt-extraction
+    name: Detect system prompt extraction attempts
+    level: 1
+    severity: CRITICAL
+    keywords: ["ignore previous instructions", "reveal your system prompt"]
+  - id: pii-ssn
+    name: US SSN pattern
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+  - id: pii-credit-card
+    name: Credit card number pattern (basic)
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "\\b(?:\\d{4}-){3}\\d{4}\\b"

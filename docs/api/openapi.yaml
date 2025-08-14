@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: PromptShield Enforcer HTTP API
+  version: 0.2.0
+  description: |
+    Minimal HTTP surface of ps-enforcer for health checks, quick allow/deny checks, and Prometheus metrics.
+servers:
+  - url: https://enforcer.example.com
+    description: HTTPS with optional mTLS
+  - url: http://localhost:9090
+    description: Local development
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      operationId: getHealthz
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /readyz:
+    get:
+      summary: Readiness probe
+      operationId: getReadyz
+      responses:
+        '200':
+          description: Ready (rulepack/policy loaded)
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+        '503':
+          description: Not Ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not ready: rulepack not loaded
+  /metrics:
+    get:
+      summary: Prometheus metrics endpoint
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+  /check:
+    post:
+      summary: Evaluate a small payload against rules and return a decision
+      description: |
+        Returns allow/quarantine/deny with reason and violation count.
+        Intended for small bodies (default cap 1MB; configurable via PS_ENFORCER_MAX_BODY_BYTES).
+      operationId: postCheck
+      security:
+        - bearerAuth: []
+        - xPSToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+          text/plain:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Allowed
+          headers:
+            x-ps-request-id:
+              schema:
+                type: string
+            x-ps-decision:
+              schema:
+                type: string
+                enum: [allow, quarantine, deny]
+            x-ps-reason:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '403':
+          description: Quarantine or Deny
+          headers:
+            x-ps-request-id:
+              schema:
+                type: string
+            x-ps-decision:
+              schema:
+                type: string
+                enum: [quarantine, deny]
+            x-ps-reason:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '400':
+          description: Bad Request (body too large or invalid)
+        '401':
+          description: Unauthorized (missing/invalid token)
+        '500':
+          description: Internal Error
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    xPSToken:
+      type: apiKey
+      in: header
+      name: X-PS-Token
+  schemas:
+    Decision:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum: [allow, quarantine, deny]
+        reason:
+          type: string
+        violations:
+          type: integer
+          format: int32
+        request_id:
+          type: string
+

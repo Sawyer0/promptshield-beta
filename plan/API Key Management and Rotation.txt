@@ -1,0 +1,32 @@
+API Key Management and Rotation 
+
+API keys represent one of the most vulnerable aspects of our security model because they 
+provide direct access to expensive external services and could potentially be used to send 
+arbitrary data to LLM providers. 
+
+Never store API keys in configuration files or code repositories. 
+
+PS will first check for environment variables, then look for credential files in standard locations 
+(like ~/.promptshield/credentials), and finally prompt the user interactively if no credentials are 
+found. 
+
+This gives users flexibility while maintaining security. 
+
+● 
+
+Implement API key validation at startup rather than waiting for the first scan operation. 
+
+This provides immediate feedback if credentials are missing or invalid, rather than failing during 
+actual usage. 
+
+Maybe even the PS validate command that'll now check all configured credentials and database 
+connections without performing any actual scans. 
+
+For organizations with more sophisticated security requirements, we'll support credential 
+management systems like HashiCorp Vault or AWS Secrets Manager. 
+
+This will allow security teams to implement key rotation and access logging without requiring 
+changes to how developers use the tool. 
+
+ 
+

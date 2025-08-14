@@ -1,0 +1,20 @@
+Edge Case Questions & Solutions 
+
+●  What happens if a developer accidentally scans a prompt containing customer credit 
+
+card numbers? 
+
+How does our system detect this, what warnings does it provide, and how do we ensure this 
+sensitive data is handled appropriately? 
+
+●  Since we plan for our tool to be deployed in CI/CD pipeline's that process hundreds of 
+prompts per day, how do we balance the need for comprehensive audit trails with 
+storage costs and performance requirements? 
+
+●  How would we handle a situation where an organization wants to use our tool but has 
+
+policies preventing any data from leaving their network, even encrypted data sent to LLM 
+APIs? 
+
+ 
+

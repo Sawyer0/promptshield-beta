@@ -1,0 +1,193 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: promptshield
+---
+# TLS secrets are expected to exist with keys: server.crt, server.key, ca.crt
+# kubectl -n promptshield create secret generic ps-enforcer-tls \
+#   --from-file=server.crt=/path/to/server.crt \
+#   --from-file=server.key=/path/to/server.key \
+#   --from-file=ca.crt=/path/to/ca.crt
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promptshield-rules
+  namespace: promptshield
+data:
+  rules.yaml: |
+    # Example RulePack for production bootstrapping
+    apiVersion: promptshield.io/v1
+    kind: RulePack
+    metadata:
+      name: ps-default
+      version: 1.0.0
+    composition:
+      strategy: first_match
+    performance:
+      per_rule_timeout: 50ms
+      buffer_bytes: 32768
+    rules:
+      - id: prompt-injection
+        level: 1
+        severity: HIGH
+        keywords: ["ignore previous", "system prompt"]
+        response:
+          action: quarantine
+          message: "Prompt injection signal detected"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promptshield-enforcer
+  namespace: promptshield
+  labels:
+    app: promptshield-enforcer
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: promptshield-enforcer
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: promptshield-enforcer
+    spec:
+      containers:
+        - name: enforcer
+          image: promptshield/ps-enforcer:v0.2.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PS_EXPERIMENTAL
+              value: "true"
+            - name: PS_ENFORCER_RULEPACK
+              value: "/config/rules.yaml"
+            - name: PS_ENFORCER_ADDR
+              value: ":9090"
+            - name: PS_ENFORCER_GRPC_ADDR
+              value: ":9091"
+            # Enable TLS and mTLS for HTTP and gRPC servers
+            - name: PS_ENFORCER_TLS_CERT
+              value: "/tls/server.crt"
+            - name: PS_ENFORCER_TLS_KEY
+              value: "/tls/server.key"
+            - name: PS_ENFORCER_TLS_CLIENT_CA
+              value: "/tls/ca.crt"
+            - name: PS_ENFORCER_GRPC_TLS_CERT
+              value: "/tls/server.crt"
+            - name: PS_ENFORCER_GRPC_TLS_KEY
+              value: "/tls/server.key"
+            - name: PS_ENFORCER_GRPC_TLS_CLIENT_CA
+              value: "/tls/ca.crt"
+          ports:
+            - containerPort: 9090
+              name: http
+            - containerPort: 9091
+              name: grpc
+          volumeMounts:
+            - name: rules
+              mountPath: /config
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: rules
+          configMap:
+            name: promptshield-rules
+        - name: tls
+          secret:
+            secretName: ps-enforcer-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promptshield-enforcer
+  namespace: promptshield
+  labels:
+    app: promptshield-enforcer
+spec:
+  selector:
+    app: promptshield-enforcer
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+    - name: grpc
+      port: 9091
+      targetPort: 9091
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: promptshield-enforcer
+  namespace: promptshield
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: promptshield-enforcer
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: promptshield-enforcer
+  namespace: promptshield
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: promptshield-enforcer
+---
+# Optional: Prometheus Operator ServiceMonitor (if installed)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: promptshield-enforcer
+  namespace: promptshield
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: promptshield-enforcer
+  namespaceSelector:
+    matchNames:
+      - promptshield
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics
+

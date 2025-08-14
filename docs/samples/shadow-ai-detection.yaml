@@ -1,0 +1,54 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: shadow-ai-detection
+  version: 1.0.0
+  description: Detects unauthorized AI tool usage and shadow AI patterns
+  authors:
+    - PromptShield Security Team
+  tags:
+    - shadow-ai
+    - security
+    - compliance
+    - data-governance
+
+rules:
+  - id: shadow-ai-chatgpt
+    name: ChatGPT and OpenAI references
+    level: 1
+    severity: WARNING
+    keywords: ["ChatGPT", "GPT-3", "GPT-4", "OpenAI", "chat.openai.com", "platform.openai.com", "dall-e", "whisper ai"]
+
+  - id: shadow-ai-claude
+    name: Claude and Anthropic references
+    level: 1
+    severity: WARNING
+    keywords: ["Claude", "Anthropic", "claude.ai", "console.anthropic.com", "Claude 2", "Claude 3", "constitutional AI"]
+
+  - id: shadow-ai-google
+    name: Google AI services references
+    level: 1
+    severity: WARNING
+    keywords: ["Bard", "Google Bard", "Gemini", "Google Gemini", "PaLM", "LaMDA", "bard.google.com", "gemini.google.com", "makersuite.google.com"]
+
+  - id: shadow-ai-microsoft
+    name: Microsoft AI services references
+    level: 1
+    severity: WARNING
+    keywords: ["Copilot", "GitHub Copilot", "Microsoft Copilot", "Bing Chat", "Azure OpenAI", "copilot.microsoft.com", "bing.com/chat"]
+
+  - id: shadow-ai-other-services
+    name: Other AI service references
+    level: 1
+    severity: WARNING
+    keywords: ["Perplexity", "perplexity.ai", "Midjourney", "Stable Diffusion", "Hugging Face", "Cohere", "Jasper AI", "Copy.ai", "Writesonic", "Notion AI"]
+
+  - id: shadow-ai-openai-key
+    name: OpenAI API key pattern
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "\\bsk-[a-zA-Z0-9]{48}\\b"
+      - regex: "\\bsk-proj-[a-zA-Z0-9]{48}\\b"
+
+

@@ -1,0 +1,44 @@
+services:
+  # Customer's existing Envoy
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    volumes:
+      - ./envoy-config.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "8080:8080"
+      - "9901:9901"
+    depends_on:
+      ps-enforcer:
+        condition: service_healthy
+
+  # Your enforcer - ONE LINE to add LLM security
+  ps-enforcer:
+    build:
+      context: .
+      dockerfile: Dockerfile.enforcer
+    environment:
+      - PS_EXPERIMENTAL=true
+      - PS_ENFORCER_RULEPACK=/rules/basic-security.yaml
+    volumes:
+      - ./rules:/rules:ro
+    ports:
+      - "9091:9091"  # gRPC ext_proc
+      - "9090:9090"  # Metrics
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Minimal backend to forward traffic to (used by Envoy route)
+  backend:
+    image: ghcr.io/mccutchen/go-httpbin:latest
+    ports:
+      - "8000:8080"
+
+  # Optional: Your CLI for testing
+  ps-cli:
+    image: promptshield/cli:latest
+    command: scan --watch /data
+    volumes:
+      - ./test-data:/data

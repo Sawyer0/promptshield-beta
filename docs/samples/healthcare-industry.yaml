@@ -1,0 +1,270 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: healthcare-industry
+  version: 1.0.0
+  description: Healthcare and HIPAA compliance rules for medical AI applications
+  authors:
+    - PromptShield Security Team
+  tags:
+    - healthcare
+    - hipaa
+    - medical
+    - phi
+    - compliance
+
+# Extends the base PII detection with healthcare-specific rules
+extends:
+  - path: ./pii-detection.yaml
+    override:
+      context:
+        document_type: "medical"
+        sensitivity_level: "critical"
+
+rules:
+  # Level 1: HIPAA identifiers
+  - id: hipaa-patient-identifiers
+    name: HIPAA patient identifier keywords
+    description: Detects 18 HIPAA identifiers
+    level: 1
+    severity: CRITICAL
+    keywords:
+      - "patient name"
+      - "patient ID"
+      - "medical record number"
+      - "MRN"
+      - "health plan number"
+      - "beneficiary number"
+      - "device identifier"
+      - "biometric identifier"
+      - "full face photo"
+      - "patient photo"
+    response:
+      action: block
+      message: "HIPAA patient identifier detected"
+
+  - id: healthcare-procedures
+    name: Medical procedure references
+    description: Detects medical procedure terminology
+    level: 1
+    severity: HIGH
+    keywords:
+      - "surgery"
+      - "operation"
+      - "biopsy"
+      - "transplant"
+      - "dialysis"
+      - "chemotherapy"
+      - "radiation therapy"
+      - "MRI scan"
+      - "CT scan"
+      - "X-ray"
+      - "ultrasound"
+      - "colonoscopy"
+      - "endoscopy"
+    response:
+      action: warn
+      message: "Medical procedure information detected"
+
+  - id: healthcare-medications
+    name: Medication and prescription references
+    description: Detects medication names and prescription info
+    level: 1
+    severity: HIGH
+    keywords:
+      - "prescription"
+      - "medication"
+      - "dosage"
+      - "drug interaction"
+      - "side effects"
+      - "contraindication"
+      - "mg"
+      - "ml"
+      - "tablets"
+      - "capsules"
+      - "injection"
+      - "IV"
+      - "prescription refill"
+    response:
+      action: warn
+      message: "Medication information detected"
+
+  # Level 2: Medical record patterns
+  - id: hipaa-mrn-pattern
+    name: Medical Record Number patterns
+    description: Detects common MRN formats
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "\\bMRN[:#\\s-]?[0-9]{6,10}\\b"
+        flags: [ignorecase]
+      - regex: "\\b(?:patient|medical)[-\\s]?(?:id|ID|number)[:#\\s-]?[0-9]{6,10}\\b"
+        flags: [ignorecase]
+    response:
+      action: block
+      message: "Medical Record Number pattern detected"
+
+  - id: healthcare-icd-codes
+    name: ICD diagnosis code patterns
+    description: Detects ICD-10/ICD-11 diagnosis codes
+    level: 2
+    severity: HIGH
+    patterns:
+      # ICD-10 format
+      - regex: "\\b[A-Z][0-9]{2}(?:\\.[0-9]{1,4})?\\b"
+      # ICD-11 format
+      - regex: "\\b[0-9][A-Z][0-9]{2}(?:\\.[0-9]{1,2})?\\b"
+    when:
+      - diagnosis
+      - icd
+    response:
+      action: warn
+      message: "Medical diagnosis code detected"
+
+  - id: healthcare-cpt-codes
+    name: CPT procedure code patterns
+    description: Detects CPT procedure codes
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "\\bCPT[:#\\s-]?[0-9]{5}\\b"
+        flags: [ignorecase]
+      - regex: "\\b(?:procedure[-\\s]?code)[:#\\s-]?[0-9]{5}\\b"
+        flags: [ignorecase]
+    response:
+      action: flag
+      message: "Medical procedure code detected"
+
+  - id: healthcare-lab-results
+    name: Laboratory result patterns
+    description: Detects lab test results and values
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "(?i)\\b(hemoglobin|hgb|glucose|cholesterol|triglycerides|creatinine|bilirubin|ALT|AST|WBC|RBC|platelet)\\s*[:<]\\s*[0-9]+"
+        flags: [ignorecase]
+      - regex: "(?i)\\b(positive|negative|abnormal|normal|elevated|decreased)\\s+(?:for|test|result)"
+        flags: [ignorecase]
+    response:
+      action: warn
+      message: "Laboratory result information detected"
+
+  - id: healthcare-insurance-info
+    name: Insurance information patterns
+    description: Detects health insurance details
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "(?i)\\b(policy|group|member|subscriber)\\s*(?:number|id|#)[:#\\s-]?[A-Z0-9]{6,}"
+        flags: [ignorecase]
+      - regex: "(?i)\\b(medicaid|medicare|insurance)\\s*(?:number|id)[:#\\s-]?[A-Z0-9]{8,}"
+        flags: [ignorecase]
+    response:
+      action: warn
+      message: "Health insurance information detected"
+
+  # Level 3: Context-aware medical information
+  - id: healthcare-clinical-notes
+    name: Clinical notes and narratives
+    description: Detects clinical documentation patterns
+    level: 3
+    severity: CRITICAL
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Analyze for protected health information in clinical context:
+        1. Patient history and symptoms
+        2. Clinical observations and assessments
+        3. Treatment plans and recommendations
+        4. Diagnostic interpretations
+        5. Physician notes and orders
+        6. Nursing documentation
+        
+        Determine if this contains actual PHI that must be protected under HIPAA.
+        
+        Text: {input}
+        
+        Respond VIOLATION if PHI detected, SAFE if generic medical information.
+        Include confidence score (0.0-1.0).
+      confidence_threshold: 0.85
+      fallback_on_error: true
+    fallback:
+      keywords: ["patient presented", "chief complaint", "assessment and plan"]
+    response:
+      action: block
+      message: "Clinical documentation with PHI detected"
+
+  - id: healthcare-treatment-discussion
+    name: Treatment recommendation analysis
+    description: Detects AI-generated medical advice
+    level: 3
+    severity: CRITICAL
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Analyze for inappropriate medical advice or treatment recommendations:
+        1. Specific diagnoses without proper examination
+        2. Medication recommendations without prescription authority
+        3. Treatment plans without medical supervision
+        4. Emergency medical advice
+        5. Mental health crisis intervention
+        
+        This is critical for patient safety and liability.
+        
+        Text: {input}
+        
+        Respond VIOLATION if inappropriate medical advice detected, SAFE otherwise.
+      confidence_threshold: 0.70
+      fallback_on_error: true
+    fallback:
+      patterns:
+        - regex: "(?i)(you should|I recommend|take|prescribe|diagnose)"
+          flags: [ignorecase]
+    response:
+      action: block
+      message: "Inappropriate medical advice detected - requires medical professional"
+
+  - id: healthcare-consent-verification
+    name: Patient consent verification
+    description: Ensures proper consent for data usage
+    level: 3
+    severity: HIGH
+    semantic:
+      model: "gpt-4o-mini"
+      analysis_prompt: |
+        Check for proper patient consent indicators:
+        1. Explicit consent for AI/ML processing
+        2. Data sharing agreements
+        3. Research participation consent
+        4. Minors or vulnerable population considerations
+        5. Opt-out requests
+        
+        Text: {input}
+        
+        Respond VIOLATION if consent issues detected, SAFE if properly consented.
+      confidence_threshold: 0.80
+      fallback_on_error: false
+    response:
+      action: warn
+      message: "Patient consent verification required"
+
+# Composition settings
+composition:
+  strategy: all_matches  # Comprehensive checking for healthcare
+  
+# Performance tuning
+performance:
+  buffer_bytes: 65536    # Larger for medical documents
+  chunk_overlap: 512
+  per_rule_timeout: 200ms # More time for complex medical patterns
+  case_sensitive: false
+  whole_word: false
+
+# Healthcare-specific context
+context:
+  industry: "healthcare"
+  compliance_framework: "HIPAA"
+  data_classification: "PHI"
+  require_encryption: true
+  require_audit_log: true
+

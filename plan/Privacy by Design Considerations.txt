@@ -1,0 +1,43 @@
+Privacy by Design Considerations 
+
+Privacy protection goes beyond just security controls - it requires thinking carefully about what 
+data you collect and how you use it. 
+
+This becomes especially important as privacy regulations like GDPR and CCPA create legal 
+obligations around data handling. 
+
+● 
+
+Implement data classification within the tool 
+
+When scanning prompts, our RulePacks will not only detect security issues but also identify and 
+classify sensitive data types like : 
+
+●  PII 
+●  Financial information 
+●  Health records 
+●  etc. 
+
+This classification will then drive automatic retention policies, access controls, and notification 
+requirements. 
+
+For metrics and analytics purposes, we don't need the actual prompt content. Only the 
+information about what types of patterns were detected and when. 
+
+● 
+
+Implement automatic anonymization for time-series data 
+
+Replacing actual prompt content with generic placeholders while preserving the 
+security-relevant characteristics. 
+
+Under various privacy regulations, users may have the right to request deletion of their data. 
+
+Our tool should provide mechanisms for identifying and purging all data associated with specific 
+
+●  Prompts 
+●  Users 
+●  Time periods 
+
+ 
+

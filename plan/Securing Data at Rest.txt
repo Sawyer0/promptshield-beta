@@ -1,0 +1,30 @@
+Securing Data at Rest 
+
+The transactional database will contain the actual prompts and scan results, making it a 
+high-value target for attackers. 
+
+Database encryption should be mandatory, not optional. 
+
+For SQLite installations: 
+
+- Use SQLCipher or similar encrypted database libraries 
+
+For PostgreSQL deployments: 
+
+- Ensure the database instance uses encryption at rest and that connection strings include SSL 
+requirements. But encryption is just the first layer. 
+
+Implement user-based access controls where scan results are associated with the user who 
+performed them, and users can only view their own historical scans unless they have elevated 
+privileges. 
+
+(This becomes especially important in shared development environments.) 
+
+Configuration files, database files, and any cached API keys should be readable only by the 
+user running the tool and the system administrator. 
+
+On Unix-like systems, this means setting file permissions to 600 (read/write for owner only) for 
+sensitive files. 
+
+ 
+

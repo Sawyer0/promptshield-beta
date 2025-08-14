@@ -1,0 +1,114 @@
+
+PromptShield Go Migration: Proposed Solutions to Identified Gaps
+
+Scope
+This document proposes concrete decisions and implementation steps for the remaining gaps not fully specified in the plan PDFs, aligned with an enterprise-grade Go+Cobra/Viper CLI.
+
+1) Dependency Injection and Composition Strategy
+Recommended approach: explicit composition now; optional compile-time wiring later.
+- Define small interfaces per domain: RuleEngine, RuleRepository, RuleMatcher, ScanEngine, FileReader, ContentProcessor, Renderer, ReportService, ValidationEngine, Updater.
+- Provide constructor functions NewX(...) returning concrete structs that satisfy interfaces. Avoid package-level singletons.
+- Create an internal/bootstrap package that wires all dependencies once and returns a Dependencies bundle struct consumed by Cobra commands.
+- Commands accept the minimal handlers they need via constructors. No globals.
+- Future growth: if the graph becomes large, introduce google/wire for compile-time wiring. Avoid runtime reflection containers in the core path.
+
+2) Package Layout (internal, cohesive modules)
+- cmd/promptshield: Cobra root and subcommands (scan, list, init, validate, version, benchmark optional).
+- internal/
+  - config: Viper binding, defaults, schema validation (struct-level checks), env mapping.
+  - logging: logger factory (slog), audit logger with tamper-evident option.
+  - rules: entities (Rule, RulePack), services (engine, matcher), adapters (yaml repo), schema validation.
+  - scanning: orchestrator, strategy, metrics, processors (json, text), filereader.
+  - reporting: ports (Renderer, StreamingRenderer), renderers (json, markdown, csv, table, html, ndjson), service.
+  - validation: rulepack and input validators, engine.
+  - update: self-update checker and UX.
+  - bootstrap: constructors that assemble Dependencies (Logger, Config, Engines, Services, Renderers map, etc.).
+- pkg/ (optional, only for APIs we intentionally expose). Prefer internal for now.
+- docs/, plan/, rulepacks/, examples/, .github/workflows.
+
+3) Plugin and Extension Strategy
+- In-process strategy pattern for rule types:
+  - KeywordMatcher, RegexMatcher, SemanticAnalyzer components registered with RuleEngine.
+  - RuleEngine composes strategies based on rule config (level/type) and executes in order.
+- Renderer extensibility: expose Renderer interface; register built-ins via a registry; allow external builds to add custom renderers at compile time.
+- External plugins: defer true dynamic plugins for now (Go plugins are platform-limited). If needed later, use a separate process + JSON-RPC contract with a whitelist of serialization types.
+
+4) Logging and Audit
+- Use log/slog with JSON handler by default; allow text for human-friendly mode.
+
+ - Levels: DEBUG, INFO, WARN, ERROR; honor debug/quiet settings from env/config.
+- Separate audit logger abstraction (AuditWriter) that can write append-only logs with integrity:
+  - Simple approach: hash-chained records (prev_hash in each entry) persisted to a file; rotate daily; path configurable.
+  - Enterprise: integrate with system syslog or an append-only store when configured.
+- Never log raw prompt content by default; include only redacted samples when explicitly enabled.
+
+5) Update Mechanism
+- Check-only by default; never auto-update binaries silently.
+- On startup or via `promptshield update --check`:
+  - Query GitHub Releases latest tag using If-None-Match ETags; cache check time to avoid repeated requests.
+  - Compare semver with current; print upgrade hint with release notes URL.
+- Optional self-update command:
+  - Use a library (rhysd/go-github-selfupdate) with SHA256 verification and optional minisign/signature verification.
+  - Flags: --no-check, --channel=stable|rc, --insecure-skip-verify (for air-gapped testing only).
+
+6) Testing, Coverage, and Quality Gates
+- Unit tests: domains (rules engine, scanning orchestrator, renderers, validation, config binding).
+- Golden tests: renderer outputs and CLI help; store under testdata, compare with normalization to avoid time/version diffs.
+- Integration tests: launch CLI via os/exec with sample inputs and rulepacks; assert exit codes and outputs.
+- Performance benchmarks: Go benchmarks for stream parsing, rule matching; guardrails via a separate, opt-in workflow.
+- Coverage: enforce >=90% for internal/{rules,scanning,reporting}/; do not block on CLI packager code.
+- Static analysis: go vet, staticcheck; lint via golangci-lint.
+- Security scanning: gosec on internal parsers and file IO.
+- CI: GitHub Actions matrix (OS/arch) for test + lint + build; release pipeline via GoReleaser.
+
+7) Configuration Binding (Cobra + Viper)
+- Precedence: flags > env vars > config file > defaults.
+- Env prefix: PS_; map flags like --output-format to PS_OUTPUT_FORMAT.
+- Config file: promptshield.yaml in working dir or XDG config dir; load if present.
+- Validate after bind: enforce enum sets (severity, output), ranges (compression level, memory thresholds), and cross-field constraints.
+- Provide `promptshield config --print` to show effective config without secrets.
+
+8) Observability (Metrics and Tracing)
+ - Lightweight metrics (optional): support a metrics_file (env/config) that writes NDJSON metrics summary after run; include throughput, objects scanned, memory peaks, rule counts.
+- Future: optional Prometheus exporter in a subcommand `promptshield metrics serve`, disabled by default.
+- Tracing: not needed initially; add hooks for context.Context propagation in orchestrator for future OTLP.
+
+9) Release, Signing, and Distribution
+- GoReleaser:
+  - Build matrix for windows/linux/darwin, amd64/arm64.
+  - Artifact naming: `promptshield_${version}_${os}_${arch}` with checksums.
+  - Sign checksums with GPG (optional) and publish to GitHub Releases.
+  - Homebrew tap auto-generated; Snap and Chocolatey specs templated; Docker image build from static binary in scratch or alpine.
+- Supply SBOM (syft) and provenance (SLSA v1.0) in release workflow when feasible.
+
+10) ADRs and Documentation
+- Adopt lightweight ADRs in docs/adr: ADR-0001-di-composition.md, ADR-0002-logging.md, ADR-0003-update-policy.md, ADR-0004-schema-versioning.md.
+- Keep docs/CLI_REFERENCE.md in sync; generate help output snapshot as golden test.
+
+11) Schema and Versioning Policy (RulePacks)
+- Introduce apiVersion and kind in YAML as per PromptShield YAML Schema v1.
+- Provide JSON Schema at https://schemas.promptshield.io/v1/rulepack.json and ship locally under schemas/ for offline.
+- Versioning: semantic versioning for rulepacks; deprecation window for breaking changes; CLI warns on deprecated fields with remediation links.
+- Validation: strict parsing, nesting limits, allowed encodings; unit tests with positive and negative samples.
+
+12) Performance Design Details (Go)
+- JSON: use json.Decoder for streaming arrays/objects; avoid unmarshalling whole docs; process NDJSON via bufio.Scanner with increased buffer.
+- Memory bounds: central limiter with context cancellation; chunking for very large strings.
+- Parallelism: worker pool sized to runtime.NumCPU(), adaptive backpressure; preserve deterministic output ordering.
+- Rule matching: pre-compile regex, lowercased keyword search for case-insensitive; hierarchical evaluation (cheap to expensive).
+- Timeouts: per-rule and total scan timeouts enforced via context with deadlines.
+
+13) Security and Privacy Defaults
+- Default to metrics-only retention; no persistent prompt storage.
+- Transport: TLS with Go’s default verification; option to enable certificate pinning per host.
+- At rest: when writing reports or caches, set 0600 perms; redact context unless --verbose or explicitly requested.
+- Secrets: never write secrets to config; use env or OS keychain integration (Windows Credential Manager, macOS Keychain, Secret Service on Linux via a thin wrapper).
+
+14) Backwards Compatibility and UX Guarantees
+- CLI stability: avoid breaking flags; add new flags with sane defaults; document deprecations with warnings for two minor releases.
+- Output stability: golden tests protect JSON/markdown/table formats; minor cosmetic changes require changelog callouts.
+
+Implementation Phasing
+- Phase 1: Core composition (bootstrap), Cobra/Viper wiring, rules engine, scanning orchestrator, JSON/NDJSON/Text processors, JSON and table renderers, audit and metrics skeleton, tests and GoReleaser dry-run.
+- Phase 2: Additional renderers (markdown, CSV, HTML, NDJSON streaming), update checker, coverage gates, Homebrew tap automation, schema v1 validators.
+- Phase 3: Advanced performance (adaptive workers, bloom filters), audit integrity chaining, Snap/Chocolatey, Docker image, ADRs and docs hardened.

@@ -1,0 +1,238 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: comprehensive-security
+  version: 1.0.0
+  description: Comprehensive security rules including API keys, passwords, and sensitive data
+  authors:
+    - PromptShield Security Team
+
+# Extend existing rule packs
+extends:
+  - path: ./pii-detection.yaml
+  - path: ./prompt-injection.yaml
+  - path: ./basic-security.yaml
+
+rules:
+  # API Key Detection
+  - id: sec-api-key-generic
+    name: Generic API key patterns
+    description: Detects various API key formats
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(?i)(api[_-]?key|apikey|api_secret|api[_-]?token)[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9_\\-]{20,})['\"]?"
+        flags: [ignorecase]
+      - regex: "(?i)(secret[_-]?key|secret[_-]?token|auth[_-]?token)[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9_\\-]{20,})['\"]?"
+        flags: [ignorecase]
+      - regex: "sk-[a-zA-Z0-9]{20,}"  # OpenAI style
+      - regex: "pk_[a-zA-Z0-9]{20,}"  # Stripe style  
+      - regex: "rk_[a-zA-Z0-9]{20,}"  # Various services
+    response:
+      action: block
+      message: "API key detected in content"
+
+  - id: sec-aws-credentials
+    name: AWS credentials detection
+    description: Detects AWS access keys and secret keys
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "AKIA[0-9A-Z]{16}"  # AWS Access Key ID
+      - regex: "(?i)aws[_-]?secret[_-]?access[_-]?key[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9/+=]{40})['\"]?"
+        flags: [ignorecase]
+      - regex: "(?i)aws[_-]?access[_-]?key[_-]?id[\\s]*[:=][\\s]*['\"]?(AKIA[0-9A-Z]{16})['\"]?"
+        flags: [ignorecase]
+    response:
+      action: block
+      message: "AWS credentials detected"
+
+  - id: sec-github-token
+    name: GitHub token detection
+    description: Detects GitHub personal access tokens
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "ghp_[a-zA-Z0-9]{36}"  # GitHub personal access token
+      - regex: "gho_[a-zA-Z0-9]{36}"  # GitHub OAuth token
+      - regex: "ghu_[a-zA-Z0-9]{36}"  # GitHub user token
+      - regex: "ghs_[a-zA-Z0-9]{36}"  # GitHub server token
+      - regex: "ghr_[a-zA-Z0-9]{36}"  # GitHub refresh token
+    response:
+      action: block
+      message: "GitHub token detected"
+
+  - id: sec-google-api-key
+    name: Google API key detection
+    description: Detects Google Cloud API keys
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "AIza[0-9A-Za-z\\-_]{35}"  # Google API key
+      - regex: "(?i)google[_-]?api[_-]?key[\\s]*[:=][\\s]*['\"]?(AIza[0-9A-Za-z\\-_]{35})['\"]?"
+        flags: [ignorecase]
+    response:
+      action: block
+      message: "Google API key detected"
+
+  # Password Detection
+  - id: sec-password-plain
+    name: Plain text password detection
+    description: Detects passwords in plain text
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(?i)(password|passwd|pwd)[\\s]*[:=][\\s]*['\"]?([^\\s'\"]{6,})['\"]?"
+        flags: [ignorecase]
+      - regex: "(?i)(admin[_-]?password|user[_-]?password|db[_-]?password)[\\s]*[:=][\\s]*['\"]?([^\\s'\"]{6,})['\"]?"
+        flags: [ignorecase]
+      - regex: "(?i)pass[\\s]*[:=][\\s]*['\"]([^'\"]+)['\"]"
+        flags: [ignorecase]
+    response:
+      action: block
+      message: "Plain text password detected"
+
+  - id: sec-password-keywords
+    name: Password keyword detection
+    description: Detects password-related keywords with values
+    level: 1
+    severity: HIGH
+    keywords:
+      - "password:"
+      - "password ="
+      - "pwd:"
+      - "pwd ="
+      - "passwd:"
+      - "my password is"
+      - "the password is"
+      - "admin password"
+      - "default password"
+    response:
+      action: warn
+      message: "Password-related content detected"
+
+  # Database Connection Strings
+  - id: sec-db-connection
+    name: Database connection string detection
+    description: Detects database connection strings with credentials
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(?i)(mongodb|postgres|postgresql|mysql|mssql|oracle)://[^:]+:[^@]+@[^/]+"
+        flags: [ignorecase]
+      - regex: "(?i)server=[^;]+;(uid|user|username)=[^;]+;(pwd|password)=[^;]+"
+        flags: [ignorecase]
+    response:
+      action: block
+      message: "Database connection string with credentials detected"
+
+  # JWT Tokens
+  - id: sec-jwt-token
+    name: JWT token detection
+    description: Detects JSON Web Tokens
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}"
+      - regex: "(?i)(bearer|authorization)[\\s]*[:=][\\s]*['\"]?(eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)['\"]?"
+        flags: [ignorecase]
+    response:
+      action: warn
+      message: "JWT token detected"
+
+  # Private Keys
+  - id: sec-private-key
+    name: Private key detection
+    description: Detects various private key formats
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+      - regex: "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+      - regex: "-----BEGIN SSH2 ENCRYPTED PRIVATE KEY-----"
+    response:
+      action: block
+      message: "Private key detected"
+
+  # Azure Credentials
+  - id: sec-azure-credentials
+    name: Azure credentials detection
+    description: Detects Azure service credentials
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(?i)DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[^;]+;EndpointSuffix"
+        flags: [ignorecase]
+      - regex: "(?i)azure[_-]?(storage[_-]?)?account[_-]?key[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9+/=]{86,})['\"]?"
+        flags: [ignorecase]
+    response:
+      action: block
+      message: "Azure credentials detected"
+
+  # Slack Tokens
+  - id: sec-slack-token
+    name: Slack token detection
+    description: Detects Slack API tokens
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "xox[baprs]-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{24,}"
+      - regex: "(?i)slack[_-]?token[\\s]*[:=][\\s]*['\"]?(xox[baprs]-[^'\"\\s]+)['\"]?"
+        flags: [ignorecase]
+    response:
+      action: block
+      message: "Slack token detected"
+
+  # Cryptocurrency Keys
+  - id: sec-crypto-keys
+    name: Cryptocurrency key detection
+    description: Detects cryptocurrency private keys and seeds
+    level: 1
+    severity: CRITICAL
+    keywords:
+      - "private key:"
+      - "seed phrase:"
+      - "mnemonic:"
+      - "wallet seed:"
+      - "bitcoin private key"
+      - "ethereum private key"
+    response:
+      action: block
+    message: "Cryptocurrency sensitive data detected"
+
+  # Response-specific checks
+  - id: sec-response-leak
+    name: Sensitive data in responses
+    description: Detects when responses contain sensitive information
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(?i)here is (your|the|my) (password|api[_-]?key|secret|token)"
+        flags: [ignorecase]
+      - regex: "(?i)(password|api[_-]?key|secret[_-]?key|token) is[\\s:]+['\"]?([a-zA-Z0-9_\\-]{8,})"
+        flags: [ignorecase]
+    when:
+      - field_type: "response"
+    response:
+      action: block
+      message: "Response contains sensitive information"
+
+# Composition settings
+composition:
+  strategy: all_matches  # Check all rules
+  
+# Performance settings
+performance:
+  buffer_bytes: 32768
+  chunk_overlap: 256
+  per_rule_timeout: 100ms
+  case_sensitive: false
+  whole_word: false
+
+# Response scanning configuration
+response_scanning:
+  enabled: true
+  scan_responses: true
+  scan_headers: true
+  max_response_size: 1048576  # 1MB
+
