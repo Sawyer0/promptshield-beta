@@ -51,6 +51,14 @@ PromptShield v0.2.0 is **safe for production CLI use** with the limitations docu
 **Protection**: Previously required `PS_EXPERIMENTAL=true`; gate removed in v0.2.x. Treat as early-stage and run behind a proxy with strict limits.  
 **Timeline**: Hardening in upcoming releases
 
+### Envoy API Proxy Example
+- **Status**: Included for local evaluation and testing
+- **Files**: `envoy-config.yaml`, `docker-compose.yaml`
+- **Behavior**: Envoy listens on 8080 and routes to `backend:8080`, integrating with `ps-enforcer` via `ext_authz` (HTTP :9090) and `ext_proc` (gRPC :9091) for header/body inspection.
+- **Risk**: Example config is not production‑hardened. Do not deploy as‑is.
+- **Hardening required for production**: mTLS between Envoy and enforcer; strict request/response timeouts and budgets; body size caps; header allowlists; rate limits; SLOs/monitoring; authentication and tenancy on enforcer.
+- **Docs**: See `docs/Envoy.md` and `docs/ENVOY_INTEGRATION.md` for guidance and reference configurations.
+
 ### RulePack Features
 **Status**: Implemented  
 **Notes**: `extends/overrides`, imports, and composition (`all_matches`/`first_match`/`priority_order`) are implemented. `response` actions are accepted in packs but not executed by the CLI scanner.
