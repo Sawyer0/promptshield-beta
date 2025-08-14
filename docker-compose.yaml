@@ -19,6 +19,8 @@ services:
     environment:
       - PS_EXPERIMENTAL=true
       - PS_ENFORCER_RULEPACK=/rules/basic-security.yaml
+      - PS_ENFORCER_MODE=${MODE:-observe}
+      - PS_ENFORCER_ENFORCEMENT_MODE=${MODE:-observe}
     volumes:
       - ./rules:/rules:ro
     ports:
@@ -35,10 +37,3 @@ services:
     image: ghcr.io/mccutchen/go-httpbin:latest
     ports:
       - "8000:8080"
-
-  # Optional: Your CLI for testing
-  ps-cli:
-    image: promptshield/cli:latest
-    command: scan --watch /data
-    volumes:
-      - ./test-data:/data

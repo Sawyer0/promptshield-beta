@@ -11,15 +11,16 @@ import (
 	"time"
 
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-    "github.com/promptshield/promptshield/internal/license"
 	appscan "github.com/promptshield/promptshield/internal/application/scan"
 	"github.com/promptshield/promptshield/internal/discovery"
+	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -92,17 +93,17 @@ func NewMux() http.Handler {
 				return
 			}
 		}
-        if !license.IsLicensed() {
-            w.Header().Set("X-PromptShield-License", "EVALUATION")
-            if !license.AllowEvalRequest() {
-                w.WriteHeader(http.StatusTooManyRequests)
-                _, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
-                enforcerRequests.WithLabelValues("/check", "429").Inc()
-                return
-            }
-        } else {
-            w.Header().Set("X-PromptShield-License", "LICENSED")
-        }
+		if !license.IsLicensed() {
+			w.Header().Set("X-PromptShield-License", "EVALUATION")
+			if !license.AllowEvalRequest() {
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
+				enforcerRequests.WithLabelValues("/check", "429").Inc()
+				return
+			}
+		} else {
+			w.Header().Set("X-PromptShield-License", "LICENSED")
+		}
 		// Minimal PoC: read a small body to a temp file (or stdin), scan via existing orchestrator
 		// For safety, enforce a small max size to avoid abuse in the stub
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -193,10 +194,14 @@ func NewMux() http.Handler {
 		if reqID == "" {
 			reqID = generateRequestID()
 		}
-		// Map decision to HTTP status for use with Envoy ext_authz (HTTP service):
-		// allow -> 200 OK, quarantine/deny -> 403 Forbidden
+		// Map decision to HTTP status for use with Envoy ext_authz (HTTP service).
+		// Honor enforcement mode: observe -> 200 always; enforce/quarantine -> 403 on violations.
+		mode := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_MODE")))
+		if mode == "" {
+			mode = strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_ENFORCEMENT_MODE")))
+		}
 		statusCode := http.StatusOK
-		if decision != "allow" {
+		if (mode == "enforce" || mode == "quarantine") && decision != "allow" {
 			statusCode = http.StatusForbidden
 		}
 
