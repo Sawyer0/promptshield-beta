@@ -30,6 +30,7 @@ import (
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	"github.com/promptshield/promptshield/internal/security/paths"
 	"github.com/promptshield/promptshield/internal/shared/redact"
 	"github.com/promptshield/promptshield/internal/shared/severity"
 	"github.com/promptshield/promptshield/pkg/types"
@@ -639,24 +640,53 @@ func Run(addr string, s *Server) (*grpc.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TLS/mTLS if configured via env
-	var opts []grpc.ServerOption
-	certFile := os.Getenv("PS_ENFORCER_GRPC_TLS_CERT")
-	keyFile := os.Getenv("PS_ENFORCER_GRPC_TLS_KEY")
+	// TLS policy: require on non-loopback unless explicitly disabled; auto-detect certs when not provided
+	mode := grpcTLSMode()
+	certFile, keyFile, havePair := findGRPCTLSPair()
 	clientCA := os.Getenv("PS_ENFORCER_GRPC_TLS_CLIENT_CA")
-	if certFile != "" && keyFile != "" {
+	nonLoop := !isLoopbackAddr(addr)
+
+	var opts []grpc.ServerOption
+	startWithTLS := func(certFile, keyFile string) {
 		if cert, cerr := tls.LoadX509KeyPair(certFile, keyFile); cerr == nil {
 			tlsCfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
 			if clientCA != "" {
-				if caPEM, rerr := os.ReadFile(clientCA); rerr == nil {
+				if err := paths.ValidateCAFilePath(clientCA); err != nil {
+					log.Printf("invalid client CA file path: %v", err)
+				} else if caPEM, rerr := os.ReadFile(clientCA); rerr == nil {
 					pool := x509.NewCertPool()
 					if pool.AppendCertsFromPEM(caPEM) {
 						tlsCfg.ClientCAs = pool
 						tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+					} else {
+						log.Printf("failed to parse client CA certificate")
 					}
+				} else {
+					log.Printf("failed to read client CA file: %v", rerr)
 				}
 			}
 			opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
+		} else {
+			log.Fatalf("failed to load gRPC TLS keypair (%s,%s): %v", certFile, keyFile, cerr)
+		}
+	}
+
+	switch mode {
+	case "disable":
+		// insecure mode allowed
+	case "require":
+		if !havePair {
+			log.Fatalf("gRPC TLS required but no certificate configured for %s; set PS_ENFORCER_GRPC_TLS_CERT and PS_ENFORCER_GRPC_TLS_KEY or mount /tls/server.crt and /tls/server.key (set PS_ENFORCER_GRPC_TLS_MODE=disable for local dev)", addr)
+		}
+		startWithTLS(certFile, keyFile)
+	default: // auto
+		if nonLoop {
+			if !havePair {
+				log.Fatalf("Refusing to listen gRPC on non-loopback address %s without TLS; set PS_ENFORCER_GRPC_TLS_CERT and PS_ENFORCER_GRPC_TLS_KEY or mount /tls/server.crt and /tls/server.key, or set PS_ENFORCER_GRPC_TLS_MODE=disable to allow insecure", addr)
+			}
+			startWithTLS(certFile, keyFile)
+		} else if havePair {
+			startWithTLS(certFile, keyFile)
 		}
 	}
 	gs := grpc.NewServer(append(opts,
@@ -729,6 +759,62 @@ func firstReason(r types.ScanResult) string {
 		return "signals_detected"
 	}
 	return r.Violations[0].RuleID
+}
+
+// grpcTLSMode returns one of: auto (default), require, disable
+func grpcTLSMode() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_GRPC_TLS_MODE")))
+	if mode == "require" || mode == "disable" {
+		return mode
+	}
+	return "auto"
+}
+
+// isLoopbackAddr returns true if the provided listen address binds only to loopback
+func isLoopbackAddr(addr string) bool {
+	host := addr
+	if strings.HasPrefix(host, ":") {
+		// :port means all interfaces
+		return false
+	}
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback()
+	}
+	// Unknown hostname: assume non-loopback to be safe
+	return false
+}
+
+// findGRPCTLSPair returns cert and key file paths if configured or found in default mounts
+func findGRPCTLSPair() (string, string, bool) {
+	certFile := strings.TrimSpace(os.Getenv("PS_ENFORCER_GRPC_TLS_CERT"))
+	keyFile := strings.TrimSpace(os.Getenv("PS_ENFORCER_GRPC_TLS_KEY"))
+	if certFile != "" && keyFile != "" {
+		return certFile, keyFile, true
+	}
+	// Auto-detect common mount locations
+	defaults := [][2]string{
+		{"/tls/server.crt", "/tls/server.key"},
+		{"tls/server.crt", "tls/server.key"},
+	}
+	for _, p := range defaults {
+		if _, err1 := os.Stat(p[0]); err1 == nil {
+			if _, err2 := os.Stat(p[1]); err2 == nil {
+				return p[0], p[1], true
+			}
+		}
+	}
+	return "", "", false
 }
 
 var (

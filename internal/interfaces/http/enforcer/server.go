@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	"github.com/promptshield/promptshield/internal/security/paths"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
@@ -76,8 +78,23 @@ func init() {
 }
 
 func NewMux() http.Handler { // backward-compatible wrapper
+	return NewMuxWithOptions(getAPIOptions())
+}
+
+// getAPIOptions constructs API options from environment variables
+func getAPIOptions() api.Options {
 	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
-	return NewMuxWithOptions(api.Options{AdminToken: adminToken})
+
+	// OIDC configuration
+	oidcConfig := api.OIDCConfig{
+		Issuer:   os.Getenv("PS_ENFORCER_OIDC_ISSUER"),
+		Audience: os.Getenv("PS_ENFORCER_OIDC_AUDIENCE"),
+	}
+
+	return api.Options{
+		AdminToken: adminToken,
+		OIDC:       oidcConfig,
+	}
 }
 
 // NewMuxWithOptions constructs the HTTP handler mux with injectable API options.
@@ -341,24 +358,22 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 func Serve(addr string) *http.Server {
 	var srv *http.Server
 	// Inject shutdown hooks into API mux
-	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
-	apiMux := NewMuxWithOptions(api.Options{
-		AdminToken: adminToken,
-		OnDrain:    func(ctx context.Context) error { return nil },
-		OnShutdown: func(ctx context.Context, delay time.Duration) error {
-			if delay > 0 {
-				select {
-				case <-time.After(delay):
-				case <-ctx.Done():
-					return ctx.Err()
-				}
+	options := getAPIOptions()
+	options.OnDrain = func(ctx context.Context) error { return nil }
+	options.OnShutdown = func(ctx context.Context, delay time.Duration) error {
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return ctx.Err()
 			}
-			if srv != nil {
-				return srv.Shutdown(ctx)
-			}
-			return nil
-		},
-	})
+		}
+		if srv != nil {
+			return srv.Shutdown(ctx)
+		}
+		return nil
+	}
+	apiMux := NewMuxWithOptions(options)
 	srv = &http.Server{
 		Addr:              addr,
 		Handler:           apiMux,
@@ -368,19 +383,27 @@ func Serve(addr string) *http.Server {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Optional TLS and mTLS
-	certFile := os.Getenv("PS_ENFORCER_TLS_CERT")
-	keyFile := os.Getenv("PS_ENFORCER_TLS_KEY")
+	// TLS policy: require on non-loopback unless explicitly disabled; auto-detect certs when not provided
+	mode := tlsMode()
+	certFile, keyFile, havePair := findTLSPair()
 	clientCA := os.Getenv("PS_ENFORCER_TLS_CLIENT_CA")
-	if certFile != "" && keyFile != "" {
+	nonLoop := !isLoopbackAddr(addr)
+
+	startHTTPS := func(certFile, keyFile string) {
 		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 		if clientCA != "" {
-			if caPEM, err := os.ReadFile(clientCA); err == nil {
+			if err := paths.ValidateCAFilePath(clientCA); err != nil {
+				log.Printf("invalid client CA file path: %v", err)
+			} else if caPEM, err := os.ReadFile(clientCA); err == nil {
 				pool := x509.NewCertPool()
 				if pool.AppendCertsFromPEM(caPEM) {
 					tlsCfg.ClientCAs = pool
 					tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+				} else {
+					log.Printf("failed to parse client CA certificate")
 				}
+			} else {
+				log.Printf("failed to read client CA file: %v", err)
 			}
 		}
 		srv.TLSConfig = tlsCfg
@@ -389,12 +412,41 @@ func Serve(addr string) *http.Server {
 				log.Printf("enforcer https server error: %v", err)
 			}
 		}()
-	} else {
+	}
+
+	switch mode {
+	case "disable":
+		// Explicit insecure mode
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Printf("enforcer http server error: %v", err)
 			}
 		}()
+		return srv
+	case "require":
+		if !havePair {
+			log.Fatalf("TLS required but no certificate configured for %s; set PS_ENFORCER_TLS_CERT and PS_ENFORCER_TLS_KEY or mount /tls/server.crt and /tls/server.key (set PS_ENFORCER_TLS_MODE=disable for local dev)", addr)
+		}
+		startHTTPS(certFile, keyFile)
+		return srv
+	default: // auto
+		if nonLoop {
+			if !havePair {
+				log.Fatalf("Refusing to listen on non-loopback address %s without TLS; set PS_ENFORCER_TLS_CERT and PS_ENFORCER_TLS_KEY or mount /tls/server.crt and /tls/server.key, or set PS_ENFORCER_TLS_MODE=disable to allow insecure", addr)
+			}
+			startHTTPS(certFile, keyFile)
+			return srv
+		}
+		// loopback: prefer TLS if available, else plain HTTP
+		if havePair {
+			startHTTPS(certFile, keyFile)
+		} else {
+			go func() {
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Printf("enforcer http server error: %v", err)
+				}
+			}()
+		}
 	}
 	return srv
 }
@@ -434,4 +486,60 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// tlsMode returns one of: auto (default), require, disable
+func tlsMode() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_TLS_MODE")))
+	if mode == "require" || mode == "disable" {
+		return mode
+	}
+	return "auto"
+}
+
+// isLoopbackAddr returns true if the provided listen address binds only to loopback
+func isLoopbackAddr(addr string) bool {
+	host := addr
+	if strings.HasPrefix(host, ":") {
+		// :port means all interfaces
+		return false
+	}
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback()
+	}
+	// Unknown hostname: assume non-loopback to be safe
+	return false
+}
+
+// findTLSPair returns cert and key file paths if configured or found in default mounts
+func findTLSPair() (string, string, bool) {
+	certFile := strings.TrimSpace(os.Getenv("PS_ENFORCER_TLS_CERT"))
+	keyFile := strings.TrimSpace(os.Getenv("PS_ENFORCER_TLS_KEY"))
+	if certFile != "" && keyFile != "" {
+		return certFile, keyFile, true
+	}
+	// Auto-detect common mount locations
+	defaults := [][2]string{
+		{"/tls/server.crt", "/tls/server.key"},
+		{"tls/server.crt", "tls/server.key"},
+	}
+	for _, p := range defaults {
+		if _, err1 := os.Stat(p[0]); err1 == nil {
+			if _, err2 := os.Stat(p[1]); err2 == nil {
+				return p[0], p[1], true
+			}
+		}
+	}
+	return "", "", false
 }

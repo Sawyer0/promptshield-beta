@@ -80,6 +80,66 @@ Notes:
 
 
 
+### Realistic Payload Profiles
+
+Most live traffic should model these sizes and mix:
+
+- Small (≈ 70% of requests)
+  - Prompts: 0.25–2 KB (typical single‑turn user input)
+  - Responses: 1–5 KB
+- Medium (≈ 25%)
+  - Prompts: 2–10 KB (multi‑turn + instructions)
+  - Responses: 5–20 KB
+- Large (≈ 5%)
+  - Prompts: 10–50 KB (system prompts, long context)
+  - Responses: 20–100 KB
+- Stress tier (keep separate): 50–100+ KB prompts, 100–500+ KB responses
+
+This profile is a better default than 64KB‑only stress testing.
+
+
+### Mixed‑Payload Load Test (70/25/5)
+
+Use `tools/mixed.sh` to generate small/medium/large bodies and run three concurrent fixed‑rate tests matching a 70/25/5 mix.
+
+Defaults:
+- Target: Envoy listener `http://127.0.0.1:8080/post`
+- Sizes: ~1 KB, ~5 KB, ~32 KB
+- Mix: 70% / 25% / 5%
+
+Run against Envoy (end‑to‑end path):
+```bash
+bash tools/mixed.sh
+```
+
+Run against the enforcer directly (scanner‑only capacity):
+```bash
+URL=http://127.0.0.1:9090/check R=800 CONNS=100 TIMEOUT=5s DUR=20s bash tools/mixed.sh
+```
+
+Notes:
+- Ensure license is set for unrestricted testing (evaluation mode is heavily rate‑limited):
+  - `PROMPTSHIELD_LICENSE_KEY=...` (env‑based)
+- For end‑to‑end runs, keep reasonable edge timeouts and limits:
+  - In `envoy-config.yaml`, set `ext_proc.message_timeout: 5.000s`
+  - Disable `ext_authz` during load tests to avoid unrelated gating
+- On Windows, reduce concurrency (e.g., `CONNS=50–200`) to avoid ephemeral port exhaustion.
+
+
+### Reference Results (Realistic sizes)
+
+Environment: WSL2 Ubuntu on Intel(R) Core(TM) Ultra 5 125U, Go 1.25.0.
+
+- Scanner‑only (direct `/check`, mixed 70/25/5; R=800, CONNS=100, 20s):
+  - Small (~1 KB): 100% success; mean ~1.10 ms
+  - Medium (~5 KB): 100% success; mean ~1.07 ms
+  - Large (~32 KB): 100% success; mean ~1.26 ms
+- Scanner‑only (100 KB body; R=400, CONNS=100, 20s):
+  - 100% success; mean ~2.16 ms; P95 ~4.9 ms; P99 ~13 ms
+
+Interpretation: The engine’s compute path is low single‑digit milliseconds even for large prompts, supporting inline enforcement with negligible latency overhead. End‑to‑end performance then depends on Envoy/backend sizing and OS/network limits.
+
+
 ### WSL2 High-Load Results (Fast mode)
 
 Environment: WSL2 Ubuntu, Intel(R) Core(TM) Ultra 5 125U, Go 1.25.0.
