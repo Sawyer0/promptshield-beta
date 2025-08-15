@@ -149,7 +149,7 @@ func (c *Collector) Collect(eventType string, payload map[string]any) {
 		evt := map[string]any{"type": eventType, "ts": time.Now().UTC().Unix(), "machine_id": c.machineID, "payload": payload}
 		b, _ := jsonx.Marshal(evt)
 		c.mu.Lock()
-		f, err := os.OpenFile(c.file, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(c.file, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err == nil {
 			_, _ = f.Write(append(b, '\n'))
 			_ = f.Close()

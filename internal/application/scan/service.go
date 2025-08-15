@@ -2,7 +2,6 @@ package scan
 
 import (
 	"context"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"github.com/promptshield/promptshield/internal/discovery"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
-	"github.com/promptshield/promptshield/internal/security/cred"
 	sharederrors "github.com/promptshield/promptshield/internal/shared/errors"
 	"github.com/promptshield/promptshield/pkg/types"
 	"go.opentelemetry.io/otel"
@@ -93,31 +91,12 @@ func (s *Service) Scan(ctx context.Context, args []string, opts Options) ([]type
 				}
 			}
 		}
-		// If semantic is requested, ensure API key is present when packs contain L3 rules
-		if containsLevel3(packs) && isTrue(os.Getenv("PS_SEMANTIC_ENABLED")) {
-			provider := os.Getenv("PS_SEMANTIC_PROVIDER")
-			if provider == "" {
+		// If L3 rules are present, require a configured semantic analyzer.
+		if containsLevel3(packs) {
+			if !s.scanner.HasSemanticAnalyzer() {
 				runSpan.RecordError(context.DeadlineExceeded)
 				runSpan.End()
-				return nil, sharederrors.ErrSemanticProviderNotSet
-			}
-			switch provider {
-			case "openai":
-				if _, err := cred.GetProviderAPIKey(context.TODO(), cred.ProviderOpenAI); err != nil && os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("PS_OPENAI_API_KEY") == "" {
-					runSpan.RecordError(context.DeadlineExceeded)
-					runSpan.End()
-					return nil, sharederrors.ErrOpenAIAPIKeyMissing
-				}
-			case "anthropic":
-				if _, err := cred.GetProviderAPIKey(context.TODO(), cred.ProviderAnthropic); err != nil && os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("PS_ANTHROPIC_API_KEY") == "" {
-					runSpan.RecordError(context.DeadlineExceeded)
-					runSpan.End()
-					return nil, sharederrors.ErrAnthropicAPIKeyMissing
-				}
-			default:
-				runSpan.RecordError(context.DeadlineExceeded)
-				runSpan.End()
-				return nil, sharederrors.ErrUnsupportedProvider
+				return nil, sharederrors.ErrSemanticAnalyzerNotConfigured
 			}
 		}
 
@@ -229,30 +208,11 @@ func (s *Service) Stream(ctx context.Context, args []string, opts StreamOptions)
 				}
 			}
 		}
-		if containsLevel3(packs) && isTrue(os.Getenv("PS_SEMANTIC_ENABLED")) {
-			provider := os.Getenv("PS_SEMANTIC_PROVIDER")
-			if provider == "" {
+		if containsLevel3(packs) {
+			if !s.scanner.HasSemanticAnalyzer() {
 				runSpan.RecordError(context.DeadlineExceeded)
 				runSpan.End()
-				return sharederrors.ErrSemanticProviderNotSet
-			}
-			switch provider {
-			case "openai":
-				if os.Getenv("OPENAI_API_KEY") == "" && os.Getenv("PS_OPENAI_API_KEY") == "" {
-					runSpan.RecordError(context.DeadlineExceeded)
-					runSpan.End()
-					return sharederrors.ErrOpenAIAPIKeyMissing
-				}
-			case "anthropic":
-				if os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("PS_ANTHROPIC_API_KEY") == "" {
-					runSpan.RecordError(context.DeadlineExceeded)
-					runSpan.End()
-					return sharederrors.ErrAnthropicAPIKeyMissing
-				}
-			default:
-				runSpan.RecordError(context.DeadlineExceeded)
-				runSpan.End()
-				return sharederrors.ErrUnsupportedProvider
+				return sharederrors.ErrSemanticAnalyzerNotConfigured
 			}
 		}
 		if s.config != nil {

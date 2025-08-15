@@ -6,32 +6,24 @@ This document describes the complete technical stack used by PromptShield, deriv
 
 - **Language**: Go 1.24.6 (`go.mod`)
 - **Build system**: Make (`Makefile`), Go toolchain
-  - `make build` builds CLI with ldflags for version, commit, buildDate
   - `make build-enforcer` builds `ps-enforcer` with ldflags
   - `make test`, `make bench`, quick/large benches
 - **Containerization**: Multi-stage Dockerfiles (`Dockerfile`, `Dockerfile.enforcer`)
 - **Orchestration**: Kubernetes manifests (`deployments/kubernetes/enforcer.yaml`)
 - **Compose**: `docker-compose.yaml` for local Envoy + Enforcer + Backend
 
-## CLI & Configuration
+## Configuration
 
-- **CLI framework**: `spf13/cobra v1.9.1` for commands, help, and completion
 - **Config management**: `spf13/viper v1.20.1`
-  - Precedence: flags > env (`PS_*`) > config file (`promptshield.yaml`) > defaults
-  - Validates unknown config keys and provides suggestions
-- **Global flags**: `--config`, `--output-format`, `--json`, `--quiet`
-- **Output formats**: `stylish` (default), `json`, `github`, `ndjson`
-- **Shell completion**: Cobra built-in `completion` command
+  - Primary configuration via environment (`PS_*`) and service YAML
+  - Validates unknown config keys and provides suggestions where applicable
 
 ## Core Architecture (Code Layout)
 
-- `cmd/`: Cobra commands (entry points only, no business logic)
 - `internal/bootstrap`: Dependency wiring (logger, scanner, telemetry, semantic adapters)
 - `internal/config`: Typed config, defaults, validation, unknown key checks
-- `internal/discovery`: Path/glob discovery with `.gitignore` semantics
 - `internal/rules`: RulePack schema, loader, imports/extends, merge, validation
 - `internal/scanner`: Streaming scanner, compilation and evaluation (L1/L2/L3)
-- `internal/report`: Renderers (stylish, json, github, ndjson)
 - `internal/observability`: Telemetry, metrics, tracing
 - `internal/audit`: Structured audit events with hash chaining + rotation
 - `internal/interfaces/http|grpc/enforcer`: Runtime enforcement services
@@ -44,7 +36,7 @@ This document describes the complete technical stack used by PromptShield, deriv
   - Level 2: Regex patterns (Go RE2); compiled with global cache
   - Level 3: Semantic/LLM analysis (opt-in; providers below)
 - **Composition**: `all_matches` (default), `first_match`, `priority_order`
-- **Context gating**: `when`/`unless` using merged runtime context (`--context key=value`)
+- **Context gating**: `when`/`unless` using merged runtime context
 - **Validation**: Strict YAML schema validation with actionable errors
 - **Schema**: `internal/rules/schema.json` with JSON Schema via `santhosh-tekuri/jsonschema/v5 v5.3.1`
 
@@ -56,7 +48,9 @@ This document describes the complete technical stack used by PromptShield, deriv
 - **Large lines**: Configurable token buffer (`performance.buffer_bytes`) and chunk overlap
 - **Pre-filters**: Optional Bloom filter (`bits-and-blooms/bloom/v3 v3.6.0`)
 - **Keyword engine**: `cloudflare/ahocorasick`
-- **Regex engine**: Go RE2; optional Hyperscan fast-path via build tags (`flier/gohs v1.2.3`)
+- **Regex engine**: Go RE2; optional Hyperscan fast‑path via build tags (`flier/gohs v1.2.3`).
+  - Docker: enable with build arg `ENABLE_HYPERSCAN=1` (multi‑arch Linux base installs `libhyperscan5`).
+  - Windows/macOS users build and run via Docker; no native Hyperscan install required on the host.
 
 ## Semantic Analysis (Level 3)
 
@@ -68,28 +62,25 @@ This document describes the complete technical stack used by PromptShield, deriv
 - **Concurrency & cache**: Tuned by `PS_SEMANTIC_MAX_CONCURRENCY`, `PS_SEMANTIC_CACHE_SIZE`, `PS_SEMANTIC_CACHE_TTL`
 - **Rule requirements**: RulePacks must specify `semantic.model` and `semantic.analysis_prompt`; no built-in defaults
 
-## Discovery & Safety Guards
+## Safety Guards
 
-- **Inputs**: Files, directories (recursive), glob patterns (`doublestar/v4`)
-- **Ignore**: `.gitignore`-accurate via `go-git` ignore matcher
-- **Heuristics**: Guard overly broad globs; deterministic path ordering
-- **Path safety**: Null-byte/path traversal rejection; symlinks denied by default (opt-in `PS_ALLOW_SYMLINKS=true`)
-- **Allow/Deny**: `PS_ALLOW_PATHS`, `PS_DENY_PATHS` prefix filters
+- **Path safety**: Null-byte/path traversal rejection
+- **Allow/Deny**: `PS_ALLOW_PATHS`, `PS_DENY_PATHS` prefix filters (legacy file scanning support)
 
 ## Data Formats & Encoding
 
 - **JSON encoder**: Pluggable `encoding/json` or `goccy/go-json v0.10.5` via `internal/encoding/jsonx`
   - Select with `PS_JSON_ENCODER=std|fast`
 - **NDJSON**: Optional streamed event writer for large runs
-- **Reports**: stylish, json, github annotations, ndjson
+- **Gateway responses**: JSON decision payloads + headers
 
 ## Observability
 
-- **Logging**: `log/slog` with text or JSON handlers; `--quiet` lowers level to errors only
+- **Logging**: `log/slog` with text or JSON handlers; control via env (e.g., `PS_DEBUG`/log level)
 - **Redaction**: Central redaction (`internal/shared/redact`) with verifiers (e.g., Luhn for cards)
 - **Metrics**:
   - Prometheus client `client_golang v1.23.0`
-  - CLI: coarse counters via OTel metrics; optional NDJSON sink
+  - Gateway: coarse counters via OTel metrics; optional NDJSON sink
   - Enforcer HTTP: `/metrics` endpoint
   - gRPC ext_proc: counters/histograms (streams, duration, bytes, rule hits, redactions)
 - **Tracing**: OpenTelemetry SDK v1.37.0; `otelhttp` and `otelgrpc` instrumentation
@@ -133,13 +124,12 @@ This document describes the complete technical stack used by PromptShield, deriv
 - **Testing**: Standard `go test`; table-driven tests across `internal/*`
 - **Fuzzing**: Present for discovery/rule validation
 - **Benchmarks**: Scanner performance benches (including 1GiB scenarios)
-- **Integration**: `testscript`-style CLI tests (`rogpeppe/go-internal v1.14.1`)
 - **Assertions**: `stretchr/testify v1.10.0`
 - **Linting**: `golangci-lint` target in `Makefile`
 
 ## Distribution & Deployment
 
-- **Binaries**: `bin/promptshield`, `bin/ps-enforcer`
+- **Binaries**: `bin/ps-enforcer`
 - **Docker images**: Multi-stage builds, non-root user, rules baked under `/rules`
 - **Kubernetes**: Deployment, Service, HPA, PDB, and optional ServiceMonitor
 - **Envoy**: Example ext_proc integration (`Envoy.md`, `envoy-config.yaml`)
@@ -150,9 +140,8 @@ This document describes the complete technical stack used by PromptShield, deriv
 
 ## Key Environment Variables
 
-- CLI & Core:
-  - `PS_WORKERS`, `PS_DEBUG`, `PS_REDACTION_ENABLED`, `PS_FAIL_ON`
-  - `PS_OUTPUT_FORMAT`, `PS_RULEPACK`
+- Core:
+  - `PS_WORKERS`, `PS_DEBUG`, `PS_REDACTION_ENABLED`
   - `PS_ALLOW_PATHS`, `PS_DENY_PATHS`, `PS_ALLOW_SYMLINKS`
   - `PS_JSON_ENCODER=std|fast`
 - Telemetry:
@@ -175,7 +164,7 @@ This document describes the complete technical stack used by PromptShield, deriv
 
 ## Notable Third-Party Libraries (selected)
 
-- CLI & Config: `cobra v1.9.1`, `viper v1.20.1`
+- Config: `viper v1.20.1`
 - Observability: `go.opentelemetry.io/* v1.37.0`, `otelhttp v0.62.0`, `otelgrpc v0.62.0`, `prometheus/client_golang v1.23.0`
 - HTTP & gRPC: `go-chi/chi v5.0.12`, `google.golang.org/grpc v1.74.2`, `envoyproxy/go-control-plane v1.32.4`
 - JSON: `goccy/go-json v0.10.5`
@@ -188,7 +177,6 @@ This document describes the complete technical stack used by PromptShield, deriv
 
 ## References
 
-- CLI usage and flags: `docs/CLI.md`
 - RulePacks: `docs/RulePacks.md` and `internal/rules/README.md`
 - Output formats: `docs/Output.md`
 - Architecture overview: `docs/Architecture.md`

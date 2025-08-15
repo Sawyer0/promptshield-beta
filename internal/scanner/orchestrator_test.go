@@ -29,7 +29,7 @@ func writeFile(t *testing.T, dir, name, content string) string {
 func TestScanPathsOrderedStream_MemoryGuard(t *testing.T) {
 	t.Parallel()
 	sc := New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "t"},
 		Rules:    []rules.Rule{{ID: "kw", Level: 1, Severity: "INFO", Keywords: []string{"x"}}},

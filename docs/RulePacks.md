@@ -117,6 +117,20 @@ rules:
       model: gpt-4o-mini           # required
       analysis_prompt: |
         Respond VIOLATION or SAFE for: {input}   # required; {input} is replaced with line text
+### Response Actions
+
+Rules may specify response mapping to control runtime behavior when a violation is detected on responses:
+
+```yaml
+response:
+  action: replace            # one of: redact|mask|replace|deny|block|quarantine
+  message: "Sensitive content removed"
+  replacement: "[REDACTED_RESPONSE]"   # required for replace; ignored otherwise
+```
+
+- `redact|mask|quarantine`: the enforcer will mutate response body chunks to redact sensitive content (streaming-safe)
+- `replace`: the enforcer will terminate the stream with a 200 and the replacement body (full replacement)
+- `deny|block`: the enforcer will return 403 ImmediateResponse
       confidence_threshold: 0.85    # optional
       fallback_on_error: true       # optional
     fallback:
@@ -181,7 +195,7 @@ performance:
   total_scan_timeout: "30s"   # end‑to‑end budget
 ```
 
-These values are read by the CLI and scanner; invalid durations are rejected. Per‑rule `timeout` overrides the global.
+These values are read by the enforcer and scanner; invalid durations are rejected. Per‑rule `timeout` overrides the global.
 
 ## Example pack
 

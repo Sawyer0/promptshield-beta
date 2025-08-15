@@ -29,6 +29,7 @@ Environment variables (highest precedence after flags):
    - `PS_TELEMETRY_ENDPOINT`: OTLP gRPC endpoint (e.g., `otel-collector:4317`)
    - `PS_TELEMETRY_FILE`: Local NDJSON sink file for coarse events
    - `PS_TELEMETRY_SAMPLE`: Sampling rate 0..1 (default 1)
+  - `PS_HYPERSCAN`: `true|false` enable Hyperscan fast‑path when the binary was built with Hyperscan support (Docker build arg `ENABLE_HYPERSCAN=1`)
  - `PS_REDACTION_ENABLED`: `true|false` global toggle for log/audit redaction (defaults to true)
 
 Notes:

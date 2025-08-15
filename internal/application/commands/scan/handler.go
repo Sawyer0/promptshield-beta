@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"os"
 	"strings"
@@ -80,12 +81,13 @@ func (h *Handler) Execute(ctx context.Context, args []string, opt Options, out i
 	var auditLogger audit.Logger
 	var auditClose func()
 	if opt.AuditFile != "" {
-		if h.logger != nil {
-			h.logger.Warn(deprecation.ExperimentalFeatureMessage("audit logging (audit_file)", "", ""))
-		}
 		if rl, err := audit.NewDailyRotatingLogger(opt.AuditFile); err == nil {
 			auditLogger = rl
-			auditClose = func() { _ = rl.Close() }
+			auditClose = func() {
+				if err := rl.Close(); err != nil {
+					log.Printf("Failed to close audit logger: %v", err)
+				}
+			}
 			// Capture a sanitized, minimal snapshot of effective config and any overrides
 			startData := map[string]any{
 				"args":        args,
@@ -104,21 +106,33 @@ func (h *Handler) Execute(ctx context.Context, args []string, opt Options, out i
 			if opt.RulepackPath != "" {
 				startData["rulepack"] = opt.RulepackPath
 			}
-			_ = auditLogger.Log(audit.Event{Type: "scan_start", Data: startData})
+			if err := auditLogger.Log(audit.Event{Type: "scan_start", Data: startData}); err != nil {
+				h.logger.Warn("Failed to log scan start", "error", err)
+			}
 			defer func() {
-				_ = auditLogger.Log(audit.Event{Type: "scan_end", Data: map[string]any{}})
+				if err := auditLogger.Log(audit.Event{Type: "scan_end", Data: map[string]any{}}); err != nil {
+					log.Printf("Failed to log scan end: %v", err)
+				}
 				if auditClose != nil {
 					auditClose()
 				}
 			}()
-		} else if f, err2 := os.OpenFile(opt.AuditFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err2 == nil {
+		} else if f, err2 := os.OpenFile(opt.AuditFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err2 == nil {
 			// Fallback to non-rotating logger if rotation init fails
 			fl := audit.NewFileLogger(f)
 			auditLogger = fl
-			auditClose = func() { _ = f.Close() }
-			_ = auditLogger.Log(audit.Event{Type: "scan_start", Data: map[string]any{"args": args}})
+			auditClose = func() {
+				if err := f.Close(); err != nil {
+					log.Printf("Failed to close audit file: %v", err)
+				}
+			}
+			if err := auditLogger.Log(audit.Event{Type: "scan_start", Data: map[string]any{"args": args}}); err != nil {
+				h.logger.Warn("Failed to log scan start", "error", err)
+			}
 			defer func() {
-				_ = auditLogger.Log(audit.Event{Type: "scan_end", Data: map[string]any{}})
+				if err := auditLogger.Log(audit.Event{Type: "scan_end", Data: map[string]any{}}); err != nil {
+					log.Printf("Failed to log scan end: %v", err)
+				}
 				if auditClose != nil {
 					auditClose()
 				}
@@ -174,7 +188,9 @@ func (h *Handler) Execute(ctx context.Context, args []string, opt Options, out i
 					fmt.Fprintf(os.Stderr, "%d/%d %s\n", done, total, r.Input)
 				}
 				if auditLogger != nil {
-					_ = auditLogger.Log(audit.Event{Type: "scan_file", Data: map[string]any{"input": r.Input, "violations": len(r.Violations)}})
+					if err := auditLogger.Log(audit.Event{Type: "scan_file", Data: map[string]any{"input": r.Input, "violations": len(r.Violations)}}); err != nil {
+						h.logger.Warn("Failed to log scan file", "error", err, "input", r.Input)
+					}
 				}
 				if opt.FailOn != "" {
 					for _, v := range r.Violations {
@@ -198,7 +214,9 @@ func (h *Handler) Execute(ctx context.Context, args []string, opt Options, out i
 		}
 		// Optional: write audit metrics summary once
 		if auditLogger != nil {
-			_ = auditLogger.Log(audit.Event{Type: "scan_summary", Data: map[string]any{"files": filesScanned, "violations": violationCount}})
+			if err := auditLogger.Log(audit.Event{Type: "scan_summary", Data: map[string]any{"files": filesScanned, "violations": violationCount}}); err != nil {
+				h.logger.Warn("Failed to log scan summary", "error", err)
+			}
 		}
 		// Optional perf summary line
 		if opt.PerfSummary {
@@ -353,9 +371,6 @@ func (h *Handler) Execute(ctx context.Context, args []string, opt Options, out i
 
 	// Optional NDJSON metrics summary
 	if opt.MetricsFile != "" {
-		if h.logger != nil {
-			h.logger.Warn(deprecation.ExperimentalFeatureMessage("metrics output (metrics_file)", "--output-format=json", ""))
-		}
 		f, err := os.Create(opt.MetricsFile)
 		if err != nil {
 			return err
@@ -431,9 +446,9 @@ func printHints(w io.Writer, results []types.ScanResult) {
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "✓ Scan complete: %d %s found (%d critical) across %d %s\n", totalIssues, plural(totalIssues, "issue", "issues"), critical, totalFiles, plural(totalFiles, "file", "files"))
-	fmt.Fprintln(w, "  → Run 'promptshield scan:file --json <paths>' for machine-readable output")
-	fmt.Fprintln(w, "  → Run 'promptshield rules:create' to customize rules")
-	fmt.Fprintln(w, "  → Run 'promptshield rules:validate --path rules' to check packs")
+	fmt.Fprintln(w, "  → Use Gateway: POST /v1/scan with application/json or x-ndjson for machine output")
+	fmt.Fprintln(w, "  → Manage rules via Gateway: POST /v1/rulepacks (upload) and GET /v1/rulepacks (list)")
+	fmt.Fprintln(w, "  → Validate rulepacks with Gateway: POST /v1/rulepacks/validate")
 }
 
 // plural returns the correct singular/plural form based on n.

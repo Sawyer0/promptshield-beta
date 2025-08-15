@@ -17,10 +17,10 @@ Quick links:
 
 ## Overview
 
-The enforcer exposes three primary surfaces:
-- HTTP endpoints for health, checks, and Prometheus metrics
-- gRPC service implementing Envoy's External Processing API (streaming)
-- Prometheus metrics for observability and SLOs
+The enforcer exposes:
+- HTTP endpoints under `/v1` for health, version, decisions (`/check`, `/scan`), async jobs, rulepacks/config/admin, events, stats, usage, and Prometheus metrics at `/metrics`.
+- gRPC service implementing Envoy's External Processing API (streaming) for body inspection and mutations.
+- Prometheus metrics for observability and SLOs.
 
 ## OpenAPI preview
 
@@ -31,5 +31,5 @@ npx redoc-cli serve docs/api/openapi.yaml --watch
 ```
 
 ## Compatibility
-- The HTTP API is stable for `/healthz`, `/metrics`, and `/check`.
+- The HTTP API is stable for `/v1/healthz`, `/metrics`, `/v1/version`, `/v1/check`, `/v1/scan`, and associated admin endpoints.
 - The gRPC API leverages Envoy's `ext_proc` v3 interface and follows its contract.

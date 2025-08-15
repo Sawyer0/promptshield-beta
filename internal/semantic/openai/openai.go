@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
 	"github.com/promptshield/promptshield/internal/rules"
+	"github.com/promptshield/promptshield/internal/security/pinning"
 	"github.com/promptshield/promptshield/internal/shared/redact"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/time/rate"
@@ -100,6 +102,15 @@ func New(opts Options) *Analyzer {
 	// Override with custom client if provided
 	if opts.HTTPClient != nil {
 		httpClient = opts.HTTPClient
+	}
+
+	// Optional certificate pinning via env PS_PIN_OPENAI (comma-separated SPKI sha256)
+	if pinsCSV := strings.TrimSpace(os.Getenv("PS_PIN_OPENAI")); pinsCSV != "" {
+		if pins, err := pinning.ParsePinsCSV(pinsCSV); err == nil {
+			if base, ok := httpClient.Transport.(*http.Transport); ok {
+				httpClient.Transport = pinning.BuildPinnedTransport(base, pins)
+			}
+		}
 	}
 
 	// Create OpenAI client with official SDK

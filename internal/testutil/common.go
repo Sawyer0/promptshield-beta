@@ -32,10 +32,10 @@ func (tf *TempFiles) WriteFile(relPath, content string) string {
 	tf.t.Helper()
 	fullPath := filepath.Join(tf.root, relPath)
 	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		tf.t.Fatal(err)
 	}
-	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(fullPath, []byte(content), 0600); err != nil {
 		tf.t.Fatal(err)
 	}
 	return fullPath

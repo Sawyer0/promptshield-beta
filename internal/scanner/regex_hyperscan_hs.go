@@ -4,13 +4,20 @@ package scanner
 
 import (
 	"fmt"
+	"os"
+	"strconv"
+
 	// Hyperscan Go bindings; optional when built with -tags hyperscan
 	hs "github.com/flier/gohs/hyperscan"
 	"github.com/promptshield/promptshield/pkg/types"
 )
 
-// Override evalRegexesFunc to use Hyperscan when built with the hyperscan tag.
-func init() { evalRegexesFunc = (*Scanner).evalRegexesHyperscan }
+// Override evalRegexesFunc to use Hyperscan when built with the hyperscan tag and enabled via env.
+func init() {
+	if enabled, _ := strconv.ParseBool(os.Getenv("PS_HYPERSCAN")); enabled {
+		evalRegexesFunc = (*Scanner).evalRegexesHyperscan
+	}
+}
 
 func (s *Scanner) evalRegexesHyperscan(res *types.ScanResult, line string, lineNum int64, cr compiledRule, compiledSeen map[string]struct{}) (bool, int) {
 	if len(cr.regexes) == 0 {

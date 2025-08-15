@@ -15,18 +15,17 @@ Versioning:
 - Verify Makefile ldflags set version/commit/date
 
 Docs:
-- Install: Homebrew, Scoop, curl‑bash
-- Shell completions: `promptshield completion [bash|zsh|fish|powershell]`
+- Install: Docker/Kubernetes deployment for Gateway + Enforcer
+- Envoy integration examples and `/v1/*` API docs
 - Release notes: highlights + breaking changes
 
 Highlights (since v0.2.x):
-- Structured logging with request correlation IDs across CLI and audit
+- Structured logging with request correlation IDs across Gateway and audit
 - Configurable scanner buffers and overlap (performance.buffer_bytes/chunk_overlap)
 - Global regex cache for Level 2 patterns
 - RulePack composition strategies: all_matches (default), first_match, priority_order; extends/overrides merge support
 - Redaction verifiers (Luhn) and expanded token patterns
-- Discovery allow/deny path controls (PS_ALLOW_PATHS/PS_DENY_PATHS) and glob breadth guard
-- ps-enforcer: experimental HTTP `/healthz`, `/check`, `/metrics` and gRPC ext_proc streaming (not production-ready)
+- Envoy integration: HTTP `/v1/check`, `/healthz`, `/metrics` and gRPC ext_proc streaming
 
 Optional (pre‑GA):
 - Self‑update flow with signature verification

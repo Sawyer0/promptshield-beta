@@ -16,11 +16,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.enforcer
+      args:
+        ENABLE_HYPERSCAN: ${ENABLE_HYPERSCAN:-0}
     environment:
-      - PS_EXPERIMENTAL=true
-      - PS_ENFORCER_RULEPACK=/rules/basic-security.yaml
-      - PS_ENFORCER_MODE=${MODE:-observe}
-      - PS_ENFORCER_ENFORCEMENT_MODE=${MODE:-observe}
+      - PS_ENFORCER_RULEPACK=/rules/essentials.yaml
+      - PS_ENFORCER_MODE=${PS_ENFORCER_MODE:-observe}
+      - PS_ENFORCER_ENFORCEMENT_MODE=${PS_ENFORCER_MODE:-observe}
+      - PS_HYPERSCAN=${PS_HYPERSCAN:-false}
     volumes:
       - ./rules:/rules:ro
     ports:

@@ -6,17 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
+type Entitlements struct {
+	MaxRPS   float64         `json:"max_rps"`
+	Features map[string]bool `json:"features"`
+}
+
 type License struct {
-	Organization string    `json:"org"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	Tier         string    `json:"tier"`
+	Organization string       `json:"org"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	Tier         string       `json:"tier"`
+	Entitlements Entitlements `json:"entitlements"`
 }
 
 var (
@@ -42,7 +47,9 @@ func Check() {
 	}
 	lic, err := validate(key)
 	if err != nil {
-		log.Fatal("Invalid license key")
+		fmt.Printf("⚠️  Invalid license key: %v\n\nFalling back to EVALUATION MODE (watermarked output, 10 req/min limit)\n", err)
+		time.Sleep(3 * time.Second)
+		setLicensed(false, License{})
 		return
 	}
 	setLicensed(true, *lic)
@@ -50,6 +57,7 @@ func Check() {
 }
 
 func IsLicensed() bool {
+	ensureLoaded()
 	mu.RLock()
 	v := licensed
 	mu.RUnlock()
@@ -61,6 +69,32 @@ func Info() License {
 	v := licenseInfo
 	mu.RUnlock()
 	return v
+}
+
+// HasFeature reports whether the current license permits a specific feature.
+func HasFeature(name string) bool {
+	ensureLoaded()
+	mu.RLock()
+	defer mu.RUnlock()
+	if !licensed {
+		return false
+	}
+	if name == "" {
+		return false
+	}
+	n := strings.ToLower(name)
+	if licenseInfo.Entitlements.Features == nil {
+		return false
+	}
+	return licenseInfo.Entitlements.Features[n]
+}
+
+// Entitlement returns entitlements and whether the process is licensed.
+func Entitlement() (Entitlements, bool) {
+	ensureLoaded()
+	mu.RLock()
+	defer mu.RUnlock()
+	return licenseInfo.Entitlements, licensed
 }
 
 func AllowEvalRequest() bool {
@@ -128,6 +162,23 @@ func validate(token string) (*License, error) {
 		}
 	}
 	return &lic, nil
+}
+
+// ensureLoaded lazily initializes license state from environment without printing or sleeping.
+func ensureLoaded() {
+	mu.RLock()
+	if licensed {
+		mu.RUnlock()
+		return
+	}
+	mu.RUnlock()
+	key := strings.TrimSpace(os.Getenv("PROMPTSHIELD_LICENSE_KEY"))
+	if key == "" {
+		return
+	}
+	if lic, err := validate(key); err == nil {
+		setLicensed(true, *lic)
+	}
 }
 
 type tokenBucket struct {

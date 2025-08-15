@@ -23,7 +23,7 @@ func (s *Service) InitPack(dest string, force bool) (string, error) {
 			return "", fmt.Errorf("%s already exists (use --force to overwrite)", dest)
 		}
 	} else {
-		_ = os.MkdirAll(filepath.Dir(dest), 0o755)
+		_ = os.MkdirAll(filepath.Dir(dest), 0o750)
 	}
 	content := `apiVersion: promptshield.io/v1
 kind: RulePack
@@ -55,7 +55,7 @@ func (s *Service) InitPackWithTemplate(dest string, force bool, template string)
 			return "", fmt.Errorf("%s already exists (use --force to overwrite)", dest)
 		}
 	} else {
-		_ = os.MkdirAll(filepath.Dir(dest), 0o755)
+		_ = os.MkdirAll(filepath.Dir(dest), 0o750)
 	}
 	var content string
 	switch template {

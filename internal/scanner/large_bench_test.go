@@ -44,7 +44,7 @@ func (r *repeatingReader) Read(p []byte) (int, error) {
 func BenchmarkScanOneGiB(b *testing.B) {
 	const oneGiB = 1 << 30
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "bench-1g"},
 		// Use a rule unlikely to match to avoid result growth during the bench
@@ -68,7 +68,7 @@ func TestScanReader_OneGiB_MemoryBudget(t *testing.T) {
 	}
 	const oneGiB = 1 << 30
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "mem-1g"},
 		Rules:    []rules.Rule{{ID: "kw", Level: 1, Severity: "INFO", Keywords: []string{"zzzz_unlikely_keyword"}}},
