@@ -1,0 +1,285 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: comprehensive
+  version: 1.0.0
+  description: Comprehensive enterprise security covering all major threat vectors
+  authors:
+    - PromptShield Security Team
+  tags:
+    - enterprise
+    - comprehensive
+    - production-ready
+
+# Extend essentials with additional coverage
+extends:
+  - path: ./essentials.yaml
+
+rules:
+  # === ADVANCED PROMPT INJECTION ===
+  - id: prompt-injection-delimiter
+    name: Instruction delimiter injection
+    description: Detects attempts to inject prompt delimiters
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "(?i)(###|\\[\\[|\\]\\]|<\\|.*\\|>)\\s*(system|instruction|prompt|command)"
+        flags: [ignorecase]
+      - regex: "(?i)<(system|instruction|prompt)>.*</(system|instruction|prompt)>"
+        flags: [ignorecase]
+    response:
+      action: quarantine
+      message: "Delimiter injection detected"
+
+  - id: prompt-injection-encoded
+    name: Encoded injection attempts
+    description: Detects base64 or hex encoded instructions
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "(?i)(base64|decode|atob)\\s*\\([\"'].*[\"']\\)"
+        flags: [ignorecase]
+      - regex: "\\\\x[0-9a-fA-F]{2}(\\\\x[0-9a-fA-F]{2}){5,}"
+    response:
+      action: flag
+      message: "Encoded content detected"
+
+  - id: prompt-injection-context-escape
+    name: Context escape attempts
+    description: Detects attempts to escape current context
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "(?i)(end\\s+of\\s+)(prompt|context|input|message)"
+        flags: [ignorecase]
+      - regex: "(?i)<\\|endoftext\\|>"
+        flags: [ignorecase]
+    response:
+      action: quarantine
+      message: "Context escape detected"
+
+  # === COMPREHENSIVE API KEY DETECTION ===
+  - id: api-key-stripe
+    name: Stripe API keys
+    description: Detects Stripe API keys (pk_, sk_, rk_ prefixes)
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(pk|sk|rk)_[a-zA-Z0-9]{20,}"
+    response:
+      action: quarantine
+      message: "Stripe API key detected"
+
+  - id: api-key-github
+    name: GitHub tokens
+    description: Detects GitHub personal access tokens and app tokens
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "ghp_[a-zA-Z0-9]{36}"
+      - regex: "gho_[a-zA-Z0-9]{36}"
+      - regex: "ghu_[a-zA-Z0-9]{36}"
+      - regex: "ghs_[a-zA-Z0-9]{36}"
+      - regex: "ghr_[a-zA-Z0-9]{36}"
+    response:
+      action: quarantine
+      message: "GitHub token detected"
+
+  - id: api-key-google
+    name: Google API keys
+    description: Detects Google Cloud and Firebase API keys
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "AIza[0-9A-Za-z\\-_]{35}"
+      - regex: "ya29\\.[0-9A-Za-z\\-_]+"
+    response:
+      action: quarantine
+      message: "Google API key detected"
+
+  - id: api-key-slack
+    name: Slack tokens
+    description: Detects Slack bot and user tokens
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "xox[baprs]-[0-9]{12}-[0-9]{12}-[a-zA-Z0-9]{24}"
+    response:
+      action: quarantine
+      message: "Slack token detected"
+
+  - id: api-key-discord
+    name: Discord bot tokens
+    description: Detects Discord bot tokens
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "[MN][A-Za-z\\d]{23}\\.[\\w-]{6}\\.[\\w-]{27}"
+    response:
+      action: quarantine
+      message: "Discord token detected"
+
+  # === AWS & CLOUD CREDENTIALS ===
+  - id: aws-secret-key
+    name: AWS secret access key
+    description: Detects AWS secret access keys
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(?i)aws[_-]?secret[_-]?access[_-]?key[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9/+=]{40})['\"]?"
+        flags: [ignorecase]
+    response:
+      action: quarantine
+      message: "AWS secret key detected"
+
+  - id: gcp-service-account
+    name: GCP service account keys
+    description: Detects Google Cloud service account JSON keys
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "\"private_key_id\"\\s*:\\s*\"[a-zA-Z0-9]+\""
+      - regex: "\"private_key\"\\s*:\\s*\"-----BEGIN PRIVATE KEY-----"
+    response:
+      action: quarantine
+      message: "GCP service account key detected"
+
+  - id: azure-client-secret
+    name: Azure client secrets
+    description: Detects Azure application client secrets
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "(?i)(client[_-]?secret|application[_-]?secret)[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9\\-._~]{34,})['\"]?"
+        flags: [ignorecase]
+    response:
+      action: quarantine
+      message: "Azure client secret detected"
+
+  # === COMPREHENSIVE PII ===
+  - id: pii-email-pattern
+    name: Email address detection
+    description: Detects email addresses
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
+    response:
+      action: flag
+      message: "Email address detected"
+
+  - id: pii-phone-pattern
+    name: Phone number detection
+    description: Detects US and international phone numbers
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "\\b(?:\\+?1[-.]?)?\\(?[2-9]\\d{2}\\)?[-.]?\\d{3}[-.]?\\d{4}\\b"
+      - regex: "\\b\\+[1-9]\\d{1,14}\\b"
+    response:
+      action: flag
+      message: "Phone number detected"
+
+  - id: pii-ip-address
+    name: IP address detection
+    description: Detects IPv4 addresses
+    level: 2
+    severity: LOW
+    patterns:
+      - regex: "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b"
+    response:
+      action: flag
+      message: "IP address detected"
+
+  # === DATABASE & CONNECTION STRINGS ===
+  - id: database-connection-string
+    name: Database connection strings
+    description: Detects database connection strings and URLs
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "(?i)(mongodb|mysql|postgresql|mssql|oracle)://[^\\s]+"
+        flags: [ignorecase]
+      - regex: "(?i)(server|host|hostname)\\s*=\\s*[^;\\s]+;.*password\\s*=\\s*[^;\\s]+"
+        flags: [ignorecase]
+    response:
+      action: quarantine
+      message: "Database connection string detected"
+
+  - id: jwt-token
+    name: JWT token detection
+    description: Detects JSON Web Tokens
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "eyJ[a-zA-Z0-9_-]*\\.[a-zA-Z0-9_-]*\\.[a-zA-Z0-9_-]*"
+    response:
+      action: quarantine
+      message: "JWT token detected"
+
+  # === CRYPTOCURRENCY ===
+  - id: crypto-bitcoin-address
+    name: Bitcoin address detection
+    description: Detects Bitcoin wallet addresses
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "\\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\\b"
+      - regex: "\\bbc1[a-z0-9]{39,59}\\b"
+    response:
+      action: flag
+      message: "Bitcoin address detected"
+
+  - id: crypto-ethereum-address
+    name: Ethereum address detection
+    description: Detects Ethereum wallet addresses
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: "\\b0x[a-fA-F0-9]{40}\\b"
+    response:
+      action: flag
+      message: "Ethereum address detected"
+
+  # === RESPONSE PROTECTION ENHANCEMENTS ===
+  - id: response-private-key
+    name: Private key in response
+    description: Prevents private keys from leaking in responses
+    level: 2
+    severity: CRITICAL
+    when:
+      match:
+        direction: ["response"]
+    patterns:
+      - regex: "-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----"
+      - regex: "-----BEGIN OPENSSH PRIVATE KEY-----"
+    response:
+      action: replace
+      message: "Private key redacted from response"
+      replacement: "[REDACTED_PRIVATE_KEY]"
+
+  - id: response-connection-string
+    name: Connection string in response
+    description: Prevents connection strings from leaking in responses
+    level: 2
+    severity: HIGH
+    when:
+      match:
+        direction: ["response"]
+    patterns:
+      - regex: "(?i)(mongodb|mysql|postgresql)://[^\\s]+"
+        flags: [ignorecase]
+    response:
+      action: redact
+      message: "Connection string redacted from response"
+
+# Performance tuning for comprehensive scanning
+performance:
+  buffer_bytes: 65536
+  chunk_overlap: 512
+  per_rule_timeout: 100ms
+  case_sensitive: false
+
+# Check all rules for maximum protection
+composition:
+  strategy: all_matches

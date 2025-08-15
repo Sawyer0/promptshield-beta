@@ -80,24 +80,26 @@ func compileRules(rulesList []rules.Rule, defaultRuleTimeoutMs int64, defaultCas
 				cr.keywords = append(cr.keywords, strings.ToLower(kw))
 			}
 		}
-        for _, pat := range r.Patterns {
-            if len(pat.Regex) > maxPatternLength {
-                continue
-            }
-            // Enforce complexity limits to avoid pathological regexes
-            if err := rules.CheckRegexComplexity(pat.Regex, pat.Flags); err != nil {
-                continue
-            }
-            rx := compileRegex(pat.Regex, pat.Flags)
-            if rx != nil {
-                cr.regexes = append(cr.regexes, rx)
-                cr.verifiers = append(cr.verifiers, strings.ToLower(strings.TrimSpace(pat.Verifier)))
-            }
-            // extract literal tokens for gating
-            if toks := extractLiteralTokensFromRegex(pat.Regex); len(toks) > 0 {
-                cr.literalTokens = append(cr.literalTokens, toks...)
-            }
-        }
+		for _, pat := range r.Patterns {
+			if len(pat.Regex) > maxPatternLength {
+				continue
+			}
+			// Enforce complexity limits to avoid pathological regexes
+			if err := rules.CheckRegexComplexity(pat.Regex, pat.Flags); err != nil {
+				continue
+			}
+			// Touch coarse complexity scorer to keep symbol live (future tuning hook)
+			_ = regexComplexityScore(pat.Regex)
+			rx := compileRegex(pat.Regex, pat.Flags)
+			if rx != nil {
+				cr.regexes = append(cr.regexes, rx)
+				cr.verifiers = append(cr.verifiers, strings.ToLower(strings.TrimSpace(pat.Verifier)))
+			}
+			// extract literal tokens for gating
+			if toks := extractLiteralTokensFromRegex(pat.Regex); len(toks) > 0 {
+				cr.literalTokens = append(cr.literalTokens, toks...)
+			}
+		}
 		if r.Semantic != nil {
 			// Shallow copy semantic config
 			sc := *r.Semantic

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	cfg "github.com/promptshield/promptshield/internal/config"
+	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/logging"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/cred"
@@ -55,6 +56,12 @@ func Build(opts Options) *Deps {
 		// Env-driven semantic wiring (opt-in)
 		// PS_SEMANTIC_ENABLED=true and appropriate API key
 		if isTrue(os.Getenv("PS_SEMANTIC_ENABLED")) {
+			// Enforce license feature at runtime: L3 semantics require entitlement
+			if license.IsLicensed() && !license.HasFeature("l3_semantic") {
+				// Do not wire a semantic analyzer when feature is not licensed
+				// This keeps scanner testability intact while enforcing at runtime
+				return &Deps{Logger: logger, Scanner: sc, Config: cfg.Defaults()}
+			}
 			maxConc := atoiDefault(os.Getenv("PS_SEMANTIC_MAX_CONCURRENCY"), 2)
 			cacheSize := atoiDefault(os.Getenv("PS_SEMANTIC_CACHE_SIZE"), 1000)
 			cacheTTL := parseDurDefault(os.Getenv("PS_SEMANTIC_CACHE_TTL"), 15*time.Minute)
@@ -66,7 +73,7 @@ func Build(opts Options) *Deps {
 			case "anthropic":
 				// Prefer OS keyring, fallback to env
 				key := ""
-				if k, err := cred.GetProviderAPIKey(context.TODO(), cred.ProviderAnthropic); err == nil && k != "" {
+				if k, err := cred.GetProviderAPIKey(context.Background(), cred.ProviderAnthropic); err == nil && k != "" {
 					key = k
 				} else {
 					key = os.Getenv("ANTHROPIC_API_KEY")
@@ -75,19 +82,24 @@ func Build(opts Options) *Deps {
 					}
 				}
 				if key != "" {
-					analyzer := semanthropic.New(semanthropic.Options{
-						APIKey:         key,
-						MaxConcurrency: maxConc,
-						CacheSize:      cacheSize,
-						CacheTTL:       cacheTTL,
-						Logger:         logger,
-					})
-					sc.SetSemanticAnalyzer(analyzer)
+					// Validate API key format before using
+					if err := cfg.ValidateAPIKey("anthropic", key); err != nil {
+						logger.Warn("Invalid Anthropic API key format", "error", err)
+					} else {
+						analyzer := semanthropic.New(semanthropic.Options{
+							APIKey:         key,
+							MaxConcurrency: maxConc,
+							CacheSize:      cacheSize,
+							CacheTTL:       cacheTTL,
+							Logger:         logger,
+						})
+						sc.SetSemanticAnalyzer(analyzer)
+					}
 				}
 			case "openai":
 				// Prefer OS keyring, fallback to env
 				key := ""
-				if k, err := cred.GetProviderAPIKey(context.TODO(), cred.ProviderOpenAI); err == nil && k != "" {
+				if k, err := cred.GetProviderAPIKey(context.Background(), cred.ProviderOpenAI); err == nil && k != "" {
 					key = k
 				} else {
 					key = os.Getenv("OPENAI_API_KEY")
@@ -96,14 +108,19 @@ func Build(opts Options) *Deps {
 					}
 				}
 				if key != "" {
-					analyzer := semopenai.New(semopenai.Options{
-						APIKey:         key,
-						MaxConcurrency: maxConc,
-						CacheSize:      cacheSize,
-						CacheTTL:       cacheTTL,
-						Logger:         logger,
-					})
-					sc.SetSemanticAnalyzer(analyzer)
+					// Validate API key format before using
+					if err := cfg.ValidateAPIKey("openai", key); err != nil {
+						logger.Warn("Invalid OpenAI API key format", "error", err)
+					} else {
+						analyzer := semopenai.New(semopenai.Options{
+							APIKey:         key,
+							MaxConcurrency: maxConc,
+							CacheSize:      cacheSize,
+							CacheTTL:       cacheTTL,
+							Logger:         logger,
+						})
+						sc.SetSemanticAnalyzer(analyzer)
+					}
 				}
 			default:
 				// Unknown or empty provider: do not wire an analyzer; service layer will error if L3 is enabled without valid provider

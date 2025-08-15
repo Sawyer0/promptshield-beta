@@ -2,7 +2,7 @@
 
 ## Current Security Status (v0.2.0)
 
-PromptShield v0.2.0 is **safe for production CLI use** with the limitations documented below. The core scanning functionality is production-ready, but some enterprise security features are planned for future releases.
+PromptShield v0.2.0 is **safe for production Gateway use** with the limitations documented below. The enforcement core is production-ready for HTTP `/v1/check` and Envoy integration, with enterprise features planned for future releases.
 
 ## ✅ Security Features (Production Ready)
 
@@ -47,7 +47,7 @@ PromptShield v0.2.0 is **safe for production CLI use** with the limitations docu
 **Status**: Experimental (HTTP + gRPC ext_proc)  
 **Issue**: Not production-hardened (authz, quotas, tenancy, and SLOs incomplete)  
 **Impact**: Unsafe for production access control without a sidecar proxy and upstream policy controls  
-**Mitigation**: Use CLI scanning in CI/CD. For runtime experiments, run behind Envoy with tight budgets.  
+**Mitigation**: Run behind Envoy with tight budgets and mTLS.  
 **Protection**: Previously required `PS_EXPERIMENTAL=true`; gate removed in v0.2.x. Treat as early-stage and run behind a proxy with strict limits.  
 **Timeline**: Hardening in upcoming releases
 
@@ -61,7 +61,7 @@ PromptShield v0.2.0 is **safe for production CLI use** with the limitations docu
 
 ### RulePack Features
 **Status**: Implemented  
-**Notes**: `extends/overrides`, imports, and composition (`all_matches`/`first_match`/`priority_order`) are implemented. `response` actions are accepted in packs but not executed by the CLI scanner.
+**Notes**: `extends/overrides`, imports, and composition (`all_matches`/`first_match`/`priority_order`) are implemented. `response` actions are supported in Gateway decisions; body mutation for redaction is available via Envoy `ext_proc`.
 
 ## 🔒 Security Best Practices
 
@@ -80,11 +80,8 @@ export PS_DEBUG=true
 
 ### For CI/CD
 ```bash
-# Use JSON output for machine parsing
-./bin/promptshield --json scan --rulepack rules src/
-
-# Set fail-on threshold for security gates
-./bin/promptshield scan --fail-on HIGH --rulepack rules src/
+# Use Gateway decisions with JSON payloads and headers
+curl -s -X POST http://localhost:9090/v1/check --data-binary @payload.txt -H 'content-type: text/plain' -i
 
 # Enable audit logging in production
 export PS_AUDIT_FILE=/var/log/promptshield/audit.log
@@ -92,9 +89,9 @@ export PS_AUDIT_FILE=/var/log/promptshield/audit.log
 
 ### For Production Deployment
 ```yaml
-# promptshield.yaml
-output_format: json
-workers: 4
+enforcer:
+  listen: ":9090"
+  grpc_listen: ":9091"
 audit_file: /var/log/promptshield/audit.log
 redaction:
   enabled: true

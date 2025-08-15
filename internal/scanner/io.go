@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	sharederrors "github.com/promptshield/promptshield/internal/shared/errors"
 	"github.com/promptshield/promptshield/pkg/types"
 )
 
@@ -133,10 +134,17 @@ func (s *Scanner) ScanReader(ctx context.Context, r io.Reader, inputName string)
 		line := scanner.Text()
 		result.Metrics.LinesRead++
 		result.Metrics.BytesRead += int64(len(line))
+		if s.maxStreamBytes > 0 && result.Metrics.BytesRead > s.maxStreamBytes {
+			if s.quarantineOnError {
+				result.Violations = append(result.Violations, types.Violation{RuleID: "stream_limit", Message: "stream byte limit exceeded", Severity: "HIGH"})
+				result.DurationMs = time.Since(start).Milliseconds()
+				return result, nil
+			}
+			return types.ScanResult{}, sharederrors.ErrStreamLimitExceeded
+		}
 
 		compiledRuleSeen := make(map[string]struct{})
-		builtinMsgSeen := make(map[string]struct{})
-		if s.evaluateLine(&result, line, lineNum, compiledRuleSeen, builtinMsgSeen) && s.firstMatch {
+		if s.evaluateLine(&result, line, lineNum, compiledRuleSeen) && s.firstMatch {
 			// If first_match strategy, we could short-circuit the entire file on first line match.
 			// However, strategy typically applies per input line; keep scanning lines.
 		}
@@ -187,6 +195,13 @@ func (s *Scanner) scanChunked(ctx context.Context, r io.Reader, inputName string
 					lineNum++
 					result.Metrics.LinesRead++
 					result.Metrics.BytesRead += int64(len(lineBuf) + 1)
+					if s.maxStreamBytes > 0 && result.Metrics.BytesRead > s.maxStreamBytes {
+						if s.quarantineOnError {
+							result.Violations = append(result.Violations, types.Violation{RuleID: "stream_limit", Message: "stream byte limit exceeded", Severity: "HIGH"})
+							return result, nil
+						}
+						return types.ScanResult{}, sharederrors.ErrStreamLimitExceeded
+					}
 					s.evaluateLongLine(&result, lineBuf, lineNum, overlapSz)
 					lineBuf = lineBuf[:0]
 					data = data[idx+1:]
@@ -195,6 +210,13 @@ func (s *Scanner) scanChunked(ctx context.Context, r io.Reader, inputName string
 				// no newline in data; append and continue
 				lineBuf = append(lineBuf, data...)
 				result.Metrics.BytesRead += int64(len(data))
+				if s.maxStreamBytes > 0 && result.Metrics.BytesRead > s.maxStreamBytes {
+					if s.quarantineOnError {
+						result.Violations = append(result.Violations, types.Violation{RuleID: "stream_limit", Message: "stream byte limit exceeded", Severity: "HIGH"})
+						return result, nil
+					}
+					return types.ScanResult{}, sharederrors.ErrStreamLimitExceeded
+				}
 				break
 			}
 		}

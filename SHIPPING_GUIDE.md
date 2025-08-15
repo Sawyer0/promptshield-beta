@@ -4,7 +4,7 @@
 
 ### ✅ Safety Measures Implemented
 - [x] **RulePack validation**: Prevents usage of unimplemented features with clear error messages
-- [x] **ps-enforcer protection**: Requires `PS_EXPERIMENTAL=true` with clear experimental notice
+- [x] **ps-enforcer**: Beta status; recommended behind Envoy with strict budgets and mTLS
 - [x] **mTLS support (HTTP + gRPC)**: Optional TLS and client-auth for runtime surfaces (see docs)
 - [x] **Kubernetes manifests**: Deployment with HPA, PDB, and Prometheus ServiceMonitor
 - [x] **Grafana dashboard**: Ready-to-import dashboard for enforcer metrics
@@ -63,7 +63,6 @@ git add -A
 git commit -m "Release v0.2.0-beta
 
 - Add feature validation to prevent usage of unimplemented features
-- Add experimental gates for ps-enforcer
 - Update documentation with production readiness matrix
 - Add comprehensive security policy and roadmap"
 
@@ -81,17 +80,17 @@ Create GitHub release with this description:
 ```markdown
 # PromptShield v0.2.0-beta - Beta Release 🛡️
 
-**PromptShield is now ready for production CLI use cases!**
+**PromptShield is now ready for production Gateway use cases!**
 
-This beta release provides a production-ready CLI scanner for LLM security with honest documentation about current limitations.
+This beta release provides a production-ready Gateway and Envoy-integrated enforcer with honest documentation about current limitations.
 
 ## ✅ What's Ready for Production
 
-- **CLI Scanning**: 3-tier rule system (keywords → regex → semantic analysis)
+- **Gateway Enforcement**: 3-tier rule system (keywords → regex → semantic analysis)
 - **Semantic Analysis**: OpenAI & Anthropic providers with caching
 - **Output Formats**: JSON, stylish, GitHub, NDJSON, and more
-- **CI/CD Integration**: Auto-detection, deterministic output, shell completion
-- **Configuration**: Flexible hierarchy with environment variables and config files
+- **Integration**: Envoy ext_proc, deterministic headers and JSON payloads
+- **Configuration**: Flexible hierarchy with environment variables and service config
 
 ## ⚠️ Current Limitations (Honestly Documented)
 
@@ -164,7 +163,7 @@ mv bin/promptshield bin/promptshield-windows-amd64.exe
 ### Target Audiences
 
 **Primary: Security-conscious developers**
-- Message: "Production-ready CLI scanner with honest limitations"
+- Message: "Production-ready Gateway with honest limitations"
 - Channels: Security forums, Reddit r/netsec, Twitter
 - Key points: Works now, clear roadmap, transparent about limitations
 
@@ -178,7 +177,7 @@ mv bin/promptshield bin/promptshield-windows-amd64.exe
 ```markdown
 🚢 PromptShield v0.2.0-beta is live!
 
-A production-ready CLI scanner for LLM security. What makes this different:
+A production-ready Gateway for LLM security. What makes this different:
 
 ✅ Works reliably RIGHT NOW for CI/CD and batch scanning
 ⚠️ Honestly documents current limitations (audit hashing, input validation)

@@ -33,12 +33,12 @@ graph LR
 # Build the enforcer binary
 make build-enforcer
 
-# Run with experimental flag (required for now)
-PS_EXPERIMENTAL=true ./bin/ps-enforcer
+# Run the enforcer (beta)
+./bin/ps-enforcer
 
 # Configure rule pack location
 PS_ENFORCER_RULEPACK=rules/prompt-injection.yaml \
-PS_EXPERIMENTAL=true ./bin/ps-enforcer
+./bin/ps-enforcer
 ```
 
 ### Docker Deployment
@@ -54,7 +54,6 @@ RUN apk --no-cache add ca-certificates
 COPY --from=builder /app/bin/ps-enforcer /bin/ps-enforcer
 COPY rules /rules
 
-ENV PS_EXPERIMENTAL=true
 ENV PS_ENFORCER_RULEPACK=/rules/basic-security.yaml
 ENV PS_ENFORCER_ADDR=:9090
 ENV PS_ENFORCER_GRPC_ADDR=:9091
@@ -84,8 +83,6 @@ spec:
       - name: enforcer
         image: promptshield/ps-enforcer:v0.2.0
         env:
-        - name: PS_EXPERIMENTAL
-          value: "true"
         - name: PS_ENFORCER_RULEPACK
           value: "/config/rules.yaml"
         - name: PS_ENFORCER_GRPC_ADDR
@@ -97,10 +94,12 @@ spec:
         - name: PS_ENFORCER_FAIL_ON
           value: "HIGH"
           # Enforcement mode and body mutation
-          - name: PS_ENFORCER_ENFORCEMENT_MODE
-            value: "observe"  # observe|redact|quarantine|enforce
-          - name: PS_ENFORCER_REDACTION_MUTATION
-            value: "true"     # apply redaction to body via ext_proc BodyMutation
+           - name: PS_ENFORCER_ENFORCEMENT_MODE
+             value: "observe"  # observe|redact|quarantine|enforce
+           - name: PS_ENFORCER_REDACTION_MUTATION
+             value: "true"     # apply redaction to body via ext_proc BodyMutation
+           - name: PS_ENFORCER_REPLACEMENT_MUTATION
+             value: "true"     # enable replacement via ImmediateResponse 200 when action=replace
           # Streaming performance controls
           - name: PS_ENFORCER_STREAM_WINDOW
             value: "65536"    # sliding window size (bytes)
@@ -407,9 +406,8 @@ PromptShield injects decision headers for observability:
 ```http
 x-ps-decision: allow|quarantine|deny
 x-ps-reason: rule_id|timeout|body_limit|no_signals
-x-ps-latency: 45ms
-x-ps-rules-evaluated: 127
-x-ps-violations: 0
+x-ps-request-id: 5a4b2c2f-...
+x-ps-trace-id: 4a1f... (when tracing enabled)
 ```
 
 ## 🎛️ Configuration Parameters
@@ -418,7 +416,6 @@ x-ps-violations: 0
 
 ```bash
 # Core settings
-PS_EXPERIMENTAL=true                    # Required for current version
 PS_ENFORCER_ADDR=:9090                 # HTTP listener
 PS_ENFORCER_GRPC_ADDR=:9091           # gRPC listener
 

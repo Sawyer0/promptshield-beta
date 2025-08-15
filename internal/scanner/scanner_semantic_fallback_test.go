@@ -20,7 +20,7 @@ func (analyzerErr) Analyze(_ context.Context, _ string, _ rules.Semantic) (bool,
 
 func TestSemanticLevel3_SafeStillEvaluatesFallback(t *testing.T) {
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	// Fake analyzer returns SAFE=false (no error) unless [FAKE_MATCH] present.
 	sc.SetSemanticAnalyzer(semfake.Analyzer{})
 	sc.LoadRulePacks([]rules.RulePack{{
@@ -54,7 +54,7 @@ func TestSemanticLevel3_SafeStillEvaluatesFallback(t *testing.T) {
 
 func TestSemanticLevel3_Error_NoFallbackOnError(t *testing.T) {
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	sc.SetSemanticAnalyzer(analyzerErr{})
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "sem"},
@@ -76,7 +76,7 @@ func TestSemanticLevel3_Error_NoFallbackOnError(t *testing.T) {
 
 func TestSemanticLevel3_Error_WithFallbackOnError(t *testing.T) {
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	sc.SetSemanticAnalyzer(analyzerErr{})
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "sem"},

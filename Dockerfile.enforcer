@@ -1,4 +1,13 @@
-FROM golang:1.24 AS builder
+ARG ENABLE_HYPERSCAN=0
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
+FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
+ARG ENABLE_HYPERSCAN
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 
 # Cache modules
@@ -6,17 +15,35 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
-# Build gateway/enforcer
+# Install Hyperscan headers when requested
+RUN if [ "$ENABLE_HYPERSCAN" = "1" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends libhyperscan-dev && \
+      rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Build gateway/enforcer (optionally with Hyperscan)
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o /out/ps-enforcer ./enforcer
+    if [ "$ENABLE_HYPERSCAN" = "1" ]; then \
+      CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+      go build -tags hyperscan -trimpath -ldflags="-s -w" -o /out/ps-enforcer ./enforcer; \
+    else \
+      CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+      go build -trimpath -ldflags="-s -w" -o /out/ps-enforcer ./enforcer; \
+    fi
 
 
-FROM alpine:3.20
-RUN adduser -D -H -u 10001 app \
-    && apk add --no-cache ca-certificates wget \
-    && mkdir -p /rules
+FROM --platform=$TARGETPLATFORM debian:bookworm-slim
+ARG ENABLE_HYPERSCAN
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates wget && \
+    if [ "$ENABLE_HYPERSCAN" = "1" ]; then \
+      apt-get install -y --no-install-recommends libhyperscan5; \
+    fi && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd -m -u 10001 app && \
+    mkdir -p /rules
 COPY --from=builder /out/ps-enforcer /usr/local/bin/ps-enforcer
 
 USER app

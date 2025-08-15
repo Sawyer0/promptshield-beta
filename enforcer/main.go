@@ -6,26 +6,37 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
+	"runtime"
 
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
 	"github.com/promptshield/promptshield/internal/license"
-	"github.com/promptshield/promptshield/internal/version"
 	tel "github.com/promptshield/promptshield/internal/observability/telemetry"
+	"github.com/promptshield/promptshield/internal/version"
 	"google.golang.org/grpc"
 )
 
 func main() {
+	// Optional GOMAXPROCS override for performance experiments
+	if v := strings.TrimSpace(os.Getenv("PS_GOMAXPROCS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			runtime.GOMAXPROCS(n)
+		}
+	}
 	license.Check()
 	addr := os.Getenv("PS_ENFORCER_ADDR")
 	if addr == "" {
 		addr = ":9090"
 	}
-	// Optional telemetry init (opt-in)
+	// Telemetry init (opt-out, privacy-first)
 	var telemetry *tel.Collector
-	enabled := os.Getenv("PS_TELEMETRY") == "1"
+	enabled := true
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_TELEMETRY"))); v == "0" || v == "false" || v == "off" {
+		enabled = false
+	}
 	endpoint := os.Getenv("PS_TELEMETRY_ENDPOINT")
 	file := os.Getenv("PS_TELEMETRY_FILE")
 	sample := 1.0
@@ -34,7 +45,11 @@ func main() {
 			sample = f
 		}
 	}
-	if enabled && (endpoint != "" || file != "") {
+	if enabled {
+		// Default to local NDJSON sink when no remote endpoint/file is configured
+		if endpoint == "" && file == "" {
+			file = "spans.ndjson"
+		}
 		telemetry = tel.New(tel.Options{Enabled: true, Endpoint: endpoint, File: file, Sample: sample, Service: "ps-enforcer", Version: version.Version})
 		telemetry.Collect("startup", map[string]any{"version": version.Version, "commit": version.Commit, "build_date": version.BuildDate})
 	}
@@ -65,7 +80,9 @@ func main() {
 	<-sigs
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
 	if gs != nil {
 		done := make(chan struct{})
 		go func() { gs.GracefulStop(); close(done) }()
@@ -76,8 +93,8 @@ func main() {
 		}
 	}
 	if telemetry != nil {
-		_ = telemetry.Shutdown(ctx)
+		if err := telemetry.Shutdown(ctx); err != nil {
+			log.Printf("Telemetry shutdown error: %v", err)
+		}
 	}
 }
-
-

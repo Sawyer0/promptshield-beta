@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/promptshield/promptshield/internal/rules"
+	"github.com/promptshield/promptshield/internal/security/pinning"
 	"github.com/promptshield/promptshield/internal/shared/redact"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/time/rate"
@@ -99,6 +101,15 @@ func New(opts Options) *Analyzer {
 	// Override with custom client if provided
 	if opts.HTTPClient != nil {
 		httpClient = opts.HTTPClient
+	}
+
+	// Optional certificate pinning via env PS_PIN_ANTHROPIC (comma-separated SPKI sha256)
+	if pinsCSV := strings.TrimSpace(os.Getenv("PS_PIN_ANTHROPIC")); pinsCSV != "" {
+		if pins, err := pinning.ParsePinsCSV(pinsCSV); err == nil {
+			if base, ok := httpClient.Transport.(*http.Transport); ok {
+				httpClient.Transport = pinning.BuildPinnedTransport(base, pins)
+			}
+		}
 	}
 
 	// Create Anthropic client with official SDK

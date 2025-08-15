@@ -12,26 +12,31 @@ import (
 
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/promptshield/promptshield/internal/interfaces/http/api"
-	appscan "github.com/promptshield/promptshield/internal/application/scan"
 	"github.com/promptshield/promptshield/internal/discovery"
+	"github.com/promptshield/promptshield/internal/encoding/jsonx"
+	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/time/rate"
 )
 
-// Simple HTTP server stub for the PromptShield enforcer.
+// HTTP server for the PromptShield enforcer.
 // Exposes:
 // - GET /healthz: liveness probe
-// - POST /check: minimal allow/deny stub (currently always allow)
+// - GET /readyz: readiness probe with rule validation
+// - GET /metrics: Prometheus metrics
+// - POST /check: enforcement decision endpoint
 
 // NewMux constructs the HTTP handler mux for the enforcer.
 var (
@@ -49,18 +54,73 @@ var (
 	)
 )
 
+// Optional performance toggles (env-driven)
+func metricsEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_DISABLE_METRICS")))
+	return !(v == "1" || v == "true" || v == "yes")
+}
+
+func tracingEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_DISABLE_TRACING")))
+	return !(v == "1" || v == "true" || v == "yes")
+}
+
+func fastMode() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_FAST")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
 func init() {
 	// Best-effort registration; ignore panics on duplicate in tests
 	prometheus.MustRegister(enforcerRequests, enforcerDecisions, enforcerReqDuration)
 }
 
-func NewMux() http.Handler {
+func NewMux() http.Handler { // backward-compatible wrapper
+	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
+	return NewMuxWithOptions(api.Options{AdminToken: adminToken})
+}
+
+// NewMuxWithOptions constructs the HTTP handler mux with injectable API options.
+func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	r := chi.NewRouter()
 	// Middlewares: request id, real ip, recoverer, timeout (defense in depth; keep short)
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(10 * time.Second))
+	if !fastMode() {
+		r.Use(middleware.RequestID)
+		r.Use(middleware.RealIP)
+		r.Use(middleware.Recoverer)
+		r.Use(middleware.Timeout(10 * time.Second))
+	}
+	// Global HTTP rate limiter from license entitlements; fallback to unlimited
+	// Must be registered before any routes on chi mux
+	if ent, ok := license.Entitlement(); ok && ent.MaxRPS > 0 {
+		burst := 1
+		if b := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); b != "" {
+			if n, err := strconv.Atoi(b); err == nil && n > 0 {
+				burst = n
+			}
+		}
+		limiter := rate.NewLimiter(rate.Limit(ent.MaxRPS), burst)
+		// Basic inflight bytes accounting for billing (optional)
+		var inflight int64
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if !limiter.Allow() {
+					w.Header().Set("content-type", "application/json")
+					w.WriteHeader(http.StatusTooManyRequests)
+					_ = json.NewEncoder(w).Encode(map[string]any{"code": "RESOURCE_EXHAUSTED", "message": "rate limit exceeded", "details": map[string]any{"max_rps": ent.MaxRPS}})
+					return
+				}
+				// Track inflight bytes via Content-Length (approximate)
+				if cl := req.Header.Get("Content-Length"); cl != "" {
+					if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+						atomic.AddInt64(&inflight, n)
+						defer atomic.AddInt64(&inflight, -n)
+					}
+				}
+				next.ServeHTTP(w, req)
+			})
+		})
+	}
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -80,12 +140,53 @@ func NewMux() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
-	// Prometheus metrics endpoint
-	r.Handle("/metrics", promhttp.Handler())
+
+	// Prometheus metrics endpoint (optional)
+	if metricsEnabled() {
+		r.Handle("/metrics", promhttp.Handler())
+	}
 
 	// Mount v1 API
-	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
-	r.Mount("/v1", api.NewMux(api.Options{AdminToken: adminToken}))
+	r.Mount("/v1", api.NewMux(apiOpt))
+
+	// Prepare scanner pool and optionally preload rulepacks to reduce per-request overhead
+	var (
+		preloadPacks []rules.RulePack
+		scannerPool  = &sync.Pool{}
+	)
+	{
+		rulepackPath := os.Getenv("PS_ENFORCER_RULEPACK")
+		if rulepackPath == "" {
+			if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
+				rulepackPath = "/rules/basic-security.yaml"
+			} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
+				rulepackPath = "rules/basic-security.yaml"
+			}
+		}
+		if rulepackPath != "" {
+			if packs, e := rules.LoadPacks(rulepackPath); e == nil {
+				preloadPacks = packs
+			}
+		}
+		var maxStreamBytes int64
+		if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				maxStreamBytes = n
+			}
+		}
+		scannerPool.New = func() any {
+			sc := scanner.New(0)
+			if maxStreamBytes > 0 {
+				sc.SetMaxStreamBytes(maxStreamBytes)
+			}
+			sc.SetQuarantineOnTimeout(true)
+			sc.SetQuarantineOnError(true)
+			if len(preloadPacks) > 0 {
+				sc.LoadRulePacks(preloadPacks)
+			}
+			return sc
+		}
+	}
 
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		// Optional bearer token check
@@ -94,7 +195,9 @@ func NewMux() http.Handler {
 			if !HttpAuthOK(r, reqToken) {
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte("unauthorized"))
-				enforcerRequests.WithLabelValues("/check", "401").Inc()
+				if metricsEnabled() {
+					enforcerRequests.WithLabelValues("/check", "401").Inc()
+				}
 				return
 			}
 		}
@@ -103,28 +206,22 @@ func NewMux() http.Handler {
 			if !license.AllowEvalRequest() {
 				w.WriteHeader(http.StatusTooManyRequests)
 				_, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
-				enforcerRequests.WithLabelValues("/check", "429").Inc()
+				if metricsEnabled() {
+					enforcerRequests.WithLabelValues("/check", "429").Inc()
+				}
 				return
 			}
 		} else {
 			w.Header().Set("X-PromptShield-License", "LICENSED")
 		}
-		// Minimal PoC: read a small body to a temp file (or stdin), scan via existing orchestrator
-		// For safety, enforce a small max size to avoid abuse in the stub
+		// Stream request body to scanner for real-time analysis
+		// Enforce configurable body size limit for resource protection
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
 		start := time.Now()
 
-		tmp, err := os.CreateTemp("", "ps-check-*.txt")
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			enforcerRequests.WithLabelValues("/check", "500").Inc()
-			return
-		}
-		defer func() { _ = os.Remove(tmp.Name()) }()
-
-		// Cap read at 1MB for stub; allow override via env
+		// Default 1MB limit; configurable via environment
 		maxBytes := int64(1 << 20)
 		if v := os.Getenv("PS_ENFORCER_MAX_BODY_BYTES"); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
@@ -134,37 +231,30 @@ func NewMux() http.Handler {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 		if r.Body != nil {
 			defer r.Body.Close()
-			if _, err := tmp.ReadFrom(r.Body); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				enforcerRequests.WithLabelValues("/check", "400").Inc()
-				return
-			}
 		}
-		_ = tmp.Close()
 
-		sc := scanner.New(0)
-		// Load rulepack from env if set; fallback to common mount paths
-		rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-		if rulepack == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-				rulepack = "/rules/basic-security.yaml"
-			} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-				rulepack = "rules/basic-security.yaml"
-			}
-		}
-		if rulepack != "" {
-			if packs, e := rules.LoadPacks(rulepack); e == nil {
-				sc.LoadRulePacks(packs)
-			}
-		}
-		svc := appscan.NewService(sc)
-		res, err := svc.Scan(ctx, []string{tmp.Name()}, appscan.Options{Workers: 1, PendingWindow: 32})
+		sc := scannerPool.Get().(*scanner.Scanner)
+		defer scannerPool.Put(sc)
+		// Stream scan directly from the request body to avoid temp-file I/O
+		res, err := sc.ScanReader(ctx, r.Body, "http:request")
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			enforcerRequests.WithLabelValues("/check", "500").Inc()
+			// Map body-size errors to 400; otherwise 500
+			msg := err.Error()
+			code := http.StatusInternalServerError
+			api := map[string]any{"code": "INTERNAL", "message": "scan failed", "details": map[string]any{"error": msg}}
+			if strings.Contains(strings.ToLower(msg), "request body too large") {
+				code = http.StatusBadRequest
+				api = map[string]any{"code": "INVALID_ARGUMENT", "message": "request body too large or invalid", "details": map[string]any{"max_bytes": maxBytes}}
+			}
+			w.Header().Set("content-type", "application/json")
+			w.WriteHeader(code)
+			_ = jsonx.NewEncoder(w).Encode(api)
+			if metricsEnabled() {
+				enforcerRequests.WithLabelValues("/check", strconv.Itoa(code)).Inc()
+			}
 			return
 		}
-		// Decision: allow if no violations; quarantine otherwise (stub)
+		// Decision logic: allow if no violations; quarantine/deny based on response actions
 		decision := "allow"
 		reason := "no_signals"
 		total := 0
@@ -172,19 +262,18 @@ func NewMux() http.Handler {
 		anyQuarantine := false
 		anyDeny := false
 		firstRule := ""
-		for _, r := range res {
-			total += len(r.Violations)
-			for _, v := range r.Violations {
-				if firstRule == "" {
-					firstRule = v.RuleID
-				}
-				a := v.ResponseAction
-				switch a {
-				case "deny", "block":
-					anyDeny = true
-				case "quarantine":
-					anyQuarantine = true
-				}
+		// aggregate over struct result
+		total = len(res.Violations)
+		for _, v := range res.Violations {
+			if firstRule == "" {
+				firstRule = v.RuleID
+			}
+			a := v.ResponseAction
+			switch a {
+			case "deny", "block":
+				anyDeny = true
+			case "quarantine":
+				anyQuarantine = true
 			}
 		}
 		if anyDeny {
@@ -222,10 +311,12 @@ func NewMux() http.Handler {
 		w.Header().Set("x-ps-reason", reason)
 		w.Header().Set("content-type", "application/json")
 		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": reqID})
-		enforcerDecisions.WithLabelValues(decision).Inc()
-		enforcerRequests.WithLabelValues("/check", strconv.Itoa(statusCode)).Inc()
-		enforcerReqDuration.WithLabelValues("/check", decision).Observe(time.Since(start).Seconds())
+		_ = jsonx.NewEncoder(w).Encode(map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": reqID})
+		if metricsEnabled() {
+			enforcerDecisions.WithLabelValues(decision).Inc()
+			enforcerRequests.WithLabelValues("/check", strconv.Itoa(statusCode)).Inc()
+			enforcerReqDuration.WithLabelValues("/check", decision).Observe(time.Since(start).Seconds())
+		}
 		_ = discovery.ErrNoInputFiles // keep imported until multi-path support
 	}
 	// Handle all /check paths for ext_authz path_prefix behavior
@@ -234,20 +325,43 @@ func NewMux() http.Handler {
 		checkRouter.HandleFunc("/", handler)  // /check
 	})
 	// Filter noisy endpoints from tracing
-	return otelhttp.NewHandler(r, "ps_enforcer_http", otelhttp.WithFilter(func(r *http.Request) bool {
-		p := r.URL.Path
-		if p == "/healthz" || p == "/metrics" {
-			return false
-		}
-		return true
-	}))
+	if tracingEnabled() {
+		return otelhttp.NewHandler(r, "ps_enforcer_http", otelhttp.WithFilter(func(r *http.Request) bool {
+			p := r.URL.Path
+			if p == "/healthz" || p == "/metrics" {
+				return false
+			}
+			return true
+		}))
+	}
+	return r
 }
 
 // Serve starts an HTTP server on addr with sane timeouts.
 func Serve(addr string) *http.Server {
-	srv := &http.Server{
+	var srv *http.Server
+	// Inject shutdown hooks into API mux
+	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
+	apiMux := NewMuxWithOptions(api.Options{
+		AdminToken: adminToken,
+		OnDrain:    func(ctx context.Context) error { return nil },
+		OnShutdown: func(ctx context.Context, delay time.Duration) error {
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			if srv != nil {
+				return srv.Shutdown(ctx)
+			}
+			return nil
+		},
+	})
+	srv = &http.Server{
 		Addr:              addr,
-		Handler:           NewMux(),
+		Handler:           apiMux,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,

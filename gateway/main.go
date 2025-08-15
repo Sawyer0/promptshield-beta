@@ -46,7 +46,9 @@ func main() {
 	<-sigs
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
 	if gs != nil {
 		done := make(chan struct{})
 		go func() { gs.GracefulStop(); close(done) }()

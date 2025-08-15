@@ -116,7 +116,7 @@ func regexComplexityScore(expr string) int {
 			if hasComma {
 				// if next non-space before '}' is '}', upper unbounded
 				k := j + 1
-				for k < len(expr) && k < len(expr) && expr[k] == ' ' {
+				for k < len(expr) && expr[k] == ' ' {
 					k++
 				}
 				if k < len(expr) && expr[k] == '}' {

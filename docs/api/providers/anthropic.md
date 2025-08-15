@@ -11,7 +11,7 @@ Set the following environment variables:
 - `PS_SEMANTIC_ENABLED=true`
 - `PS_SEMANTIC_PROVIDER=anthropic`
 - Provide an API key via one of:
-  - OS keychain: `promptshield auth set --provider anthropic`
+  - OS keychain
   - `ANTHROPIC_API_KEY` (or `PS_ANTHROPIC_API_KEY`)
 
 Optional tuning (applies to all semantic providers):

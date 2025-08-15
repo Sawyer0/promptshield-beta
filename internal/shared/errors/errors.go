@@ -20,4 +20,10 @@ var (
 
 	// ErrAnthropicAPIKeyMissing indicates ANTHROPIC_API_KEY/PS_ANTHROPIC_API_KEY was not provided.
 	ErrAnthropicAPIKeyMissing = errors.New("anthropic api key missing")
+
+	// ErrSemanticAnalyzerNotConfigured indicates L3 rules are present but no semantic analyzer was wired.
+	ErrSemanticAnalyzerNotConfigured = errors.New("semantic analyzer not configured")
+
+	// ErrStreamLimitExceeded indicates the streaming byte limit was exceeded during scanning.
+	ErrStreamLimitExceeded = errors.New("stream byte limit exceeded")
 )

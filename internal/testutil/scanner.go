@@ -20,10 +20,7 @@ type ScannerHelper struct {
 func NewScannerHelper(t *testing.T, testRules []rules.Rule) *ScannerHelper {
 	t.Helper()
 	sc := scpkg.New(0)
-	// Ensure built-in keyword rules do not interfere with tests by overriding
-	// the instance via a package-level helper that we expose for tests only.
-	// Disable built-in keywords via public toggler if available
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed; nothing to disable
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "test"},
 		Rules:    testRules,

@@ -1,16 +1,17 @@
 package discovery
 
 import (
-    "errors"
-    "fmt"
-    "os"
-    "path/filepath"
-    "sort"
-    "strings"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 
-    doublestar "github.com/bmatcuk/doublestar/v4"
-    gitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
-    "github.com/karrick/godirwalk"
+	doublestar "github.com/bmatcuk/doublestar/v4"
+	gitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
+	"github.com/karrick/godirwalk"
 )
 
 // DiscoverPaths expands a list of input args into concrete file paths.
@@ -56,31 +57,34 @@ func DiscoverPaths(args []string) ([]string, error) {
 		if denyPath(a) {
 			continue
 		}
-        // Try stat first (do not follow symlinks)
-        if fi, err := os.Lstat(a); err == nil {
+		// Try stat first (do not follow symlinks)
+		if fi, err := os.Lstat(a); err == nil {
 			resolvedArgCount++
-            // Symlink policy: deny by default unless PS_ALLOW_SYMLINKS=true
-            if fi.Mode()&os.ModeSymlink != 0 {
-                if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
-                    return nil, fmt.Errorf("invalid input path: symlinks are not allowed (%s)", a)
-                }
-                // If allowed, resolve once to absolute for consistent hashing/reporting, but do not traverse outside allowlist/denylist
-                if target, rerr := filepath.EvalSymlinks(a); rerr == nil {
-                    a = target
-                    // refresh fi after resolution
-                    if nfi, nerr := os.Lstat(a); nerr == nil {
-                        fi = nfi
-                    }
-                }
-            }
+			// Symlink policy: deny by default unless PS_ALLOW_SYMLINKS=true
+			if fi.Mode()&os.ModeSymlink != 0 {
+				if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
+					return nil, fmt.Errorf("invalid input path: symlinks are not allowed (%s)", a)
+				}
+				// If allowed, resolve once to absolute for consistent hashing/reporting, but do not traverse outside allowlist/denylist
+				if target, rerr := filepath.EvalSymlinks(a); rerr == nil {
+					a = target
+					// refresh fi after resolution
+					if nfi, nerr := os.Lstat(a); nerr == nil {
+						fi = nfi
+					}
+				}
+			}
 			if fi.IsDir() {
 				// Walk directory with godirwalk; apply hardSkip + spec-accurate .gitignore
 				root := a
 				// Prefer repo root when computing ignore semantics, but restrict walk to 'a'
 				localIgnore := newGitignoreCache(gitRoot)
 				// Preload ignore for the walk root directory to ensure patterns in that directory apply to its children
-				_ = localIgnore.loadDirPatterns(root)
-                _ = godirwalk.Walk(root, &godirwalk.Options{
+				if err := localIgnore.loadDirPatterns(root); err != nil {
+					// Non-fatal: log warning but continue discovery
+					log.Printf("Warning: failed to load ignore patterns for %s: %v", root, err)
+				}
+				_ = godirwalk.Walk(root, &godirwalk.Options{
 					ErrorCallback: func(osPathname string, err error) godirwalk.ErrorAction {
 						return godirwalk.SkipNode
 					},
@@ -96,12 +100,12 @@ func DiscoverPaths(args []string) ([]string, error) {
 								return nil
 							}
 						}
-                        // Enforce symlink policy within directory walks as well
-                        if de.ModeType()&os.ModeSymlink != 0 {
-                            if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
-                                return nil
-                            }
-                        }
+						// Enforce symlink policy within directory walks as well
+						if de.ModeType()&os.ModeSymlink != 0 {
+							if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
+								return nil
+							}
+						}
 						// Respect gitignore semantics relative to gitRoot
 						if localIgnore.isIgnored(path, de.IsDir()) {
 							if de.IsDir() {
@@ -135,23 +139,23 @@ func DiscoverPaths(args []string) ([]string, error) {
 					return []string{}, fmt.Errorf("glob pattern too broad: %s", a)
 				}
 				resolvedArgCount++
-                matches, _ := doublestar.FilepathGlob(a)
-                for _, full := range matches {
-                    if st, e := os.Lstat(full); e == nil && !st.IsDir() {
-                        // Enforce symlink policy for globbed files
-                        if st.Mode()&os.ModeSymlink != 0 {
-                            if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
-                                continue
-                            }
-                        }
-                        // Filter via gitignore semantics
-                        if igCache.isIgnored(full, false) {
-                            continue
-                        }
-                        abs, _ := filepath.Abs(full)
-                        found[abs] = struct{}{}
-                    }
-                }
+				matches, _ := doublestar.FilepathGlob(a)
+				for _, full := range matches {
+					if st, e := os.Lstat(full); e == nil && !st.IsDir() {
+						// Enforce symlink policy for globbed files
+						if st.Mode()&os.ModeSymlink != 0 {
+							if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
+								continue
+							}
+						}
+						// Filter via gitignore semantics
+						if igCache.isIgnored(full, false) {
+							continue
+						}
+						abs, _ := filepath.Abs(full)
+						found[abs] = struct{}{}
+					}
+				}
 				continue
 			}
 
@@ -161,21 +165,21 @@ func DiscoverPaths(args []string) ([]string, error) {
 					return []string{}, fmt.Errorf("glob pattern too broad: %s", a)
 				}
 				resolvedArgCount++
-                matches, _ := doublestar.FilepathGlob(a)
-                for _, full := range matches {
-                    if st, e := os.Lstat(full); e == nil && !st.IsDir() {
-                        if st.Mode()&os.ModeSymlink != 0 {
-                            if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
-                                continue
-                            }
-                        }
-                        if igCache.isIgnored(full, false) {
-                            continue
-                        }
-                        abs, _ := filepath.Abs(full)
-                        found[abs] = struct{}{}
-                    }
-                }
+				matches, _ := doublestar.FilepathGlob(a)
+				for _, full := range matches {
+					if st, e := os.Lstat(full); e == nil && !st.IsDir() {
+						if st.Mode()&os.ModeSymlink != 0 {
+							if strings.ToLower(os.Getenv("PS_ALLOW_SYMLINKS")) != "true" {
+								continue
+							}
+						}
+						if igCache.isIgnored(full, false) {
+							continue
+						}
+						abs, _ := filepath.Abs(full)
+						found[abs] = struct{}{}
+					}
+				}
 			}
 		}
 	}

@@ -1,337 +1,78 @@
 package api
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	appscan "github.com/promptshield/promptshield/internal/application/scan"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+	"github.com/promptshield/promptshield/internal/jobs"
+	"github.com/promptshield/promptshield/internal/jobs/processors"
 	"github.com/promptshield/promptshield/internal/license"
-	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	"github.com/promptshield/promptshield/internal/usage"
 	"github.com/promptshield/promptshield/internal/version"
-	"gopkg.in/yaml.v3"
 )
-
-func httpAuthOK(r *http.Request, want string) bool {
-	if want == "" {
-		return true
-	}
-	if v := r.Header.Get("Authorization"); v != "" {
-		if len(v) >= 7 && (strings.HasPrefix(v, "Bearer ") || strings.HasPrefix(v, "bearer ")) {
-			if v[7:] == want {
-				return true
-			}
-		}
-		if v == want {
-			return true
-		}
-	}
-	if v := r.Header.Get("X-PS-Token"); v != "" {
-		if v == want {
-			return true
-		}
-	}
-	return false
-}
-
-
-
-// Options configures the API mux.
-type Options struct {
-	AdminToken         string
-	AllowInsecureAdmin bool
-	ConfigStore        *RuntimeConfigStore
-	RulepackManager    *RulepackManager
-}
-
-type apiError struct {
-	Code    string         `json:"code"`
-	Message string         `json:"message"`
-	Details map[string]any `json:"details,omitempty"`
-}
-
-func writeError(w http.ResponseWriter, status int, code, msg string, details map[string]any) {
-	w.Header().Set("content-type", "application/json")
-	w.Header().Set("X-PS-API-Version", "1")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(apiError{Code: code, Message: msg, Details: details})
-}
-
-func versionHeader(v string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-PS-API-Version", v)
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func adminAuth(opt Options) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if opt.AdminToken == "" && !opt.AllowInsecureAdmin {
-				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin token required", nil)
-				return
-			}
-			tok := r.Header.Get("Authorization")
-			if strings.HasPrefix(strings.ToLower(tok), "bearer ") {
-				tok = tok[7:]
-			}
-			if tok == "" {
-				tok = r.Header.Get("X-PS-Admin-Token")
-			}
-			if tok != opt.AdminToken {
-				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid admin token", nil)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// RuntimeConfig reflects tunables for the enforcer.
-type RuntimeConfig struct {
-	EnforcementMode    string  `json:"enforcement_mode"`
-	FailOn             string  `json:"fail_on"`
-	RedactionEnabled   bool    `json:"redaction_enabled"`
-	MaxStreamBytes     int64   `json:"max_stream_bytes"`
-	StreamWindow       int     `json:"stream_window"`
-	StreamOverlap      int     `json:"stream_overlap"`
-	RPS                float64 `json:"rps"`
-	RPSBurst           int     `json:"rps_burst"`
-	InflightLimitBytes int64   `json:"inflight_limit_bytes"`
-	InflightBackoffMs  int     `json:"inflight_backoff_ms"`
-	PerRuleTimeoutMs   int     `json:"per_rule_timeout_ms"`
-	RequestTimeoutMs   int     `json:"request_timeout_ms"`
-	ResponseTimeoutMs  int     `json:"response_timeout_ms"`
-}
-
-type RuntimeConfigStore struct {
-	mu  sync.RWMutex
-	cfg RuntimeConfig
-}
-
-func NewRuntimeConfigStoreFromEnv() *RuntimeConfigStore {
-	cfg := RuntimeConfig{
-		EnforcementMode:  strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_MODE"))),
-		FailOn:          strings.ToUpper(strings.TrimSpace(os.Getenv("PS_ENFORCER_FAIL_ON"))),
-		RedactionEnabled: !(strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_REDACTION_MUTATION"))) == "0" || strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_REDACTION_MUTATION"))) == "false"),
-		MaxStreamBytes:   parseInt64Default(os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"), 5_000_000),
-		StreamWindow:     parseIntDefault(os.Getenv("PS_ENFORCER_STREAM_WINDOW"), 64*1024),
-		StreamOverlap:    parseIntDefault(os.Getenv("PS_ENFORCER_STREAM_OVERLAP"), 4096),
-		RPS:              parseFloatDefault(os.Getenv("PS_ENFORCER_RPS"), 0),
-		RPSBurst:         parseIntDefault(os.Getenv("PS_ENFORCER_RPS_BURST"), 1),
-		InflightLimitBytes: parseInt64Default(os.Getenv("PS_ENFORCER_INFLIGHT_LIMIT_BYTES"), 0),
-		InflightBackoffMs:  parseIntDefault(os.Getenv("PS_ENFORCER_INFLIGHT_BACKOFF_MS"), 0),
-		PerRuleTimeoutMs:   0,
-		RequestTimeoutMs:   300,
-		ResponseTimeoutMs:  300,
-	}
-	if cfg.EnforcementMode == "" {
-		cfg.EnforcementMode = "observe"
-	}
-	if cfg.FailOn == "" {
-		cfg.FailOn = "HIGH"
-	}
-	return &RuntimeConfigStore{cfg: cfg}
-}
-
-func (s *RuntimeConfigStore) Get() RuntimeConfig {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.cfg
-}
-
-func (s *RuntimeConfigStore) Update(p RuntimeConfig) RuntimeConfig {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c := s.cfg
-	if p.EnforcementMode != "" {
-		c.EnforcementMode = p.EnforcementMode
-	}
-	if p.FailOn != "" {
-		c.FailOn = p.FailOn
-	}
-	if p.MaxStreamBytes != 0 {
-		c.MaxStreamBytes = p.MaxStreamBytes
-	}
-	if p.StreamWindow != 0 {
-		c.StreamWindow = p.StreamWindow
-	}
-	if p.StreamOverlap != 0 {
-		c.StreamOverlap = p.StreamOverlap
-	}
-	if p.RPS != 0 {
-		c.RPS = p.RPS
-	}
-	if p.RPSBurst != 0 {
-		c.RPSBurst = p.RPSBurst
-	}
-	if p.InflightLimitBytes != 0 {
-		c.InflightLimitBytes = p.InflightLimitBytes
-	}
-	if p.InflightBackoffMs != 0 {
-		c.InflightBackoffMs = p.InflightBackoffMs
-	}
-	if p.PerRuleTimeoutMs != 0 {
-		c.PerRuleTimeoutMs = p.PerRuleTimeoutMs
-	}
-	if p.RequestTimeoutMs != 0 {
-		c.RequestTimeoutMs = p.RequestTimeoutMs
-	}
-	if p.ResponseTimeoutMs != 0 {
-		c.ResponseTimeoutMs = p.ResponseTimeoutMs
-	}
-	c.RedactionEnabled = p.RedactionEnabled || (!p.RedactionEnabled && s.cfg.RedactionEnabled && p != (RuntimeConfig{}))
-	s.cfg = c
-	return s.cfg
-}
-
-func (s *RuntimeConfigStore) Reset() RuntimeConfig {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cfg = NewRuntimeConfigStoreFromEnv().cfg
-	return s.cfg
-}
-
-// Rulepack Manager
-
-type RulepackMeta struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Source  string `json:"source"`
-	Active  bool   `json:"active"`
-}
-
-type LoadedPack struct {
-	Pack rules.RulePack
-}
-
-type RulepackManager struct {
-	mu       sync.RWMutex
-	activeID string
-	packs    map[string]LoadedPack
-}
-
-func NewRulepackManager() *RulepackManager {
-	return &RulepackManager{packs: make(map[string]LoadedPack)}
-}
-
-func (m *RulepackManager) List() []RulepackMeta {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []RulepackMeta
-	for id, lp := range m.packs {
-		out = append(out, RulepackMeta{ID: id, Name: lp.Pack.Metadata.Name, Version: lp.Pack.Metadata.Version, Source: lp.Pack.SourcePath, Active: id == m.activeID})
-	}
-	return out
-}
-
-func (m *RulepackManager) Active() RulepackMeta {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.activeID == "" {
-		return RulepackMeta{}
-	}
-	lp, ok := m.packs[m.activeID]
-	if !ok {
-		return RulepackMeta{}
-	}
-	return RulepackMeta{ID: m.activeID, Name: lp.Pack.Metadata.Name, Version: lp.Pack.Metadata.Version, Source: lp.Pack.SourcePath, Active: true}
-}
-
-func (m *RulepackManager) Validate(data []byte) (bool, []string, []string) {
-	var p rules.RulePack
-	if err := yamlUnmarshal(data, &p); err != nil {
-		return false, nil, []string{err.Error()}
-	}
-	errs := rules.ValidatePack(p)
-	if len(errs) > 0 {
-		var es []string
-		for _, e := range errs {
-			es = append(es, e.Error())
-		}
-		return false, nil, es
-	}
-	return true, nil, nil
-}
-
-func (m *RulepackManager) Upload(data []byte, activate bool) (RulepackMeta, error) {
-	var p rules.RulePack
-	if err := yamlUnmarshal(data, &p); err != nil {
-		return RulepackMeta{}, err
-	}
-	errs := rules.ValidatePack(p)
-	if len(errs) > 0 {
-		return RulepackMeta{}, toErr(errs)
-	}
-	id := p.Metadata.Name
-	if id == "" {
-		id = strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.packs[id] = LoadedPack{Pack: p}
-	if activate {
-		m.activeID = id
-	}
-	return RulepackMeta{ID: id, Name: p.Metadata.Name, Version: p.Metadata.Version, Source: p.SourcePath, Active: activate}, nil
-}
-
-func (m *RulepackManager) SetActive(id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.packs[id]; !ok {
-		return toErr([]error{errNotFound("rulepack")})
-	}
-	m.activeID = id
-	return nil
-}
-
-func (m *RulepackManager) ReloadFrom(path string) (RulepackMeta, error) {
-	packs, err := rules.LoadPacks(path)
-	if err != nil {
-		return RulepackMeta{}, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// simplistic: pick first pack as active
-	if len(packs) > 0 {
-		p := packs[0]
-		id := p.Metadata.Name
-		m.packs[id] = LoadedPack{Pack: p}
-		m.activeID = id
-		return RulepackMeta{ID: id, Name: p.Metadata.Name, Version: p.Metadata.Version, Source: p.SourcePath, Active: true}, nil
-	}
-	return RulepackMeta{}, toErr([]error{errNotFound("rulepack")})
-}
 
 // Router
 
 func NewMux(opt Options) http.Handler {
 	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
 	r.Use(middleware.Timeout(10 * time.Second))
 	r.Use(versionHeader("1"))
+	// bytes in/out accounting
+	r.Use(captureBytesMiddleware)
 
+	// Ensure defaults for optional dependencies
 	if opt.ConfigStore == nil {
 		opt.ConfigStore = NewRuntimeConfigStoreFromEnv()
 	}
 	if opt.RulepackManager == nil {
 		opt.RulepackManager = NewRulepackManager()
 	}
-	// Accept bearer/ps-token for enforcement endpoints
+	if opt.Events == nil {
+		opt.Events = NewEventHub()
+	}
+	// usage store is optional; if unset, usage endpoint will report zeroes
+	// Quota store default: derive from entitlements/env if not provided
+	if opt.QuotaStore == nil {
+		var rps float64
+		var burst int
+		if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); v != "" {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+				rps = f
+			}
+		}
+		if rps > 0 {
+			if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					burst = n
+				}
+			}
+			opt.QuotaStore = usage.NewInMemoryQuota(rps, burst)
+		}
+	}
+	if opt.JobManager == nil {
+		// Create default job manager with 2 workers
+		opt.JobManager = jobs.NewManager(2)
+
+		// Create and register scan processor with basic scanner
+		sc := scanner.New(0)
+		scanProcessor := processors.NewScanProcessor(sc)
+		opt.JobManager.RegisterProcessor(scanProcessor)
+
+		// Start the job manager
+		go opt.JobManager.Start(context.Background())
+	}
 
 	// Health & info
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -342,7 +83,7 @@ func NewMux(opt Options) http.Handler {
 		if os.Getenv("PS_ENFORCER_RULEPACK") == "" {
 			if _, err := os.Stat("/rules/basic-security.yaml"); err != nil {
 				if _, err := os.Stat("rules/basic-security.yaml"); err != nil {
-					http.Error(w, "not ready", http.StatusServiceUnavailable)
+					http.Error(w, "not ready: rulepack not loaded", http.StatusServiceUnavailable)
 					return
 				}
 			}
@@ -360,114 +101,45 @@ func NewMux(opt Options) http.Handler {
 	})
 
 	// Rulepacks
-	r.Route("/rulepacks", func(rr chi.Router) {
-		rr.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(opt.RulepackManager.List())
-		})
-		rr.Get("/active", func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(opt.RulepackManager.Active())
-		})
-		rr.Group(func(a chi.Router) {
-			a.Use(adminAuth(opt))
-			a.Post("/validate", func(w http.ResponseWriter, r *http.Request) {
-				body, _ := io.ReadAll(r.Body)
-				defer r.Body.Close()
-				valid, warnings, errors := opt.RulepackManager.Validate(body)
-				_ = json.NewEncoder(w).Encode(map[string]any{"valid": valid, "warnings": warnings, "errors": errors})
-			})
-			a.Post("/", func(w http.ResponseWriter, r *http.Request) {
-				activate := r.URL.Query().Get("activate") == "true"
-				body, _ := io.ReadAll(r.Body)
-				defer r.Body.Close()
-				meta, err := opt.RulepackManager.Upload(body, activate)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error(), nil)
-					return
-				}
-				w.WriteHeader(http.StatusCreated)
-				_ = json.NewEncoder(w).Encode(meta)
-			})
-			a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
-				path := r.URL.Query().Get("path")
-				if path == "" {
-					path = os.Getenv("PS_ENFORCER_RULEPACK")
-				}
-				if path == "" {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "no path provided", nil)
-					return
-				}
-				meta, err := opt.RulepackManager.ReloadFrom(path)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error(), nil)
-					return
-				}
-				_ = json.NewEncoder(w).Encode(meta)
-			})
-			a.Put("/active", func(w http.ResponseWriter, r *http.Request) {
-				var req struct{ ID string `json:"id"` }
-				_ = json.NewDecoder(r.Body).Decode(&req)
-				if req.ID == "" {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing id", nil)
-					return
-				}
-				if err := opt.RulepackManager.SetActive(req.ID); err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error(), nil)
-					return
-				}
-				_ = json.NewEncoder(w).Encode(opt.RulepackManager.Active())
-			})
-			a.Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
-				id := chi.URLParam(r, "id")
-				opt.RulepackManager.mu.Lock()
-				delete(opt.RulepackManager.packs, id)
-				if opt.RulepackManager.activeID == id {
-					opt.RulepackManager.activeID = ""
-				}
-				opt.RulepackManager.mu.Unlock()
-				w.WriteHeader(http.StatusNoContent)
-			})
-		})
-	})
+	mountRulepacks(r, opt)
 
 	// Config
-	r.Route("/config", func(rr chi.Router) {
-		rr.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(opt.ConfigStore.Get())
-		})
-		rr.Group(func(a chi.Router) {
-			a.Use(adminAuth(opt))
-			a.Put("/", func(w http.ResponseWriter, r *http.Request) {
-				var p RuntimeConfig
-				_ = json.NewDecoder(r.Body).Decode(&p)
-				cfg := opt.ConfigStore.Update(p)
-				_ = json.NewEncoder(w).Encode(cfg)
-			})
-			a.Post("/reset", func(w http.ResponseWriter, r *http.Request) {
-				cfg := opt.ConfigStore.Reset()
-				_ = json.NewEncoder(w).Encode(cfg)
-			})
-		})
-	})
+	mountConfig(r, opt)
 
 	// Admin
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
 		a.Post("/admin/drain", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
+			if opt.OnDrain != nil {
+				go func() { _ = opt.OnDrain(r.Context()) }()
+			}
 		})
 		a.Post("/admin/shutdown", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
+			if opt.OnShutdown != nil {
+				// optional delay in seconds
+				delay := 0 * time.Second
+				if v := r.URL.Query().Get("delay"); v != "" {
+					if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+						delay = time.Duration(n) * time.Second
+					}
+				}
+				go func() { _ = opt.OnShutdown(r.Context(), delay) }()
+			}
 		})
 	})
 
-	// License
+	// License (GET is public; POST rotates license and is admin-protected)
 	r.Get("/license", func(w http.ResponseWriter, r *http.Request) {
 		l := license.Info()
+		ent, _ := license.Entitlement()
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"org":          l.Organization,
 			"tier":         l.Tier,
 			"expires_at":   l.ExpiresAt,
 			"licensed":     license.IsLicensed(),
+			"entitlements": ent,
 		})
 	})
 	r.Group(func(a chi.Router) {
@@ -475,7 +147,9 @@ func NewMux(opt Options) http.Handler {
 		a.Post("/license", func(w http.ResponseWriter, r *http.Request) {
 			key := r.FormValue("key")
 			if key == "" {
-				var body struct{ Key string `json:"key"` }
+				var body struct {
+					Key string `json:"key"`
+				}
 				_ = json.NewDecoder(r.Body).Decode(&body)
 				key = body.Key
 			}
@@ -488,279 +162,249 @@ func NewMux(opt Options) http.Handler {
 		})
 	})
 
-	// Decision endpoints
-	r.Post("/check", checkHandlerVersioned())
-	r.Post("/scan", scanHandler(opt))
-
-	// Observability stubs
-	r.Get("/stats", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
-	})
-	r.Get("/events", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		_, _ = w.Write([]byte("event: ready\ndata: {\"status\":\"ok\"}\n\n"))
-	})
-
-	return r
-}
-
-func checkHandlerVersioned() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		reqToken := os.Getenv("PS_ENFORCER_AUTH_TOKEN")
-		if reqToken != "" {
-			if !httpAuthOK(r, reqToken) {
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte("unauthorized"))
-				return
-			}
+	// Decision endpoints (protected with user auth)
+	r.Group(func(g chi.Router) {
+		// legacy token-based user auth
+		g.Use(userAuth(opt))
+		// optional OIDC
+		if opt.OIDC.Issuer != "" {
+			g.Use(oidcAuth(opt))
 		}
-		if !license.IsLicensed() {
-			w.Header().Set("X-PromptShield-License", "EVALUATION")
-			if !license.AllowEvalRequest() {
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
-				return
-			}
-		} else {
-			w.Header().Set("X-PromptShield-License", "LICENSED")
+		// optional per-tenant quota
+		if opt.QuotaStore != nil {
+			g.Use(tenantQuota(opt))
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		tmp, err := os.CreateTemp("", "ps-check-*.txt")
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+		g.Post("/check", checkHandlerVersioned(opt))
+		g.Post("/scan", scanHandler(opt))
+	})
+	r.Post("/scan/async", func(w http.ResponseWriter, r *http.Request) {
+		// Ensure license state is loaded before feature check
+		_ = license.IsLicensed()
+		if !license.HasFeature("async_jobs") {
+			writeError(w, http.StatusForbidden, "UNAUTHORIZED", "feature not available: async_jobs", nil)
 			return
 		}
-		defer func() { _ = os.Remove(tmp.Name()) }()
 
-		maxBytes := int64(1 << 20)
-		if v := os.Getenv("PS_ENFORCER_MAX_BODY_BYTES"); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-				maxBytes = n
-			}
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-		if r.Body != nil {
-			defer r.Body.Close()
-			if _, err := tmp.ReadFrom(r.Body); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-		}
-		_ = tmp.Close()
-
-		sc := scanner.New(0)
-		rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-		if rulepack == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-				rulepack = "/rules/basic-security.yaml"
-			} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-				rulepack = "rules/basic-security.yaml"
-			}
-		}
-		if rulepack != "" {
-			if packs, e := rules.LoadPacks(rulepack); e == nil {
-				sc.LoadRulePacks(packs)
-			}
-		}
-		svc := appscan.NewService(sc)
-		res, err := svc.Scan(ctx, []string{tmp.Name()}, appscan.Options{Workers: 1, PendingWindow: 32})
+		// Read request body
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "failed to read request body", nil)
 			return
 		}
-		decision := "allow"
-		reason := "no_signals"
-		total := 0
-		anyQuarantine := false
-		anyDeny := false
-		firstRule := ""
-		for _, rr := range res {
-			total += len(rr.Violations)
-			for _, v := range rr.Violations {
-				if firstRule == "" {
-					firstRule = v.RuleID
-				}
-				a := v.ResponseAction
-				switch a {
-				case "deny", "block":
-					anyDeny = true
-				case "quarantine":
-					anyQuarantine = true
-				}
-			}
+
+		// Parse metadata from headers and query params
+		metadata := map[string]interface{}{
+			"output_format": r.URL.Query().Get("format"),
+			"fail_on":       r.URL.Query().Get("fail_on"),
+			"input_name":    r.URL.Query().Get("input_name"),
 		}
-		if anyDeny {
-			decision = "deny"
-			reason = firstNonEmpty(firstRule, "response_action")
-		} else if anyQuarantine || total > 0 {
-			decision = "quarantine"
-			reason = firstNonEmpty(firstRule, "signals_detected")
+
+		// Set defaults
+		if metadata["output_format"] == "" {
+			metadata["output_format"] = "json"
 		}
-		w.Header().Set("x-ps-decision", decision)
-		w.Header().Set("x-ps-reason", reason)
+		if metadata["input_name"] == "" {
+			metadata["input_name"] = "http-request"
+		}
+
+		// Submit the job
+		jobID, err := opt.JobManager.Submit("scan", body, metadata)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "JOB_SUBMISSION_FAILED", err.Error(), nil)
+			return
+		}
+
+		// Return job ID
 		w.Header().Set("content-type", "application/json")
-		statusCode := http.StatusOK
-		if decision != "allow" {
-			statusCode = http.StatusForbidden
-		}
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(map[string]any{"decision": decision, "reason": reason, "violations": total})
-	}
-}
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"job_id": jobID,
+			"status": "pending",
+		})
+	})
 
-func scanHandler(opt Options) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		aggregate := true
-		if a := r.URL.Query().Get("aggregate"); a != "" {
-			aggregate = a != "false"
-		}
-		ct := r.Header.Get("content-type")
-		if strings.HasPrefix(ct, "application/x-ndjson") && !aggregate {
-			bw := bufio.NewWriter(w)
-			defer bw.Flush()
-			s := bufio.NewScanner(r.Body)
-			buf := make([]byte, 0, 1024*1024)
-			s.Buffer(buf, 10*1024*1024)
-			for s.Scan() {
-				line := s.Bytes()
-				ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-				res := runScanLine(ctx, line)
-				cancel()
-				b, _ := json.Marshal(res)
-				_, _ = bw.Write(b)
-				_ = bw.WriteByte('\n')
-			}
+	// Alias to support legacy colon-style path
+	r.Post("/scan:async", func(w http.ResponseWriter, r *http.Request) {
+		// Forward to /scan/async handler by rewriting and re-serving
+		r.URL.Path = "/scan/async"
+		r.RequestURI = ""
+		// Serve the rewritten request on this router
+		r = r.WithContext(r.Context())
+		// Re-enter the router stack
+		chi.NewRouter().ServeHTTP(w, r)
+	})
+
+	// Job management endpoints
+	r.Get("/jobs", func(w http.ResponseWriter, r *http.Request) {
+		status := r.URL.Query().Get("status")
+		jobs := opt.JobManager.List(jobs.JobStatus(status))
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"jobs": jobs,
+		})
+	})
+
+	r.Get("/jobs/{jobID}", func(w http.ResponseWriter, r *http.Request) {
+		jobID := chi.URLParam(r, "jobID")
+		job, err := opt.JobManager.Get(jobID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "JOB_NOT_FOUND", err.Error(), nil)
 			return
 		}
-		// aggregate path
-		body, _ := io.ReadAll(r.Body)
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		res := runScanLine(ctx, body)
-		cancel()
-		_ = json.NewEncoder(w).Encode(res)
-	}
-}
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(job)
+	})
 
-func runScanLine(ctx context.Context, data []byte) map[string]any {
-	tmp, _ := os.CreateTemp("", "ps-scan-*.txt")
-	_, _ = tmp.Write(data)
-	_ = tmp.Close()
-	defer os.Remove(tmp.Name())
-	sc := scanner.New(0)
-	rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-	if rulepack == "" {
-		if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-			rulepack = "/rules/basic-security.yaml"
-		} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-			rulepack = "rules/basic-security.yaml"
+	r.Delete("/jobs/{jobID}", func(w http.ResponseWriter, r *http.Request) {
+		jobID := chi.URLParam(r, "jobID")
+		err := opt.JobManager.Cancel(jobID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "JOB_NOT_FOUND", err.Error(), nil)
+			return
 		}
-	}
-	if rulepack != "" {
-		if packs, e := rules.LoadPacks(rulepack); e == nil {
-			sc.LoadRulePacks(packs)
-		}
-	}
-	svc := appscan.NewService(sc)
-	results, err := svc.Scan(ctx, []string{tmp.Name()}, appscan.Options{Workers: 1, PendingWindow: 32})
-	decision := "allow"
-	reason := "no_signals"
-	total := 0
-	if err == nil {
-		anyQuarantine := false
-		anyDeny := false
-		firstRule := ""
-		for _, rr := range results {
-			total += len(rr.Violations)
-			for _, v := range rr.Violations {
-				if firstRule == "" {
-					firstRule = v.RuleID
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// Observability endpoints (admin-protected)
+	r.Group(func(a chi.Router) {
+		a.Use(adminAuth(opt))
+		a.Get("/stats", func(w http.ResponseWriter, r *http.Request) {
+			// Summarize limited stats from Prometheus default gatherer
+			mf, _ := prometheus.DefaultGatherer.Gather()
+			stats := map[string]any{
+				"decisions_total": map[string]int64{},
+				"p95_latency_ms":  0.0,
+			}
+			// decisions
+			for _, m := range mf {
+				if m.GetName() == "ps_enforcer_decisions_total" {
+					for _, mm := range m.Metric {
+						var decision string
+						for _, lp := range mm.Label {
+							if lp.GetName() == "decision" {
+								decision = lp.GetValue()
+								break
+							}
+						}
+						if decision != "" && mm.GetCounter() != nil {
+							dt := stats["decisions_total"].(map[string]int64)
+							dt[decision] += int64(mm.GetCounter().GetValue())
+						}
+					}
 				}
-				a := v.ResponseAction
-				switch a {
-				case "deny", "block":
-					anyDeny = true
-				case "quarantine":
-					anyQuarantine = true
+				if m.GetName() == "ps_enforcer_request_duration_seconds" && m.GetType() == dto.MetricType_HISTOGRAM {
+					// crude p95 from buckets
+					for _, mm := range m.Metric {
+						if mm.GetHistogram() != nil {
+							var total uint64
+							for _, b := range mm.GetHistogram().Bucket {
+								total += b.GetCumulativeCount()
+							}
+							if total == 0 {
+								continue
+							}
+							var threshold = float64(total) * 0.95
+							var cum uint64
+							var p95 float64
+							for _, b := range mm.GetHistogram().Bucket {
+								cum += b.GetCumulativeCount()
+								if float64(cum) >= threshold {
+									p95 = b.GetUpperBound() * 1000.0 // seconds -> ms
+									break
+								}
+							}
+							if p95 > 0 {
+								stats["p95_latency_ms"] = p95
+								break
+							}
+						}
+					}
 				}
 			}
-		}
-		if anyDeny {
-			decision = "deny"
-			reason = firstNonEmpty(firstRule, "response_action")
-		} else if anyQuarantine || total > 0 {
-			decision = "quarantine"
-			reason = firstNonEmpty(firstRule, "signals_detected")
-		}
-	}
-	return map[string]any{"decision": decision, "reason": reason, "violations": total}
-}
+			_ = json.NewEncoder(w).Encode(stats)
+		})
+		a.Get("/events", func(w http.ResponseWriter, r *http.Request) {
+			var flusher http.Flusher
+			if f, ok := w.(http.Flusher); ok {
+				flusher = f
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			ch := opt.Events.Subscribe(r.Context().Done())
+			defer opt.Events.Unsubscribe(ch)
+			// Optional type filtering
+			var filters map[string]struct{}
+			if v := strings.TrimSpace(r.URL.Query().Get("types")); v != "" {
+				filters = make(map[string]struct{})
+				for _, t := range strings.Split(v, ",") {
+					if t = strings.TrimSpace(t); t != "" {
+						filters[t] = struct{}{}
+					}
+				}
+			}
+			// initial
+			_, _ = w.Write([]byte("event: ready\ndata: {\"status\":\"ok\"}\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+			notify := r.Context().Done()
+			for {
+				select {
+				case <-notify:
+					return
+				case ev := <-ch:
+					if ev == nil {
+						return
+					}
+					if len(filters) > 0 {
+						if _, ok := filters[ev.Type]; !ok {
+							continue
+						}
+					}
+					_, _ = w.Write(ev.SSE())
+					if flusher != nil {
+						flusher.Flush()
+					}
+				}
+			}
+		})
+		a.Get("/usage", func(w http.ResponseWriter, r *http.Request) {
+			now := time.Now().UTC()
+			windowStart := now.Add(-1 * time.Hour)
+			// Best-effort usage summary; computing precise usage should be offloaded to metrics pipeline
+			mf, _ := prometheus.DefaultGatherer.Gather()
+			var decisions int64
+			var bytes int64
+			for _, m := range mf {
+				if m.GetName() == "ps_enforcer_decisions_total" {
+					for _, mm := range m.Metric {
+						if mm.GetCounter() != nil {
+							decisions += int64(mm.GetCounter().GetValue())
+						}
+					}
+				}
+				if m.GetName() == "ps_extproc_bytes_total" {
+					if len(m.Metric) > 0 && m.Metric[0].GetCounter() != nil {
+						bytes += int64(m.Metric[0].GetCounter().GetValue())
+					}
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"window_start": windowStart.Format(time.RFC3339),
+				"window_end":   now.Format(time.RFC3339),
+				"counts":       decisions,
+				"bytes":        bytes,
+			})
+		})
+	})
 
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
+	// Expose usage store via context for handlers that may record usage
+	if opt.UsageStore != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := withUsageStore(req.Context(), opt.UsageStore)
+			r.ServeHTTP(w, req.WithContext(ctx))
+		})
 	}
-	return ""
-}
-
-// Helpers
-
-func parseIntDefault(s string, def int) int {
-	if s == "" {
-		return def
-	}
-	if n, err := strconv.Atoi(s); err == nil {
-		return n
-	}
-	return def
-}
-
-func parseInt64Default(s string, def int64) int64 {
-	if s == "" {
-		return def
-	}
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return n
-	}
-	return def
-}
-
-func parseFloatDefault(s string, def float64) float64 {
-	if s == "" {
-		return def
-	}
-	if n, err := strconv.ParseFloat(s, 64); err == nil {
-		return n
-	}
-	return def
-}
-
-// yamlUnmarshal is a local indirection to avoid importing yaml here if not necessary
-var yamlUnmarshal = func(data []byte, v any) error {
-	return yaml.Unmarshal(data, v)
-}
-
-func errNotFound(what string) error { return &notFoundErr{s: what + " not found"} }
-
-type notFoundErr struct{ s string }
-
-func (e *notFoundErr) Error() string { return e.s }
-
-func toErr(errs []error) error {
-	if len(errs) == 0 {
-		return nil
-	}
-	var b strings.Builder
-	for i, e := range errs {
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		b.WriteString(e.Error())
-	}
-	return errors.New(b.String())
+	return r
 }

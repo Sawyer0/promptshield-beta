@@ -7,24 +7,10 @@ import (
 	"github.com/promptshield/promptshield/pkg/types"
 )
 
-// evaluateLine applies all compiled rules and built-ins to a single line and accumulates violations.
-func (s *Scanner) evaluateLine(res *types.ScanResult, line string, lineNum int64, compiledSeen map[string]struct{}, builtinMsgSeen map[string]struct{}) bool {
+// evaluateLine applies all compiled rules to a single line and accumulates violations.
+func (s *Scanner) evaluateLine(res *types.ScanResult, line string, lineNum int64, compiledSeen map[string]struct{}) bool {
 	lower := strings.ToLower(line)
 	matchedAny := false
-	// Built-in keyword rules (simple MVP path)
-	for _, rule := range s.keywordRules {
-		if strings.Contains(lower, rule.keyword) {
-			msgKey := fmt.Sprintf("%s|%d", rule.message, lineNum)
-			builtinMsgSeen[msgKey] = struct{}{}
-			col := 1
-			if idx := strings.Index(lower, rule.keyword); idx >= 0 {
-				col = idx + 1
-			}
-			v := types.Violation{RuleID: rule.id, Message: rule.message, Severity: rule.severity, Line: int(lineNum), Column: col}
-			res.Violations = append(res.Violations, v)
-			matchedAny = true
-		}
-	}
 	// Precompute Aho matches for case-insensitive L1
 	var ahoHits []Match
 	if s.aho != nil {
@@ -92,16 +78,6 @@ func (s *Scanner) evaluateLine(res *types.ScanResult, line string, lineNum int64
 		if matched {
 			compiledKey := fmt.Sprintf("%s|%d", cr.id, lineNum)
 			if _, ok := compiledSeen[compiledKey]; ok {
-				continue
-			}
-			// Collapse duplicate by message if built-in already emitted on same line
-			msgKey := fmt.Sprintf("%s|%d", cr.message, lineNum)
-			if _, ok := builtinMsgSeen[msgKey]; ok {
-				compiledSeen[compiledKey] = struct{}{}
-				matchedAny = true
-				if s.firstMatch {
-					return true
-				}
 				continue
 			}
 			compiledSeen[compiledKey] = struct{}{}
@@ -320,6 +296,14 @@ func (s *Scanner) evalRegexesStandard(res *types.ScanResult, line string, lineNu
 					if !SSNAreaValid(line[loc[0]:loc[1]]) {
 						continue
 					}
+				} else if verifier == "iban" {
+					if !IBANValid(line[loc[0]:loc[1]]) {
+						continue
+					}
+				} else if verifier == "email" {
+					if !EmailValid(line[loc[0]:loc[1]]) {
+						continue
+					}
 				}
 			}
 			key := fmt.Sprintf("%s|%d|rx|%d", cr.id, lineNum, loc[0])
@@ -348,8 +332,7 @@ func (s *Scanner) evalRegexesStandard(res *types.ScanResult, line string, lineNu
 func (s *Scanner) evaluateLongLine(res *types.ScanResult, line []byte, lineNum int64, overlap int) {
 	if len(line) <= s.bufferSizeBytes {
 		compiledRuleSeen := make(map[string]struct{})
-		builtinMsgSeen := make(map[string]struct{})
-		s.evaluateLine(res, string(line), lineNum, compiledRuleSeen, builtinMsgSeen)
+		s.evaluateLine(res, string(line), lineNum, compiledRuleSeen)
 		return
 	}
 	if overlap < 0 {
@@ -357,7 +340,6 @@ func (s *Scanner) evaluateLongLine(res *types.ScanResult, line []byte, lineNum i
 	}
 	step := s.bufferSizeBytes
 	compiledRuleSeen := make(map[string]struct{})
-	builtinMsgSeen := make(map[string]struct{})
 	for start := 0; start < len(line); start += step {
 		end := start + step
 		if end > len(line) {
@@ -366,6 +348,6 @@ func (s *Scanner) evaluateLongLine(res *types.ScanResult, line []byte, lineNum i
 		if end < len(line) && end+overlap <= len(line) {
 			end += overlap
 		}
-		s.evaluateLine(res, string(line[start:end]), lineNum, compiledRuleSeen, builtinMsgSeen)
+		s.evaluateLine(res, string(line[start:end]), lineNum, compiledRuleSeen)
 	}
 }

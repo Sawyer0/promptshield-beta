@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/shared/redact"
@@ -101,6 +102,10 @@ func NewWithOptions(opt Options) *Server {
 	if opt.FailOn == "" {
 		opt.FailOn = "HIGH"
 	}
+	// Allow env-based rulepack when not explicitly provided
+	if strings.TrimSpace(opt.RulepackPath) == "" {
+		opt.RulepackPath = defaultRulepackPathFromEnv()
+	}
 	mode := strings.ToLower(strings.TrimSpace(opt.EnforcementMode))
 	if mode == "" {
 		mode = strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_ENFORCEMENT_MODE")))
@@ -111,6 +116,14 @@ func NewWithOptions(opt Options) *Server {
 	s := &Server{timeout: opt.Timeout, maxStreamBytes: opt.MaxStreamBytes, failOn: opt.FailOn, rulepackPath: opt.RulepackPath, telemetry: opt.Telemetry, enforcementMode: mode}
 	scReq := scanner.New(0)
 	scResp := scanner.New(0)
+	// Wire scanner stream limits to runtime options
+	scReq.SetMaxStreamBytes(opt.MaxStreamBytes)
+	scResp.SetMaxStreamBytes(opt.MaxStreamBytes)
+	// Favor quarantine-on-timeout/error behavior for streaming enforcement
+	scReq.SetQuarantineOnTimeout(true)
+	scReq.SetQuarantineOnError(true)
+	scResp.SetQuarantineOnTimeout(true)
+	scResp.SetQuarantineOnError(true)
 	loaded := false
 	if s.rulepackPath != "" {
 		if packs, err := rules.LoadPacks(s.rulepackPath); err == nil {
@@ -120,6 +133,12 @@ func NewWithOptions(opt Options) *Server {
 		}
 	} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
 		if packs, err := rules.LoadPacks("rules/basic-security.yaml"); err == nil {
+			scReq.LoadRulePacks(packs)
+			scResp.LoadRulePacks(packs)
+			loaded = true
+		}
+	} else if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
+		if packs, err := rules.LoadPacks("/rules/basic-security.yaml"); err == nil {
 			scReq.LoadRulePacks(packs)
 			scResp.LoadRulePacks(packs)
 			loaded = true
@@ -169,8 +188,16 @@ func NewWithOptions(opt Options) *Server {
 			s.overlap = n
 		}
 	}
-	// simple rate limiter (optional)
-	if rpsStr := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); rpsStr != "" {
+	// Rate limiter from license entitlements; fallback env when not licensed
+	if ent, ok := license.Entitlement(); ok && ent.MaxRPS > 0 {
+		burst := 1
+		if b := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); b != "" {
+			if n, err := strconv.Atoi(b); err == nil && n > 0 {
+				burst = n
+			}
+		}
+		s.limiter = rate.NewLimiter(rate.Limit(ent.MaxRPS), burst)
+	} else if rpsStr := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); rpsStr != "" {
 		if r, err := strconv.ParseFloat(rpsStr, 64); err == nil && r > 0 {
 			burst := 1
 			if b := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); b != "" {
@@ -210,7 +237,7 @@ func defaultRulepackPathFromEnv() string {
 	return ""
 }
 
-// Process is a minimal skeleton that immediately returns CONTINUE for now.
+// Process implements the Envoy External Processor with full streaming analysis and enforcement.
 func (s *Server) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 	ctx := stream.Context()
 	// Start a span for the ext_proc stream
@@ -294,11 +321,32 @@ func (s *Server) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 					}
 				}
 			}
-			// echo decision headers for visibility
+			// inject decision headers only if not already present (avoid overriding ext_authz)
+			seenDecision := false
+			seenReason := false
+			if h := x.ResponseHeaders; h != nil && h.Headers != nil {
+				for _, hv := range h.Headers.Headers {
+					if hv == nil {
+						continue
+					}
+					k := strings.ToLower(hv.Key)
+					if k == "x-ps-decision" {
+						seenDecision = true
+					}
+					if k == "x-ps-reason" {
+						seenReason = true
+					}
+				}
+			}
 			rh := &extproc.HeadersResponse{Response: &extproc.CommonResponse{HeaderMutation: &extproc.HeaderMutation{}}}
-			rh.Response.HeaderMutation.SetHeaders = append(rh.Response.HeaderMutation.SetHeaders,
-				header("x-ps-decision", decision), header("x-ps-reason", reason), header("x-ps-extproc", "resp"),
-			)
+			if !seenDecision {
+				rh.Response.HeaderMutation.SetHeaders = append(rh.Response.HeaderMutation.SetHeaders, header("x-ps-decision", decision))
+			}
+			if !seenReason {
+				rh.Response.HeaderMutation.SetHeaders = append(rh.Response.HeaderMutation.SetHeaders, header("x-ps-reason", reason))
+			}
+			// always include marker for visibility
+			rh.Response.HeaderMutation.SetHeaders = append(rh.Response.HeaderMutation.SetHeaders, header("x-ps-extproc", "resp"))
 			if err := stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ResponseHeaders{ResponseHeaders: rh}}); err != nil {
 				span.RecordError(err)
 				return err
@@ -475,6 +523,8 @@ func (s *Server) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 				// Decide based on response actions and severity threshold
 				deny := false
 				doRedact := false
+				doReplace := false
+				replaceBody := ""
 				if len(res.Violations) > 0 {
 					for _, v := range res.Violations {
 						if strings.EqualFold(v.ResponseAction, "deny") || strings.EqualFold(v.ResponseAction, "block") {
@@ -484,6 +534,15 @@ func (s *Server) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 						}
 						if strings.EqualFold(v.ResponseAction, "redact") || strings.EqualFold(v.ResponseAction, "mask") || strings.EqualFold(v.ResponseAction, "quarantine") {
 							doRedact = true
+							if reason == "no_signals" && v.RuleID != "" {
+								reason = v.RuleID
+							}
+						}
+						if strings.EqualFold(v.ResponseAction, "replace") {
+							doReplace = true
+							if v.ResponseReplacement != "" {
+								replaceBody = v.ResponseReplacement
+							}
 							if reason == "no_signals" && v.RuleID != "" {
 								reason = v.RuleID
 							}
@@ -509,6 +568,19 @@ func (s *Server) Process(stream extproc.ExternalProcessor_ProcessServer) error {
 					default:
 						// observe: continue without block
 					}
+				}
+				// Replacement takes precedence over redaction when enabled in enforcing modes
+				if doReplace && s.enforcementMode != "observe" && os.Getenv("PS_ENFORCER_REPLACEMENT_MUTATION") != "0" && strings.ToLower(os.Getenv("PS_ENFORCER_REPLACEMENT_MUTATION")) != "false" {
+					// If no explicit replacement provided, fall back to an empty body
+					bodyOut := replaceBody
+					// Emit metrics and event then terminate stream with immediate 200 OK
+					extprocStreams.WithLabelValues("replace").Inc()
+					extprocStreamDuration.WithLabelValues("replace").Observe(time.Since(start).Seconds())
+					if s.telemetry != nil {
+						s.telemetry.Collect("decision", map[string]any{"ts": time.Now().UTC().Unix(), "decision": "replace", "rule_id": reason})
+					}
+					span.SetAttributes(attribute.String("decision", "replace"), attribute.String("reason", reason))
+					return sendImmediateReplacementResponse(stream, bodyOut, reason)
 				}
 				if doRedact && os.Getenv("PS_ENFORCER_REDACTION_MUTATION") != "0" && strings.ToLower(os.Getenv("PS_ENFORCER_REDACTION_MUTATION")) != "false" {
 					// Apply redaction to current chunk before continuing
@@ -621,6 +693,21 @@ func sendImmediateResponse(stream extproc.ExternalProcessor_ProcessServer, decis
 		Status:  &typev3.HttpStatus{Code: typev3.StatusCode_Forbidden},
 		Headers: &extproc.HeaderMutation{SetHeaders: []*corev3.HeaderValueOption{header("x-ps-decision", decision), header("x-ps-reason", reason)}},
 		Body:    []byte("blocked by PromptShield"),
+	}
+	return stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ImmediateResponse{ImmediateResponse: resp}})
+}
+
+// sendImmediateReplacementResponse terminates processing with a 200 OK and the provided body.
+// Envoy will return this body to the client, replacing the upstream response.
+func sendImmediateReplacementResponse(stream extproc.ExternalProcessor_ProcessServer, body string, reason string) error {
+	// Default replacement body content if empty
+	if body == "" {
+		body = "[CONTENT_REPLACED]"
+	}
+	resp := &extproc.ImmediateResponse{
+		Status:  &typev3.HttpStatus{Code: typev3.StatusCode_OK},
+		Headers: &extproc.HeaderMutation{SetHeaders: []*corev3.HeaderValueOption{header("x-ps-decision", "replace"), header("x-ps-reason", reason)}},
+		Body:    []byte(body),
 	}
 	return stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ImmediateResponse{ImmediateResponse: resp}})
 }

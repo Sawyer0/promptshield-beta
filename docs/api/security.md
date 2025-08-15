@@ -11,6 +11,7 @@ Certificates should be provisioned via Kubernetes Secrets (see `deployments/kube
 
 ## Request Authentication (HTTP)
 
+### User Authentication (API Endpoints)
 - Bearer token (Authorization header):
   - `Authorization: Bearer <token>`
   - Enable by setting `PS_ENFORCER_AUTH_TOKEN=<token>`
@@ -18,7 +19,43 @@ Certificates should be provisioned via Kubernetes Secrets (see `deployments/kube
   - `X-PS-Token: <token>`
   - Also validated against `PS_ENFORCER_AUTH_TOKEN`
 
-If `PS_ENFORCER_AUTH_TOKEN` is unset, the `/check` endpoint allows unauthenticated access (suitable for sidecar-only or internal networks).
+- Optional OIDC (JWT validation):
+  - Configure `Options.OIDC.Issuer` (and optional `Audience`) to enable JWT verification for user endpoints.
+  - Claims from the verified ID token are attached to request context and used for tenancy resolution.
+
+**Protected User Endpoints:**
+- `POST /v1/check` - Security decision API
+- `POST /v1/scan` - Batch scanning API
+- `POST /v1/scan/async` - Async job submission
+
+### Admin Authentication (Management Endpoints)
+- Bearer token with admin privileges:
+  - `Authorization: Bearer <admin-token>`
+  - Enable by setting `PS_ENFORCER_ADMIN_TOKEN=<admin-token>`
+- Custom header:
+  - `X-PS-Admin-Token: <admin-token>`
+
+**Protected Admin Endpoints:**
+- `GET /v1/license` - License and billing information
+- `POST /v1/license` - License key updates
+- `GET /v1/usage` - Usage and billing data
+- `GET /v1/stats` - Performance statistics
+- `GET /v1/events` - Real-time event stream
+- `PUT /v1/config` - Runtime configuration changes
+- `POST /v1/rulepacks` - Rule pack management
+- `POST /v1/admin/shutdown` - Service control
+
+**Security Model:**
+- If `PS_ENFORCER_AUTH_TOKEN` is unset, user endpoints allow unauthenticated access (suitable for internal networks)
+- Admin endpoints always require authentication when `PS_ENFORCER_ADMIN_TOKEN` is set
+- Different tokens provide role-based access control
+
+## Tenancy & Quotas
+
+- Tenancy resolution order:
+  1. OIDC JWT claims (`tid`, `tenant`, `org`, `azp`)
+  2. Header `x-tenant-id`
+- Per-tenant quotas may be enforced when `Options.QuotaStore` is configured. Exceeding limits returns `429 RESOURCE_EXHAUSTED`.
 
 ## Limits & Budgets
 

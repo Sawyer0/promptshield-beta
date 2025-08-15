@@ -178,7 +178,7 @@ func TestEdgeCases(t *testing.T) {
 
 func TestSemanticLevel3_WithFakeAdapter(t *testing.T) {
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	sc.SetSemanticAnalyzer(semfake.Analyzer{})
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "sem"},
@@ -197,7 +197,7 @@ func TestSemanticLevel3_WithFakeAdapter(t *testing.T) {
 
 func TestSemanticLevel3_TimeoutFallsBack(t *testing.T) {
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	// Fake delays beyond budget so we fall back to regex
 	sc.SetSemanticAnalyzer(semfake.Analyzer{Delay: 200 * time.Millisecond})
 	sc.LoadRulePacks([]rules.RulePack{{
@@ -230,7 +230,7 @@ func TestSemanticLevel3_TimeoutFallsBack(t *testing.T) {
 func TestKeywordOptions_Precedence(t *testing.T) {
 	// Global defaults: case sensitive false, whole word false
 	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	// Built-in keyword rules removed
 	sc.SetRuleDefaults(0, false, false)
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "kw"},

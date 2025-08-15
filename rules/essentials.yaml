@@ -1,0 +1,178 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: essentials
+  version: 1.0.0
+  description: Essential security rules for immediate LLM protection
+  authors:
+    - PromptShield Security Team
+  tags:
+    - production-ready
+    - zero-config
+    - enterprise
+
+# Zero-configuration security for immediate deployment
+rules:
+  # === PROMPT INJECTION PROTECTION ===
+  - id: prompt-injection-ignore-previous
+    name: Direct instruction override attempts
+    description: Detects explicit attempts to override system instructions
+    level: 1
+    severity: CRITICAL
+    keywords: 
+      - "ignore previous instructions"
+      - "ignore all previous"
+      - "disregard previous"
+      - "forget everything"
+      - "ignore system prompt"
+    response:
+      action: quarantine
+      message: "Prompt injection detected: Direct instruction override"
+
+  - id: prompt-injection-jailbreak
+    name: Common jailbreak patterns
+    description: Detects DAN and other jailbreak attempts
+    level: 1
+    severity: CRITICAL
+    keywords:
+      - "DAN mode"
+      - "developer mode"
+      - "jailbreak"
+      - "do anything now"
+      - "unlock mode"
+      - "unrestricted mode"
+    response:
+      action: quarantine
+      message: "Jailbreak attempt detected"
+
+  - id: prompt-injection-role-manipulation
+    name: Role manipulation attempts
+    description: Detects attempts to change AI role or persona
+    level: 1
+    severity: HIGH
+    keywords:
+      - "you are now"
+      - "act as"
+      - "pretend to be"
+      - "from now on"
+      - "new persona"
+    response:
+      action: quarantine
+      message: "Role manipulation detected"
+
+  # === CRITICAL PII PROTECTION ===
+  - id: pii-ssn-pattern
+    name: Social Security Number detection
+    description: Detects US SSN patterns with validation
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "\\b(?!000|666|9\\d{2})\\d{3}[-\\s]?(?!00)\\d{2}[-\\s]?(?!0000)\\d{4}\\b"
+    response:
+      action: quarantine
+      message: "Social Security Number detected"
+
+  - id: pii-credit-card-pattern
+    name: Credit card number detection
+    description: Detects major credit card number patterns
+    level: 2
+    severity: CRITICAL
+    patterns:
+      # Visa, Mastercard, Amex, Discover patterns
+      - regex: "\\b4[0-9]{3}[-\\s]?[0-9]{4}[-\\s]?[0-9]{4}[-\\s]?[0-9]{4}\\b"
+      - regex: "\\b5[1-5][0-9]{2}[-\\s]?[0-9]{4}[-\\s]?[0-9]{4}[-\\s]?[0-9]{4}\\b"
+      - regex: "\\b3[47][0-9]{2}[-\\s]?[0-9]{6}[-\\s]?[0-9]{5}\\b"
+    response:
+      action: quarantine
+      message: "Credit card number detected"
+
+  # === API KEY & CREDENTIAL PROTECTION ===
+  - id: api-key-openai
+    name: OpenAI API key detection
+    description: Detects OpenAI API keys (sk- prefix)
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "sk-[a-zA-Z0-9]{20,}"
+    response:
+      action: quarantine
+      message: "OpenAI API key detected"
+
+  - id: api-key-generic
+    name: Generic API key patterns
+    description: Detects common API key formats
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: "(?i)(api[_-]?key|apikey)[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9_\\-]{20,})['\"]?"
+        flags: [ignorecase]
+      - regex: "(?i)(secret[_-]?key|auth[_-]?token)[\\s]*[:=][\\s]*['\"]?([a-zA-Z0-9_\\-]{20,})['\"]?"
+        flags: [ignorecase]
+    response:
+      action: quarantine
+      message: "API key pattern detected"
+
+  - id: aws-credentials
+    name: AWS credentials detection
+    description: Detects AWS access keys
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: "AKIA[0-9A-Z]{16}"
+    response:
+      action: quarantine
+      message: "AWS credentials detected"
+
+  # === RESPONSE PROTECTION ===
+  - id: response-api-key-leak
+    name: API key in response
+    description: Prevents API keys from leaking in responses
+    level: 1
+    severity: CRITICAL
+    when:
+      match:
+        direction: ["response"]
+    keywords: ["api_key", "api-key", "apikey"]
+    response:
+      action: redact
+      message: "API key redacted from response"
+
+  - id: response-password-leak
+    name: Password in response
+    description: Prevents passwords from leaking in responses
+    level: 1
+    severity: CRITICAL
+    when:
+      match:
+        direction: ["response"]
+    keywords: ["password", "passwd", "pwd"]
+    response:
+      action: redact
+      message: "Password redacted from response"
+
+  - id: response-secret-patterns
+    name: Secret patterns in response
+    description: Redacts secret patterns from responses
+    level: 2
+    severity: HIGH
+    when:
+      match:
+        direction: ["response"]
+    patterns:
+      - regex: "sk-[a-zA-Z0-9]{20,}"
+      - regex: "(?i)(secret|token)\\s*[:=]\\s*['\"]?[a-zA-Z0-9_\\-]{16,}['\"]?"
+        flags: [ignorecase]
+    response:
+      action: redact
+      message: "Secret pattern redacted from response"
+
+# Performance optimized for production
+performance:
+  buffer_bytes: 32768
+  chunk_overlap: 256
+  per_rule_timeout: 50ms
+  case_sensitive: false
+
+# Fail-safe composition
+composition:
+  strategy: all_matches

@@ -22,7 +22,7 @@ type RotatingFileLogger struct {
 func NewDailyRotatingLogger(basePath string) (*RotatingFileLogger, error) {
 	// Use the provided basePath verbatim (no extension manipulation) to keep tests and docs stable.
 	dir := filepath.Dir(basePath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
 	lj := &lumberjack.Logger{
