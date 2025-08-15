@@ -102,14 +102,16 @@ This document describes the complete technical stack used by PromptShield, deriv
   - Endpoints: `/healthz`, `/readyz`, `/check`, `/metrics`
   - Tracing: `otelhttp` handler wrapper; emits `x-ps-trace-id` when available
   - Decisions: allow/quarantine/deny (stub), emits headers `x-ps-decision`, `x-ps-reason`
-  - TLS/mTLS: Optional via `PS_ENFORCER_TLS_*` env
+  - TLS/mTLS: `PS_ENFORCER_TLS_MODE=auto|require|disable` (default `auto`);
+    auto-detects certs at `/tls/server.crt` + `/tls/server.key` when envs unset; mTLS via `PS_ENFORCER_TLS_CLIENT_CA`
   - Licensing: Evaluation vs licensed headers via `internal/license`
 - **gRPC Enforcer (Envoy ext_proc)** (`internal/interfaces/grpc/enforcer`)
   - API: Envoy `ext_proc v3` (`envoyproxy/go-control-plane`)
   - Interceptors: recovery + logging + `otelgrpc` stats handler
   - Streaming: Sliding windows with overlap for cross-chunk matching; rate limiter; inflight bytes ceiling; global stream slots
   - Decisions: threshold-based + response-action aware; optional redaction mutations for response chunks
-  - TLS/mTLS: Optional via `PS_ENFORCER_GRPC_TLS_*` env
+  - TLS/mTLS: `PS_ENFORCER_GRPC_TLS_MODE=auto|require|disable` (default `auto`);
+    auto-detects certs at `/tls/server.crt` + `/tls/server.key` when envs unset; mTLS via `PS_ENFORCER_GRPC_TLS_CLIENT_CA`
 
 ## Security & Privacy
 
@@ -152,11 +154,11 @@ This document describes the complete technical stack used by PromptShield, deriv
   - Tuning: `PS_SEMANTIC_MAX_CONCURRENCY`, `PS_SEMANTIC_CACHE_SIZE`, `PS_SEMANTIC_CACHE_TTL`
 - Enforcer (HTTP):
   - `PS_ENFORCER_ADDR`, `PS_ENFORCER_RULEPACK`, `PS_ENFORCER_AUTH_TOKEN`
-  - TLS: `PS_ENFORCER_TLS_CERT`, `PS_ENFORCER_TLS_KEY`, `PS_ENFORCER_TLS_CLIENT_CA`
+  - TLS: `PS_ENFORCER_TLS_MODE`, `PS_ENFORCER_TLS_CERT`, `PS_ENFORCER_TLS_KEY`, `PS_ENFORCER_TLS_CLIENT_CA`
   - Body limits: `PS_ENFORCER_MAX_BODY_BYTES`
 - Enforcer (gRPC ext_proc):
   - `PS_ENFORCER_GRPC_ADDR`
-  - TLS: `PS_ENFORCER_GRPC_TLS_CERT`, `PS_ENFORCER_GRPC_TLS_KEY`, `PS_ENFORCER_GRPC_TLS_CLIENT_CA`
+  - TLS: `PS_ENFORCER_GRPC_TLS_MODE`, `PS_ENFORCER_GRPC_TLS_CERT`, `PS_ENFORCER_GRPC_TLS_KEY`, `PS_ENFORCER_GRPC_TLS_CLIENT_CA`
   - Streaming tunables: `PS_ENFORCER_STREAM_WINDOW`, `PS_ENFORCER_STREAM_OVERLAP`
   - Rate limit: `PS_ENFORCER_RPS`, `PS_ENFORCER_RPS_BURST`
   - Inflight limits: `PS_ENFORCER_INFLIGHT_LIMIT_BYTES`, `PS_ENFORCER_INFLIGHT_BACKOFF_MS`

@@ -106,6 +106,7 @@ PromptShield uses environment-first configuration (no CLI flags):
 - `PS_WORKERS=N` — Worker pool size (0=auto)
 - `PS_ALLOW_PATHS` / `PS_DENY_PATHS` — Path filtering
 - Enforcer: `PS_ENFORCER_*` — addresses, TLS, budgets, streaming windows/overlap
+- OIDC: `PS_ENFORCER_OIDC_ISSUER`, `PS_ENFORCER_OIDC_AUDIENCE` — Enterprise authentication
 
 ### Development Notes
 

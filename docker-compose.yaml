@@ -23,6 +23,9 @@ services:
       - PS_ENFORCER_MODE=${PS_ENFORCER_MODE:-observe}
       - PS_ENFORCER_ENFORCEMENT_MODE=${PS_ENFORCER_MODE:-observe}
       - PS_HYPERSCAN=${PS_HYPERSCAN:-false}
+      - PS_ENFORCER_TLS_MODE=disable
+      - PS_ENFORCER_GRPC_TLS_MODE=disable
+      - PROMPTSHIELD_LICENSE_KEY=${PROMPTSHIELD_LICENSE_KEY:-}
     volumes:
       - ./rules:/rules:ro
     ports:

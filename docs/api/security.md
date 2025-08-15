@@ -2,12 +2,24 @@
 
 ## Transport Security
 
-- HTTP TLS: set `PS_ENFORCER_TLS_CERT` and `PS_ENFORCER_TLS_KEY`
-- HTTP mTLS: additionally set `PS_ENFORCER_TLS_CLIENT_CA` to require and verify client certs
-- gRPC TLS: set `PS_ENFORCER_GRPC_TLS_CERT` and `PS_ENFORCER_GRPC_TLS_KEY`
-- gRPC mTLS: additionally set `PS_ENFORCER_GRPC_TLS_CLIENT_CA`
+- HTTP TLS:
+  - Provide certs with `PS_ENFORCER_TLS_CERT` and `PS_ENFORCER_TLS_KEY`.
+  - Modes via `PS_ENFORCER_TLS_MODE=auto|require|disable` (default `auto`).
+    - `auto`: TLS is required on non-loopback binds (e.g., `:9090`, `0.0.0.0`, `::`). Loopback (`127.0.0.1`, `localhost`) may run without TLS.
+    - `require`: always require TLS; startup fails if no certs.
+    - `disable`: allow plain HTTP on any bind (intended for local/dev only).
+  - Auto-detect: if env vars are unset, cert/key are auto-discovered at `/tls/server.crt` and `/tls/server.key` (or `tls/server.crt` and `tls/server.key`).
+  - mTLS: additionally set `PS_ENFORCER_TLS_CLIENT_CA` to require and verify client certs.
+
+- gRPC TLS:
+  - Provide certs with `PS_ENFORCER_GRPC_TLS_CERT` and `PS_ENFORCER_GRPC_TLS_KEY`.
+  - Modes via `PS_ENFORCER_GRPC_TLS_MODE=auto|require|disable` (default `auto`), with identical behavior to HTTP.
+  - Auto-detect: if env vars are unset, cert/key are auto-discovered at `/tls/server.crt` and `/tls/server.key` (or `tls/server.crt` and `tls/server.key`).
+  - mTLS: additionally set `PS_ENFORCER_GRPC_TLS_CLIENT_CA`.
 
 Certificates should be provisioned via Kubernetes Secrets (see `deployments/kubernetes/enforcer.yaml`) or mounted securely in other environments.
+
+Note: the `gateway` binds `:9090`/`:9091` by default (non-loopback). You must provide certs or set `PS_ENFORCER_TLS_MODE=disable` and `PS_ENFORCER_GRPC_TLS_MODE=disable` to run it without TLS.
 
 ## Request Authentication (HTTP)
 
@@ -20,7 +32,8 @@ Certificates should be provisioned via Kubernetes Secrets (see `deployments/kube
   - Also validated against `PS_ENFORCER_AUTH_TOKEN`
 
 - Optional OIDC (JWT validation):
-  - Configure `Options.OIDC.Issuer` (and optional `Audience`) to enable JWT verification for user endpoints.
+  - Enable by setting `PS_ENFORCER_OIDC_ISSUER` (e.g., "https://auth.example.com")
+  - Optionally set `PS_ENFORCER_OIDC_AUDIENCE` for audience validation
   - Claims from the verified ID token are attached to request context and used for tenancy resolution.
 
 **Protected User Endpoints:**

@@ -117,7 +117,13 @@ spec:
             value: "67108864"   # 64MB total inflight cap across streams
           - name: PS_ENFORCER_INFLIGHT_BACKOFF_MS
             value: "5"          # backoff between admission checks when above ceiling
-        # Enable TLS and mTLS on both HTTP and gRPC servers
+        # TLS/mTLS settings (HTTP + gRPC)
+        # TLS mode: auto-require on non-loopback, allow loopback without TLS; override via *_TLS_MODE
+        - name: PS_ENFORCER_TLS_MODE
+          value: "auto"        # auto|require|disable (default auto)
+        - name: PS_ENFORCER_GRPC_TLS_MODE
+          value: "auto"        # auto|require|disable (default auto)
+        # Provide certs via secrets mount (auto-discovered at /tls by default)
         - name: PS_ENFORCER_TLS_CERT
           value: "/tls/server.crt"
         - name: PS_ENFORCER_TLS_KEY
