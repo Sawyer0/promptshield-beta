@@ -1,0 +1,47 @@
+rules:
+  - id: ITAR-CONTROLLED
+    category: Classified
+    severity: high
+    message: Controlled information handling detected
+    keywords: ["itar", "controlled", "classified", "export"]
+    match:
+      type: any
+      caseSensitive: false
+      wordBoundary: true
+    scope: both
+    action: block
+
+  # Tier 2: Regex for classified markers
+  - id: GOV-CLASS-REGEX
+    category: Classified
+    severity: high
+    message: Classified markers via regex
+    patterns:
+      - regex: "(?i)(secret|confidential|top secret)"
+    scope: outbound
+    action: block
+
+  - id: GOV-REDACT
+    category: Classified
+    severity: high
+    message: Redacting sensitive terms from assistant reply
+    patterns:
+      - regex: "(?i)(classified|controlled|itar)"
+    scope: inbound
+    action: redact
+    redact:
+      fields: ["choices[].message.content"]
+      replacement: "[REDACTED-SENSITIVE]"
+
+  # Tier 3: LLM escalation for policy breach
+  - id: GOV-LLM-POLICY
+    category: Policy
+    severity: critical
+    message: LLM flagged policy breach
+    scope: both
+    action: block
+    llm:
+      classifier: policy-breach-v1
+      label: unsafe
+      threshold: 0.8
+

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"log"
 	"net"
 	"net/http"
@@ -14,23 +13,25 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/promptshield/promptshield/internal/audit"
 	"github.com/promptshield/promptshield/internal/discovery"
 	"github.com/promptshield/promptshield/internal/encoding/jsonx"
+	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
+	"github.com/promptshield/promptshield/internal/usage"
+	redis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/time/rate"
 )
 
 // HTTP server for the PromptShield enforcer.
@@ -54,6 +55,10 @@ var (
 		prometheus.HistogramOpts{Name: "ps_enforcer_request_duration_seconds", Help: "Request duration in seconds", Buckets: prometheus.DefBuckets},
 		[]string{"path", "decision"},
 	)
+	policyBypass = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "ps_policy_bypass_total", Help: "Total requests served in policy bypass mode"},
+		[]string{"reason"},
+	)
 )
 
 // Optional performance toggles (env-driven)
@@ -72,9 +77,20 @@ func fastMode() bool {
 	return v == "1" || v == "true" || v == "yes"
 }
 
+// envBool returns true when the provided env var is set to 1, true, yes, or on (case-insensitive).
+func envBool(key string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func init() {
 	// Best-effort registration; ignore panics on duplicate in tests
-	prometheus.MustRegister(enforcerRequests, enforcerDecisions, enforcerReqDuration)
+	prometheus.MustRegister(enforcerRequests, enforcerDecisions, enforcerReqDuration, policyBypass)
 }
 
 func NewMux() http.Handler { // backward-compatible wrapper
@@ -85,6 +101,15 @@ func NewMux() http.Handler { // backward-compatible wrapper
 func getAPIOptions() api.Options {
 	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
 
+	// Optional insecure mode toggle for local dev / demos
+	allowInsecure := false
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_ALLOW_INSECURE_ADMIN"))); v != "" {
+		switch v {
+		case "1", "true", "yes", "on":
+			allowInsecure = true
+		}
+	}
+
 	// OIDC configuration
 	oidcConfig := api.OIDCConfig{
 		Issuer:   os.Getenv("PS_ENFORCER_OIDC_ISSUER"),
@@ -92,14 +117,40 @@ func getAPIOptions() api.Options {
 	}
 
 	return api.Options{
-		AdminToken: adminToken,
-		OIDC:       oidcConfig,
+		AdminToken:         adminToken,
+		AllowInsecureAdmin: allowInsecure,
+		OIDC:               oidcConfig,
 	}
 }
 
 // NewMuxWithOptions constructs the HTTP handler mux with injectable API options.
 func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	r := chi.NewRouter()
+	// Perform startup DB health check (optional). When DB is unreachable, we
+	// downgrade enforcement mode to "observe" and mark readiness probe
+	// unhealthy, but still allow the service to start (fail-open) so traffic
+	// is not blocked during outages.
+	dbHealthy := true
+	if dsn := os.Getenv("PS_PG_DSN"); dsn != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if pool, err := pg.NewPool(ctx, dsn); err == nil {
+			pingCtx, cancelPing := context.WithTimeout(ctx, 2*time.Second)
+			if _, err := pool.Raw().Exec(pingCtx, "SELECT 1"); err != nil {
+				dbHealthy = false
+			}
+			cancelPing()
+			pool.Close()
+		} else {
+			dbHealthy = false
+		}
+		if !dbHealthy {
+			// Switch to observe mode to fail-open.
+			os.Setenv("PS_ENFORCER_MODE", "observe")
+			log.Printf("[WARN] Database unreachable at startup (%s); entering OBSERVE fail-open mode", dsn)
+		}
+	}
+
 	// Middlewares: request id, real ip, recoverer, timeout (defense in depth; keep short)
 	if !fastMode() {
 		r.Use(middleware.RequestID)
@@ -109,68 +160,10 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	}
 	// Global HTTP rate limiter from license entitlements; fallback to unlimited
 	// Must be registered before any routes on chi mux
-	if ent, ok := license.Entitlement(); ok && ent.MaxRPS > 0 {
-		burst := 1
-		if b := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); b != "" {
-			if n, err := strconv.Atoi(b); err == nil && n > 0 {
-				burst = n
-			}
-		}
-		limiter := rate.NewLimiter(rate.Limit(ent.MaxRPS), burst)
-		// Basic inflight bytes accounting for billing (optional)
-		var inflight int64
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				if !limiter.Allow() {
-					w.Header().Set("content-type", "application/json")
-					w.WriteHeader(http.StatusTooManyRequests)
-					_ = json.NewEncoder(w).Encode(map[string]any{"code": "RESOURCE_EXHAUSTED", "message": "rate limit exceeded", "details": map[string]any{"max_rps": ent.MaxRPS}})
-					return
-				}
-				// Track inflight bytes via Content-Length (approximate)
-				if cl := req.Header.Get("Content-Length"); cl != "" {
-					if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
-						atomic.AddInt64(&inflight, n)
-						defer atomic.AddInt64(&inflight, -n)
-					}
-				}
-				next.ServeHTTP(w, req)
-			})
-		})
-	}
-
-	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	// Readiness gate: health plus rulepack/scanner ready
-	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		// Basic check: require rulepack env or default pack present
-		if os.Getenv("PS_ENFORCER_RULEPACK") == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err != nil {
-				if _, err := os.Stat("rules/basic-security.yaml"); err != nil {
-					http.Error(w, "not ready", http.StatusServiceUnavailable)
-					return
-				}
-			}
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
-	})
-
-	// Prometheus metrics endpoint (optional)
-	if metricsEnabled() {
-		r.Handle("/metrics", promhttp.Handler())
-	}
-
-	// Mount v1 API
-	r.Mount("/v1", api.NewMux(apiOpt))
-
-	// Prepare scanner pool and optionally preload rulepacks to reduce per-request overhead
-	var (
-		preloadPacks []rules.RulePack
-		scannerPool  = &sync.Pool{}
-	)
+	// preloadPacks declared early for readiness probe access; initialized later.
+	var preloadPacks []rules.RulePack
+	var scannerPool = &sync.Pool{}
+	// Preload rulepacks early so readiness probe has accurate state.
 	{
 		rulepackPath := os.Getenv("PS_ENFORCER_RULEPACK")
 		if rulepackPath == "" {
@@ -185,6 +178,53 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 				preloadPacks = packs
 			}
 		}
+	}
+	var maxStreamBytes int64
+	if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			maxStreamBytes = n
+		}
+	}
+	scannerPool.New = func() any {
+		sc := scanner.New(0)
+		if maxStreamBytes > 0 {
+			sc.SetMaxStreamBytes(maxStreamBytes)
+		}
+		sc.SetQuarantineOnTimeout(true)
+		sc.SetQuarantineOnError(true)
+		if len(preloadPacks) > 0 {
+			sc.LoadRulePacks(preloadPacks)
+		}
+		return sc
+	}
+
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	// Readiness gate: health plus rulepack/scanner ready
+	requireAtStartup := envBool("PS_REQUIRE_RULEPACK_AT_STARTUP")
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		hasActivePack := len(preloadPacks) > 0
+		ready := dbHealthy && (hasActivePack || !requireAtStartup)
+		if !ready {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready"))
+	})
+
+	// Prometheus metrics endpoint (optional)
+	if metricsEnabled() {
+		r.Handle("/metrics", promhttp.Handler())
+	}
+
+	// Mount v1 API
+	r.Mount("/v1", api.NewMux(apiOpt))
+
+	// Prepare scanner pool and optionally preload rulepacks to reduce per-request overhead
+	{
 		var maxStreamBytes int64
 		if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
@@ -334,6 +374,17 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 			enforcerRequests.WithLabelValues("/check", strconv.Itoa(statusCode)).Inc()
 			enforcerReqDuration.WithLabelValues("/check", decision).Observe(time.Since(start).Seconds())
 		}
+
+		// Emit policy bypass metric when serving with no active rulepack or when configured bypass is in effect.
+		if len(preloadPacks) == 0 {
+			if metricsEnabled() {
+				policyBypass.WithLabelValues("no_rules").Inc()
+			}
+		} else if !requireAtStartup {
+			if metricsEnabled() {
+				policyBypass.WithLabelValues("config").Inc()
+			}
+		}
 		_ = discovery.ErrNoInputFiles // keep imported until multi-path support
 	}
 	// Handle all /check paths for ext_authz path_prefix behavior
@@ -359,6 +410,34 @@ func Serve(addr string) *http.Server {
 	var srv *http.Server
 	// Inject shutdown hooks into API mux
 	options := getAPIOptions()
+	// Wire Redis-backed UsageStore when configured
+	if options.UsageStore == nil {
+		if addr := strings.TrimSpace(os.Getenv("PS_USAGE_REDIS_ADDR")); addr != "" {
+			// Normalize prefix: default to PS_REGION or "ps"
+			prefix := strings.TrimSpace(os.Getenv("PS_USAGE_PREFIX"))
+			if prefix == "" {
+				prefix = strings.TrimSpace(os.Getenv("PS_REGION"))
+			}
+			if prefix == "" {
+				prefix = "ps"
+			}
+			// Optional TTL in days
+			ttlDays := 35
+			if v := strings.TrimSpace(os.Getenv("PS_USAGE_TTL_DAYS")); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					ttlDays = n
+				}
+			}
+			rdb := redis.NewClient(&redis.Options{Addr: addr})
+			options.UsageStore = usage.NewRedisUsageStore(rdb, prefix, time.Duration(ttlDays)*24*time.Hour)
+		}
+	}
+	// Construct durable audit logger from environment and adapt to API interface
+	var auditClose func() error
+	if lgr, closeFn, err := audit.NewLoggerFromEnv(); err == nil && lgr != nil {
+		options.AuditLogger = auditAdapter{inner: lgr}
+		auditClose = closeFn
+	}
 	options.OnDrain = func(ctx context.Context) error { return nil }
 	options.OnShutdown = func(ctx context.Context, delay time.Duration) error {
 		if delay > 0 {
@@ -367,6 +446,12 @@ func Serve(addr string) *http.Server {
 			case <-ctx.Done():
 				return ctx.Err()
 			}
+		}
+		if auditClose != nil {
+			_ = auditClose()
+		}
+		if options.UsageStore != nil {
+			_ = options.UsageStore.Close(ctx)
 		}
 		if srv != nil {
 			return srv.Shutdown(ctx)
@@ -453,6 +538,13 @@ func Serve(addr string) *http.Server {
 
 func generateRequestID() string {
 	return uuid.NewString()
+}
+
+// auditAdapter adapts internal/audit.Logger to api.AuditLogger
+type auditAdapter struct{ inner audit.Logger }
+
+func (a auditAdapter) Log(ev api.AuditEvent) error {
+	return a.inner.Log(audit.Event{Type: ev.Type, Data: ev.Data, Hash: ev.Hash, PrevHash: ev.PrevHash})
 }
 
 // exported for reuse in api

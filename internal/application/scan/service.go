@@ -3,18 +3,19 @@ package scan
 import (
 	"context"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+
+	"os"
 
 	cfg "github.com/promptshield/promptshield/internal/config"
 	"github.com/promptshield/promptshield/internal/discovery"
 	"github.com/promptshield/promptshield/internal/rules"
-	"github.com/promptshield/promptshield/internal/scanner"
 	sharederrors "github.com/promptshield/promptshield/internal/shared/errors"
 	"github.com/promptshield/promptshield/pkg/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+	"gopkg.in/yaml.v3"
 )
 
 // Options represents inputs to a scan request.
@@ -27,12 +28,12 @@ type Options struct {
 
 // Service coordinates rulepack loading, discovery, and scanning.
 type Service struct {
-	scanner *scanner.Scanner
+	scanner Engine
 	// Optional config defaults
 	config *cfg.Config
 }
 
-func NewService(sc *scanner.Scanner) *Service { return &Service{scanner: sc} }
+func NewService(sc Engine) *Service { return &Service{scanner: sc} }
 
 // WithConfig injects config for rule defaults and returns the service for chaining.
 func (s *Service) WithConfig(c cfg.Config) *Service {
@@ -47,13 +48,38 @@ func containsLevel3(packs []rules.RulePack) bool {
 				return true
 			}
 		}
+		// If no rules parsed (e.g., pack uses spec.rules), do a lightweight parse.
+		if len(p.Rules) == 0 && p.SourcePath != "" {
+			if hasL3, _ := detectLevel3InSpec(p.SourcePath); hasL3 {
+				return true
+			}
+		}
 	}
 	return false
 }
 
-func isTrue(s string) bool {
-	b, _ := strconv.ParseBool(s)
-	return b
+// detectLevel3InSpec parses only spec.rules to find level 3 without full validation.
+func detectLevel3InSpec(path string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	var doc struct {
+		Spec struct {
+			Rules []struct {
+				Level int `yaml:"level" json:"level"`
+			} `yaml:"rules" json:"rules"`
+		} `yaml:"spec" json:"spec"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return false, err
+	}
+	for _, r := range doc.Spec.Rules {
+		if r.Level == 3 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) scannerTracer() trace.Tracer { return otel.Tracer("promptshield/app") }
@@ -82,13 +108,18 @@ func (s *Service) Scan(ctx context.Context, args []string, opts Options) ([]type
 		// Merge CLI context overrides (last-one-wins per pack)
 		if len(opts.ContextKVs) > 0 {
 			ctxMap := parseContextKVs(opts.ContextKVs)
-			for i := range packs {
-				if packs[i].Context == nil {
-					packs[i].Context = map[string]string{}
+			if len(packs) > 0 {
+				for i := range packs {
+					if packs[i].Context == nil {
+						packs[i].Context = map[string]string{}
+					}
+					for k, v := range ctxMap {
+						packs[i].Context[k] = v
+					}
 				}
-				for k, v := range ctxMap {
-					packs[i].Context[k] = v
-				}
+			} else {
+				// No packs loaded – still pass runtime context to scanner so rules with when/unless can work.
+				s.scanner.SetRuntimeContext(ctxMap)
 			}
 		}
 		// If L3 rules are present, require a configured semantic analyzer.
@@ -141,6 +172,13 @@ func (s *Service) Scan(ctx context.Context, args []string, opts Options) ([]type
 		}
 		if len(runtimeCtx) > 0 {
 			s.scanner.SetRuntimeContext(runtimeCtx)
+		}
+	}
+	// If no rulepacks were loaded but context KVs provided, still set runtime context.
+	if len(opts.ContextKVs) > 0 && s.scanner != nil {
+		ctxMap := parseContextKVs(opts.ContextKVs)
+		if len(ctxMap) > 0 {
+			s.scanner.SetRuntimeContext(ctxMap)
 		}
 	}
 
@@ -199,13 +237,18 @@ func (s *Service) Stream(ctx context.Context, args []string, opts StreamOptions)
 		}
 		if len(opts.ContextKVs) > 0 {
 			ctxMap := parseContextKVs(opts.ContextKVs)
-			for i := range packs {
-				if packs[i].Context == nil {
-					packs[i].Context = map[string]string{}
+			if len(packs) > 0 {
+				for i := range packs {
+					if packs[i].Context == nil {
+						packs[i].Context = map[string]string{}
+					}
+					for k, v := range ctxMap {
+						packs[i].Context[k] = v
+					}
 				}
-				for k, v := range ctxMap {
-					packs[i].Context[k] = v
-				}
+			} else {
+				// No packs loaded – still pass runtime context to scanner so rules with when/unless can work.
+				s.scanner.SetRuntimeContext(ctxMap)
 			}
 		}
 		if containsLevel3(packs) {

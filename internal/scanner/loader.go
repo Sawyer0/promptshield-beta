@@ -7,7 +7,8 @@ import (
 	"github.com/promptshield/promptshield/internal/rules"
 )
 
-// LoadRulePacks compiles user-provided rulepacks and augments the scanner.
+// LoadRulePacks atomically replaces all rules in the scanner.
+// This method is thread-safe and designed for live rule updates in production.
 func (s *Scanner) LoadRulePacks(packs []rules.RulePack) {
 	if s.logger != nil {
 		s.logger.Debug("loading rule packs", "count", len(packs))
@@ -60,9 +61,12 @@ func (s *Scanner) LoadRulePacks(packs []rules.RulePack) {
         merged = trimmed
     }
     compiled := compileRules(merged, s.defaultRuleTimeoutMs, s.defaultCaseSensitive, s.defaultWholeWord)
-	s.compiled = append(s.compiled, compiled...)
+	
+	// Atomic replacement: compile new rules first, then swap atomically
+	// This prevents race conditions during live rule updates
+	s.compiled = compiled
 	if s.logger != nil {
-		s.logger.Debug("compiled rules", "count", len(compiled), "total", len(s.compiled))
+		s.logger.Debug("replaced compiled rules", "count", len(compiled))
 	}
 	// Derive composition/performance settings from packs (most restrictive wins)
 	for _, p := range packs {

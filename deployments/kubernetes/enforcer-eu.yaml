@@ -1,0 +1,228 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: promptshield-eu
+---
+# TLS secrets are expected to exist with keys: server.crt, server.key, ca.crt
+# kubectl -n promptshield-eu create secret generic ps-enforcer-tls-eu \
+#   --from-file=server.crt=/path/to/eu/server.crt \
+#   --from-file=server.key=/path/to/eu/server.key \
+#   --from-file=ca.crt=/path/to/eu/ca.crt
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promptshield-rules
+  namespace: promptshield-eu
+data:
+  rules.yaml: |
+    # Production-ready essentials rule pack (EU)
+    apiVersion: promptshield.io/v1
+    kind: RulePack
+    metadata:
+      name: essentials
+      version: 1.0.0
+      description: Essential security rules for immediate LLM protection (EU)
+    rules:
+      - id: prompt-injection-ignore-previous
+        name: Direct instruction override attempts
+        level: 1
+        severity: CRITICAL
+        keywords: 
+          - "ignore previous instructions"
+          - "ignore all previous"
+          - "disregard previous"
+          - "forget everything"
+        response:
+          action: quarantine
+          message: "Prompt injection detected"
+      - id: api-key-openai
+        name: OpenAI API key detection
+        level: 2
+        severity: CRITICAL
+        patterns:
+          - regex: "sk-[a-zA-Z0-9]{20,}"
+        response:
+          action: quarantine
+          message: "OpenAI API key detected"
+    performance:
+      per_rule_timeout: 50ms
+      buffer_bytes: 32768
+    composition:
+      strategy: all_matches
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promptshield-enforcer-eu
+  namespace: promptshield-eu
+  labels:
+    app: promptshield-enforcer-eu
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: promptshield-enforcer-eu
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: promptshield-enforcer-eu
+        region: eu-west-1
+    spec:
+      containers:
+        - name: enforcer
+          image: promptshield-v020-ps-enforcer:latest
+          imagePullPolicy: Never
+          env:
+            - name: PS_REGION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['region']
+            - name: PS_ENFORCER_RULEPACK
+              value: "/config/rules.yaml"
+            - name: PS_ENFORCER_ADDR
+              value: ":9090"
+            - name: PS_ENFORCER_GRPC_ADDR
+              value: ":9091"
+            - name: PS_ENFORCER_MODE
+              value: "observe"
+            - name: PS_ENFORCER_TLS_MODE
+              value: "disable"
+            - name: PS_ENFORCER_GRPC_TLS_MODE
+              value: "require"
+            - name: PS_ENFORCER_TLS_CERT
+              value: "/tls/server.crt"
+            - name: PS_ENFORCER_TLS_KEY
+              value: "/tls/server.key"
+            - name: PS_ENFORCER_TLS_CLIENT_CA
+              value: "/tls/ca.crt"
+            - name: PS_ENFORCER_GRPC_TLS_CERT
+              value: "/tls/server.crt"
+            - name: PS_ENFORCER_GRPC_TLS_KEY
+              value: "/tls/server.key"
+            - name: PS_ENFORCER_GRPC_TLS_CLIENT_CA
+              value: "/tls/ca.crt"
+            - name: PS_USAGE_REDIS_ADDR
+              value: "redis-eu-west-1.promptshield-eu.svc.cluster.local:6379"
+            - name: PS_USAGE_PREFIX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['region']
+            - name: PS_ENFORCER_ADMIN_TOKEN
+              value: "demo-admin"
+          ports:
+            - containerPort: 9090
+              name: http
+            - containerPort: 9091
+              name: grpc
+          volumeMounts:
+            - name: rules
+              mountPath: /config
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: rules
+          configMap:
+            name: promptshield-rules
+        - name: tls
+          secret:
+            secretName: ps-enforcer-tls-eu
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promptshield-enforcer-eu
+  namespace: promptshield-eu
+  labels:
+    app: promptshield-enforcer-eu
+spec:
+  selector:
+    app: promptshield-enforcer-eu
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+    - name: grpc
+      port: 9091
+      targetPort: 9091
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: promptshield-enforcer-eu
+  namespace: promptshield-eu
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: promptshield-enforcer-eu
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: promptshield-enforcer-eu
+  namespace: promptshield-eu
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: promptshield-enforcer-eu
+---
+# Optional: Prometheus Operator ServiceMonitor (if installed); otherwise comment out this block
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: promptshield-enforcer-eu
+  namespace: promptshield-eu
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: promptshield-enforcer-eu
+  namespaceSelector:
+    matchNames:
+      - promptshield-eu
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics
+      relabelings:
+        - targetLabel: region
+          replacement: eu-west-1
+
+

@@ -15,6 +15,10 @@ static_resources:
             - name: backend
               domains: ["*"]
               routes:
+              - match: { prefix: "/v1/chat/completions" }
+                route: 
+                  cluster: openai_cluster
+                  host_rewrite_literal: api.openai.com
               - match: { prefix: "/" }
                 route: { cluster: backend_cluster }
           http_filters:
@@ -32,6 +36,7 @@ static_resources:
                   uri: http://ps-enforcer:9090
                   cluster: ps_enforcer_http
                   timeout: 1.000s
+                path_prefix: "/check"
                 authorization_request:
                   allowed_headers:
                     patterns:
@@ -122,6 +127,24 @@ static_resources:
         - endpoint:
             address:
               socket_address: { address: ps-enforcer, port_value: 9090 }
+
+  - name: openai_cluster
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    dns_lookup_family: V4_ONLY
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: openai_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: api.openai.com, port_value: 443 }
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: api.openai.com
 
 admin:
   access_log_path: /dev/null

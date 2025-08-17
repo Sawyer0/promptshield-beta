@@ -127,6 +127,14 @@ func (s *Scanner) SetChunkOverlap(n int) {
 	}
 }
 
+// SetStreamingParams is a convenience method to configure streaming parameters.
+// bufferSize controls the scanner's token buffer size for reading lines.
+// overlap controls the overlap bytes when chunking very long lines.
+func (s *Scanner) SetStreamingParams(bufferSize, overlap int) {
+	s.SetBufferBytes(bufferSize)
+	s.SetChunkOverlap(overlap)
+}
+
 // SetRuntimeContext configures a context map used for rule gating (when/unless).
 func (s *Scanner) SetRuntimeContext(ctx map[string]string) {
 	s.runtimeContext = ctx

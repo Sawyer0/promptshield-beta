@@ -1,0 +1,61 @@
+rules:
+  - id: PCI-PAN
+    category: Payment
+    severity: high
+    message: Possible credit card PAN detected
+    patterns:
+      - regex: '(?i)\b(?:\d[ -]*?){13,16}\b'
+    scope: outbound
+    action: block
+    when:
+      pathMatches: ["^/v1/chat/completions$"]
+
+  # Tier 1: Keywords for fast fraud patterns
+  - id: FIN-FRAUD-KEYWORDS
+    category: Fraud
+    severity: medium
+    message: Suspicious finance keywords
+    keywords: ["withdraw all", "empty account", "full balance"]
+    match:
+      type: any
+      caseSensitive: false
+      wordBoundary: false
+    scope: outbound
+    action: flag
+
+  - id: FIN-TRANSFER
+    category: Fraud
+    severity: medium
+    message: Suspicious transfer instruction
+    keywords: ["wire", "transfer", "entire", "funds", "balance"]
+    match:
+      type: any
+      caseSensitive: false
+      wordBoundary: true
+    scope: outbound
+    action: block
+
+  - id: FIN-REDACT
+    category: Payment
+    severity: high
+    message: Redacting payment identifiers from assistant reply
+    patterns:
+      - regex: "(?i)(card|pan|cvv|cvc)"
+    scope: inbound
+    action: redact
+    redact:
+      fields: ["choices[].message.content"]
+      replacement: "[REDACTED-PAYMENT]"
+
+  # Tier 3: LLM escalation for social-engineering in finance
+  - id: FIN-LLM-SOCENG
+    category: SocialEngineering
+    severity: critical
+    message: LLM flagged social-engineering attempt
+    scope: both
+    action: block
+    llm:
+      classifier: soceng-v1
+      label: unsafe
+      threshold: 0.75
+

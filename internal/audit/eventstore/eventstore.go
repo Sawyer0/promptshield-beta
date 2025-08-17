@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -32,7 +33,35 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{file: f, path: path, idx: make([]uint64, 0, 1024)}, nil
+	s := &Store{file: f, path: path, idx: make([]uint64, 0, 1024)}
+	// Build index by scanning existing records (if any)
+	if err := s.reindex(); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// reindex scans the file from the beginning and rebuilds the sequence index.
+func (s *Store) reindex() error {
+	if _, err := s.file.Seek(0, 0); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(s.file)
+	var lastSeq uint64
+	for {
+		var rec Record
+		if err := decoder.Decode(&rec); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return err
+		}
+		lastSeq = rec.Seq
+	}
+	s.seq = lastSeq
+	_, _ = s.file.Seek(0, 0)
+	return nil
 }
 
 func (s *Store) Close() error { return s.file.Close() }

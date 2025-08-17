@@ -18,14 +18,20 @@ services:
       dockerfile: Dockerfile.enforcer
       args:
         ENABLE_HYPERSCAN: ${ENABLE_HYPERSCAN:-0}
+    env_file:
+      - .env
     environment:
       - PS_ENFORCER_RULEPACK=/rules/essentials.yaml
-      - PS_ENFORCER_MODE=${PS_ENFORCER_MODE:-observe}
-      - PS_ENFORCER_ENFORCEMENT_MODE=${PS_ENFORCER_MODE:-observe}
+      - PS_ENFORCER_MODE=enforce
+      - PS_ENFORCER_ENFORCEMENT_MODE=enforce
       - PS_HYPERSCAN=${PS_HYPERSCAN:-false}
       - PS_ENFORCER_TLS_MODE=disable
       - PS_ENFORCER_GRPC_TLS_MODE=disable
       - PROMPTSHIELD_LICENSE_KEY=${PROMPTSHIELD_LICENSE_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - PS_SEMANTIC_ENABLED=${PS_SEMANTIC_ENABLED:-true}
+      - PS_SEMANTIC_PROVIDER=${PS_SEMANTIC_PROVIDER:-openai}
+      - PS_DEV_MODE=${PS_DEV_MODE:-false}
     volumes:
       - ./rules:/rules:ro
     ports:

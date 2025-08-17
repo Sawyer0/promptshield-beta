@@ -2,17 +2,23 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/promptshield/promptshield/internal/rules"
+	"github.com/google/uuid"
 )
+
+// idempotencyStore caches successful POST /rulepacks responses keyed by the
+// Idempotency-Key header. This prevents duplicate rulepack creations on client
+// retries. It is an in-memory best-effort guard; callers needing stronger
+// guarantees should pair it with a persistent store.
+var idempotencyStore sync.Map // map[string]RulepackMeta
 
 type RulepackMeta struct {
 	ID      string `json:"id"`
@@ -22,123 +28,83 @@ type RulepackMeta struct {
 	Active  bool   `json:"active"`
 }
 
-type LoadedPack struct{ Pack rules.RulePack }
-
-type RulepackManager struct {
-	mu       sync.RWMutex
-	activeID string
-	packs    map[string]LoadedPack
-}
-
-func NewRulepackManager() *RulepackManager {
-	return &RulepackManager{packs: make(map[string]LoadedPack)}
-}
-
-func (m *RulepackManager) List() []RulepackMeta {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	var out []RulepackMeta
-	for id, lp := range m.packs {
-		out = append(out, RulepackMeta{ID: id, Name: lp.Pack.Metadata.Name, Version: lp.Pack.Metadata.Version, Source: lp.Pack.SourcePath, Active: id == m.activeID})
-	}
-	return out
-}
-
-func (m *RulepackManager) Active() RulepackMeta {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.activeID == "" {
-		return RulepackMeta{}
-	}
-	lp, ok := m.packs[m.activeID]
-	if !ok {
-		return RulepackMeta{}
-	}
-	return RulepackMeta{ID: m.activeID, Name: lp.Pack.Metadata.Name, Version: lp.Pack.Metadata.Version, Source: lp.Pack.SourcePath, Active: true}
-}
-
-func (m *RulepackManager) Validate(data []byte) (bool, []string, []string) {
-	var p rules.RulePack
-	if err := yamlUnmarshal(data, &p); err != nil {
-		return false, nil, []string{err.Error()}
-	}
-	errs := rules.ValidatePack(p)
-	if len(errs) > 0 {
-		var es []string
-		for _, e := range errs {
-			es = append(es, e.Error())
-		}
-		return false, nil, es
-	}
-	return true, nil, nil
-}
-
-func (m *RulepackManager) Upload(data []byte, activate bool) (RulepackMeta, error) {
-	var p rules.RulePack
-	if err := yamlUnmarshal(data, &p); err != nil {
-		return RulepackMeta{}, err
-	}
-	errs := rules.ValidatePack(p)
-	if len(errs) > 0 {
-		return RulepackMeta{}, toErr(errs)
-	}
-	id := p.Metadata.Name
-	if id == "" {
-		id = strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.packs[id] = LoadedPack{Pack: p}
-	if activate {
-		m.activeID = id
-	}
-	return RulepackMeta{ID: id, Name: p.Metadata.Name, Version: p.Metadata.Version, Source: p.SourcePath, Active: activate}, nil
-}
-
-func (m *RulepackManager) SetActive(id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.packs[id]; !ok {
-		return toErr([]error{errNotFound("rulepack")})
-	}
-	m.activeID = id
-	return nil
-}
-
-func (m *RulepackManager) ReloadFrom(path string) (RulepackMeta, error) {
-	packs, err := rules.LoadPacks(path)
-	if err != nil {
-		return RulepackMeta{}, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(packs) > 0 {
-		p := packs[0]
-		id := p.Metadata.Name
-		m.packs[id] = LoadedPack{Pack: p}
-		m.activeID = id
-		return RulepackMeta{ID: id, Name: p.Metadata.Name, Version: p.Metadata.Version, Source: p.SourcePath, Active: true}, nil
-	}
-	return RulepackMeta{}, toErr([]error{errNotFound("rulepack")})
-}
+// RulepackMeta represents the API format for rulepack metadata
 
 func mountRulepacks(r chi.Router, opt Options) {
+	// Default tenant ID - in real implementation this would come from auth context
+	defaultTenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
 	r.Route("/rulepacks", func(rr chi.Router) {
 		rr.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(opt.RulepackManager.List())
+			rulepacks, err := opt.RulepackService.List(r.Context(), defaultTenantID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+				return
+			}
+
+			// Convert to API format
+			var result []RulepackMeta
+			for _, rp := range rulepacks {
+				result = append(result, RulepackMeta{
+					ID:      rp.ID.String(),
+					Name:    rp.Name,
+					Version: strconv.Itoa(rp.Version),
+					Source:  "", // Not stored in persistence layer
+					Active:  rp.Active,
+				})
+			}
+
+			_ = json.NewEncoder(w).Encode(result)
 		})
 		rr.Get("/active", func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(opt.RulepackManager.Active())
+			// Find the active rulepack from the list
+			rulepacks, err := opt.RulepackService.List(r.Context(), defaultTenantID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+				return
+			}
+
+			for _, rp := range rulepacks {
+				if rp.Active {
+					result := RulepackMeta{
+						ID:      rp.ID.String(),
+						Name:    rp.Name,
+						Version: strconv.Itoa(rp.Version),
+						Source:  "",
+						Active:  true,
+					}
+					_ = json.NewEncoder(w).Encode(result)
+					return
+				}
+			}
+
+			// No active rulepack found
+			_ = json.NewEncoder(w).Encode(RulepackMeta{})
 		})
 		rr.Group(func(a chi.Router) {
 			a.Use(adminAuth(opt))
 			a.Post("/validate", func(w http.ResponseWriter, r *http.Request) {
 				body, _ := io.ReadAll(r.Body)
 				defer r.Body.Close()
-				valid, warnings, errors := opt.RulepackManager.Validate(body)
+				valid, warnings, errors := opt.RulepackService.ValidateDSL(body)
 				_ = json.NewEncoder(w).Encode(map[string]any{"valid": valid, "warnings": warnings, "errors": errors})
 			})
 			a.Post("/", func(w http.ResponseWriter, r *http.Request) {
+				// Idempotency handling: if the caller supplied an Idempotency-Key
+				// header and we have a cached response, short-circuit and return
+				// the prior result.
+				idemKey := r.Header.Get("Idempotency-Key")
+				if idemKey != "" {
+					if v, ok := idempotencyStore.Load(idemKey); ok {
+						// Return cached response with informative header.
+						w.Header().Set("X-Idempotency-Cache", "HIT")
+						w.Header().Set("Content-Type", "application/json")
+						// Use 200 OK for subsequent identical requests.
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(v)
+						return
+					}
+				}
 				activate := r.URL.Query().Get("activate") == "true"
 				ct := r.Header.Get("content-type")
 				var data []byte
@@ -161,11 +127,43 @@ func mountRulepacks(r chi.Router, opt Options) {
 					defer r.Body.Close()
 					data = body
 				}
-				meta, err := opt.RulepackManager.Upload(data, activate)
+
+				// Parse and validate the DSL
+				pack, err := opt.RulepackService.ParseDSL(data)
 				if err != nil {
 					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error(), nil)
 					return
 				}
+
+				// Create the rulepack
+				packID, err := opt.RulepackService.Create(r.Context(), defaultTenantID, pack.Metadata.Name, pack.Metadata.Description)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				// Upload version 1
+				version := 1
+				_, err = opt.RulepackService.Upload(r.Context(), defaultTenantID, packID, version, json.RawMessage(data), activate)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				meta := RulepackMeta{
+					ID:      packID.String(),
+					Name:    pack.Metadata.Name,
+					Version: strconv.Itoa(version),
+					Source:  pack.SourcePath,
+					Active:  activate,
+				}
+
+				// Persist successful result in the idempotency cache *before*
+				// writing the response to ensure subsequent retries are served.
+				if idemKey != "" {
+					idempotencyStore.Store(idemKey, meta)
+				}
+
 				w.WriteHeader(http.StatusCreated)
 				_ = json.NewEncoder(w).Encode(meta)
 			})
@@ -178,14 +176,53 @@ func mountRulepacks(r chi.Router, opt Options) {
 					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "no path provided", nil)
 					return
 				}
-				meta, err := opt.RulepackManager.ReloadFrom(path)
+
+				// Read file and create/upload as new rulepack
+				data, err := os.ReadFile(path)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", fmt.Sprintf("failed to read file: %v", err), nil)
+					return
+				}
+
+				// Parse and validate the DSL
+				pack, err := opt.RulepackService.ParseDSL(data)
 				if err != nil {
 					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error(), nil)
 					return
 				}
+
+				// Create the rulepack
+				defaultTenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+				packID, err := opt.RulepackService.Create(r.Context(), defaultTenantID, pack.Metadata.Name, pack.Metadata.Description)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				// Upload version 1 and activate
+				version := 1
+				_, err = opt.RulepackService.Upload(r.Context(), defaultTenantID, packID, version, json.RawMessage(data), true)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				meta := RulepackMeta{
+					ID:      packID.String(),
+					Name:    pack.Metadata.Name,
+					Version: strconv.Itoa(version),
+					Source:  path,
+					Active:  true,
+				}
+
 				_ = json.NewEncoder(w).Encode(meta)
 			})
 			a.Put("/active", func(w http.ResponseWriter, r *http.Request) {
+				// Optimistic locking via If-Match / ETag. Require the caller to
+				// supply an If-Match header containing the current active
+				// version number (quoted). Reject when it doesn’t match.
+				ifMatch := r.Header.Get("If-Match")
+
 				var req struct {
 					ID string `json:"id"`
 				}
@@ -194,20 +231,74 @@ func mountRulepacks(r chi.Router, opt Options) {
 					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing id", nil)
 					return
 				}
-				if err := opt.RulepackManager.SetActive(req.ID); err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error(), nil)
+
+				packID, err := uuid.Parse(req.ID)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid id format", nil)
 					return
 				}
-				_ = json.NewEncoder(w).Encode(opt.RulepackManager.Active())
+
+				// Fetch the currently active version to compute the expected ETag.
+				curDSL, curVer, _ := opt.RulepackService.GetActive(r.Context(), packID)
+				_ = curDSL // content not needed; only version number matters
+
+				expectedETag := fmt.Sprintf("\"%d\"", curVer)
+
+				// Enforce optimistic lock if caller provided If-Match.
+				if ifMatch == "" {
+					writeError(w, http.StatusPreconditionRequired, "PRECONDITION_REQUIRED", "If-Match header required", nil)
+					return
+				}
+				if ifMatch != "*" && ifMatch != expectedETag {
+					writeError(w, http.StatusPreconditionFailed, "PRECONDITION_FAILED", "ETag mismatch", map[string]any{"expected": expectedETag, "got": ifMatch})
+					return
+				}
+
+				// Activate the latest version of this rulepack.
+				if err := opt.RulepackService.ActivateLatest(r.Context(), defaultTenantID, packID); err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				// Return the updated active rulepack
+				rulepacks, err := opt.RulepackService.List(r.Context(), defaultTenantID)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				for _, rp := range rulepacks {
+					if rp.ID == packID && rp.Active {
+						result := RulepackMeta{
+							ID:      rp.ID.String(),
+							Name:    rp.Name,
+							Version: strconv.Itoa(rp.Version),
+							Source:  "",
+							Active:  true,
+						}
+						// Emit new ETag reflecting the updated version.
+						w.Header().Set("ETag", fmt.Sprintf("\"%s\"", result.Version))
+						_ = json.NewEncoder(w).Encode(result)
+						return
+					}
+				}
+
+				writeError(w, http.StatusNotFound, "NOT_FOUND", "rulepack not found", nil)
 			})
 			a.Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
 				id := chi.URLParam(r, "id")
-				opt.RulepackManager.mu.Lock()
-				delete(opt.RulepackManager.packs, id)
-				if opt.RulepackManager.activeID == id {
-					opt.RulepackManager.activeID = ""
+
+				packID, err := uuid.Parse(id)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid id format", nil)
+					return
 				}
-				opt.RulepackManager.mu.Unlock()
+
+				if err := opt.RulepackService.Delete(r.Context(), defaultTenantID, packID); err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
 				w.WriteHeader(http.StatusNoContent)
 			})
 		})
