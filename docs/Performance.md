@@ -1,52 +1,35 @@
-## Performance, Benchmarks, and SLAs
+## PromptShield Gateway Performance
 
 This document captures PromptShield's performance goals, how to run the benchmark suite, and how to enforce SLAs.
 
-### Benchmarks
+### Benchmarks (Gateway‑centric)
 
-- internal/scanner:
-  - `BenchmarkScanLargeFile`: large string content, keyword rules
-  - `BenchmarkScanOneGiB`: 1 GiB streaming reader, bounded memory
-  - `BenchmarkParallelScan`, `BenchmarkRuleMatching`, Aho/regex gates, P95
-- gateway:
+Benchmarks focus on request/response streaming through the gateway rather than file scanning.
+
+- Gateway micro‑benchmarks (Go):
   - `BenchmarkGatewayHTTPCheck64KB`: HTTP `/check` end‑to‑end with a 64KB body
   - `BenchmarkGatewayGRPCExtProc_SetupOnly`: gRPC ext_proc minimal stream setup/overhead
 
-Run all benchmarks:
+- Mixed‑payload load (wrk/vegeta):
+  - `tools/mixed.sh` issues 70/25/5 small/medium/large requests
+  - `wrk` Lua scripts for streaming bodies/responses
+
+Run gateway benchmarks:
 ```bash
-go test -run=^$ -bench . -benchmem -count=1 ./...
+go test -run=^$ ./gateway -bench . -benchmem -count=1
 ```
 
-Useful targets:
-```bash
-# Quick P95 scanner bench
-make bench-quick
+### SLA Tests (Gateway)
 
-# 1 GiB streaming scanner bench
-make bench-large
-```
-
-Run specific benchmarks:
-```bash
-go test -run=^$ ./internal/scanner -bench '^BenchmarkScan(LargeFile|OneGiB)$' -benchmem -count=1
-go test -run=^$ ./gateway -bench BenchmarkGatewayHTTPCheck64KB -benchmem -count=1
-go test -run=^$ ./gateway -bench BenchmarkGatewayGRPCExtProc_SetupOnly -benchmem -count=1
-```
-
-### SLA Tests (opt‑in)
-
-SLA tests are disabled by default and must be explicitly enabled to avoid flakiness across different developer machines and CI hardware. Set `PS_ENFORCE_SLA=1` to enable.
+SLA tests validate request‑based KPIs. Enable with `PS_ENFORCE_SLA=1` to avoid flakiness on developer machines.
 
 Defaults (override via env):
-- Scanner throughput: `≥ 200 MB/s` (override `PS_SLA_SCANNER_MBPS_MIN`)
-- Gateway HTTP `/check` throughput: `≥ 10 MB/s` (override `PS_SLA_HTTP_MBPS_MIN`)
-- gRPC ext_proc latency: `≤ 25 ms` per small stream (override `PS_SLA_GRPC_MS_MAX`)
+- Added latency (P95): `≤ 50 ms` vs direct upstream (`PS_SLA_GRPC_MS_MAX`)
+- Gateway throughput: `≥ 10 MB/s` (`PS_SLA_HTTP_MBPS_MIN`)
+- Streaming setup overhead (ext_proc): `≤ 25 ms` (`PS_SLA_GRPC_MS_MAX`)
 
 Commands:
 ```bash
-# Scanner SLA
-PS_ENFORCE_SLA=1 go test ./internal/scanner -run TestScannerThroughput_SLA -count=1
-
 # Gateway HTTP SLA
 PS_ENFORCE_SLA=1 go test ./gateway -run TestHTTPCheck_SLA -count=1
 
@@ -58,11 +41,8 @@ PS_ENFORCE_SLA=1 go test ./gateway -run TestGRPCExtProc_SLA -count=1
 
 Environment: Windows amd64, Intel(R) Core(TM) Ultra 5 125U.
 
-- Scanner
-  - `BenchmarkScanLargeFile`: ~1.47 ms/op, ~685 MB/s, ~3.0 MB/op, 17 allocs/op
-  - `BenchmarkScanOneGiB`: ~4.68 s/op, ~229 MB/s, ~2.96 GB/op
 - Gateway
-  - HTTP `/check` 64KB body: ~0.39 ms/op, ~169 MB/s (after streaming change)
+  - HTTP `/check` 64KB body: ~0.39 ms/op, ~169 MB/s (streaming path)
   - gRPC ext_proc setup path: ~17–19 µs/op
 
 Notes:
@@ -71,8 +51,8 @@ Notes:
 
 ### Implementation Notes
 
-- Gateway HTTP `/check` now streams directly from the request body into the scanner (no temp files), improving throughput by ~50x on small bodies.
-- `internal/scanner` maintains streaming‑first scanning with bounded memory and supports very large inputs (1 GiB benchmark included).
+- Gateway HTTP `/check` streams directly from the request body into the scanner (no temp files), improving throughput by ~50x on small bodies.
+- Streaming enforcement runs via Envoy `ext_proc` with sliding windows and bounded memory.
 - Chaos testing can be enabled via:
   - `PS_CHAOS=1` (enable)
   - `PS_CHAOS_FAIL_PCT=5` (percent operations fail)
@@ -118,12 +98,21 @@ URL=http://127.0.0.1:9090/check R=800 CONNS=100 TIMEOUT=5s DUR=20s bash tools/mi
 ```
 
 Notes:
-- Ensure license is set for unrestricted testing (evaluation mode is heavily rate‑limited):
-  - `PROMPTSHIELD_LICENSE_KEY=...` (env‑based)
-- For end‑to‑end runs, keep reasonable edge timeouts and limits:
-  - In `envoy-config.yaml`, set `ext_proc.message_timeout: 5.000s`
-  - Disable `ext_authz` during load tests to avoid unrelated gating
+- Ensure license is set for unrestricted testing (evaluation mode is heavily rate‑limited): `PROMPTSHIELD_LICENSE_KEY=...` (env‑based)
+- For end‑to‑end runs, tune edge timeouts and limits:
+  - In `envoy-config.yaml`, `ext_proc.message_timeout: 5.000s`
+  - Keep `ext_authz` enabled in production; you may disable during synthetic load tests to focus on streaming costs
 - On Windows, reduce concurrency (e.g., `CONNS=50–200`) to avoid ephemeral port exhaustion.
+
+
+### Gateway Metrics To Track
+
+Measure these in addition to raw throughput:
+- Added latency vs direct upstream (P50/P95/P99)
+- Requests per second at multiple concurrencies (e.g., c=100, 1k, 5k, 10k)
+- Memory per concurrent connection (steady‑state)
+- CPU usage under sustained load (per 1k connections)
+- Error rates and saturation signals (429/5xx, socket timeouts)
 
 
 ### Reference Results (Realistic sizes)
@@ -137,7 +126,7 @@ Environment: WSL2 Ubuntu on Intel(R) Core(TM) Ultra 5 125U, Go 1.25.0.
 - Scanner‑only (100 KB body; R=400, CONNS=100, 20s):
   - 100% success; mean ~2.16 ms; P95 ~4.9 ms; P99 ~13 ms
 
-Interpretation: The engine’s compute path is low single‑digit milliseconds even for large prompts, supporting inline enforcement with negligible latency overhead. End‑to‑end performance then depends on Envoy/backend sizing and OS/network limits.
+Interpretation: The engine’s compute path is low single‑digit milliseconds even for large prompts, supporting inline enforcement with negligible latency overhead. End‑to‑end performance depends on Envoy/backends and OS/network limits. Size edge timeouts, connection pools, and CPU accordingly.
 
 
 ### WSL2 High-Load Results (Fast mode)

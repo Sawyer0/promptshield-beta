@@ -13,7 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
+	"github.com/promptshield/promptshield/internal/testutil/mocks"
 )
 
 // TestHTTP_SustainedRPS measures sustained RPS of /check under concurrency.
@@ -24,8 +27,14 @@ func TestHTTP_SustainedRPS(t *testing.T) {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
 	os.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
 
-	// Start in-memory HTTP server
-	h := enforcerhttp.NewMux()
+	// Start in-memory HTTP server with mock RulepackService
+	mockRepo := &mocks.MockRulepackRepository{}
+	rulepackService := services.NewRulepackService(mockRepo, nil)
+	
+	options := api.Options{
+		RulepackService: rulepackService,
+	}
+	h := enforcerhttp.NewMuxWithOptions(options)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -90,7 +99,14 @@ func TestHTTP_P95_Sub300ms(t *testing.T) {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
 	os.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
 
-	h := enforcerhttp.NewMux()
+	// Setup with mock RulepackService
+	mockRepo := &mocks.MockRulepackRepository{}
+	rulepackService := services.NewRulepackService(mockRepo, nil)
+	
+	options := api.Options{
+		RulepackService: rulepackService,
+	}
+	h := enforcerhttp.NewMuxWithOptions(options)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 

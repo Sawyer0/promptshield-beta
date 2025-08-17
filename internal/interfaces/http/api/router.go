@@ -16,6 +16,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/promptshield/promptshield/internal/jobs"
 	"github.com/promptshield/promptshield/internal/jobs/processors"
+	q "github.com/promptshield/promptshield/internal/jobs/queue"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/usage"
@@ -29,6 +30,11 @@ func NewMux(opt Options) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Timeout(10 * time.Second))
 	r.Use(versionHeader("1"))
+	// Error recovery and structured error handling
+	r.Use(errorRecoveryMiddleware)
+	// Request logging and correlation
+	r.Use(correlationIDMiddleware)
+	r.Use(requestLoggerMiddleware)
 	// bytes in/out accounting
 	r.Use(captureBytesMiddleware)
 
@@ -36,8 +42,9 @@ func NewMux(opt Options) http.Handler {
 	if opt.ConfigStore == nil {
 		opt.ConfigStore = NewRuntimeConfigStoreFromEnv()
 	}
-	if opt.RulepackManager == nil {
-		opt.RulepackManager = NewRulepackManager()
+	// RulepackService is required and must be provided by caller
+	if opt.RulepackService == nil {
+		panic("RulepackService is required")
 	}
 	if opt.Events == nil {
 		opt.Events = NewEventHub()
@@ -69,6 +76,35 @@ func NewMux(opt Options) http.Handler {
 		sc := scanner.New(0)
 		scanProcessor := processors.NewScanProcessor(sc)
 		opt.JobManager.RegisterProcessor(scanProcessor)
+
+		// Optional durable queue via Redis
+		if strings.EqualFold(os.Getenv("PS_ASYNC_QUEUE"), "redis") {
+			addr := os.Getenv("PS_REDIS_ADDR")
+			if addr == "" {
+				addr = "127.0.0.1:6379"
+			}
+			stream := os.Getenv("PS_REDIS_STREAM")
+			if stream == "" {
+				stream = "ps.jobs"
+			}
+			group := os.Getenv("PS_REDIS_GROUP")
+			if group == "" {
+				group = "ps.workers"
+			}
+			consumer := os.Getenv("PS_REDIS_CONSUMER")
+			if consumer == "" {
+				consumer = "ps-enforcer"
+			}
+			vis := 30 * time.Second
+			if v := os.Getenv("PS_REDIS_VISIBILITY_TTL"); v != "" {
+				if d, err := time.ParseDuration(v); err == nil {
+					vis = d
+				}
+			}
+			if rq, err := q.NewRedisQueue(addr, os.Getenv("PS_REDIS_PASSWORD"), 0, stream, group, consumer, vis); err == nil {
+				opt.JobManager = opt.JobManager.WithDurable(rq)
+			}
+		}
 
 		// Start the job manager
 		go opt.JobManager.Start(context.Background())
@@ -105,6 +141,19 @@ func NewMux(opt Options) http.Handler {
 
 	// Config
 	mountConfig(r, opt)
+
+	// Enterprise / platform features (registrations are no-ops when corresponding
+	// repositories are nil, so safe to mount unconditionally).
+	registerTenantHandlers(r, opt)
+	registerAssignmentHandlers(r, opt)
+	registerQuotaHandlers(r, opt)
+	registerAuditHandlers(r, opt)
+	registerUsageHandlers(r, opt)
+	registerSystemHandlers(r, opt)
+	
+	// Provider management and LLM proxy
+	registerProviderHandlers(r, opt)
+	registerProxyHandlers(r, opt)
 
 	// Admin
 	r.Group(func(a chi.Router) {
@@ -224,14 +273,12 @@ func NewMux(opt Options) http.Handler {
 	})
 
 	// Alias to support legacy colon-style path
-	r.Post("/scan:async", func(w http.ResponseWriter, r *http.Request) {
-		// Forward to /scan/async handler by rewriting and re-serving
-		r.URL.Path = "/scan/async"
-		r.RequestURI = ""
-		// Serve the rewritten request on this router
-		r = r.WithContext(r.Context())
-		// Re-enter the router stack
-		chi.NewRouter().ServeHTTP(w, r)
+	r.Post("/scan:async", func(w http.ResponseWriter, req *http.Request) {
+		// Forward to /scan/async handler by rewriting path
+		req.URL.Path = "/scan/async"
+		req.RequestURI = ""
+		// Re-serve the request through the current router (not a new one)
+		r.ServeHTTP(w, req)
 	})
 
 	// Job management endpoints

@@ -1,0 +1,47 @@
+rules:
+  - id: GDPR-DATA-EXPORT
+    category: PII
+    severity: high
+    message: EU personal data export request detected
+    keywords: ["download", "export", "share", "customer", "user", "data"]
+    match:
+      type: all
+      caseSensitive: false
+      wordBoundary: false
+    scope: outbound
+    action: block
+
+  # Tier 2: Regex for PII markers
+  - id: RETAIL-PII-REGEX
+    category: PII
+    severity: high
+    message: PII markers via regex
+    patterns:
+      - regex: "(?i)(email|phone|address|ssn)"
+    scope: outbound
+    action: block
+
+  - id: RETAIL-REDACT-PII
+    category: PII
+    severity: high
+    message: Redacting PII in assistant message
+    patterns:
+      - regex: "(?i)(email|phone|address|ssn)"
+    scope: inbound
+    action: redact
+    redact:
+      fields: ["choices[].message.content"]
+      replacement: "[REDACTED-PII]"
+
+  # Tier 3: LLM escalation for data-leak phrasing
+  - id: RETAIL-LLM-LEAK
+    category: DataExfil
+    severity: critical
+    message: LLM flagged potential data leak
+    scope: both
+    action: block
+    llm:
+      classifier: data-leak-v1
+      label: unsafe
+      threshold: 0.7
+

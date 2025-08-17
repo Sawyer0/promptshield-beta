@@ -1,0 +1,16 @@
+apiVersion: v2
+name: promptshield
+version: 0.2.0
+appVersion: "0.2.0"
+description: PromptShield Enforcer – LLM Safety Gateway
+home: https://github.com/promptshield/promptshield
+sources:
+  - https://github.com/promptshield/promptshield
+keywords:
+  - llm
+  - security
+  - envoy
+  - gateway
+maintainers:
+  - name: PromptShield OSS
+    email: oss@promptshield.io

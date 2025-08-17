@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "promptshield.fullname" . }}
+  labels:
+    {{- include "promptshield.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "promptshield.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "promptshield.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "promptshield.serviceAccountName" . }}
+      containers:
+        - name: enforcer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: PS_ENFORCER_MODE
+              value: {{ .Values.mode | quote }}
+          ports:
+            - containerPort: 9090
+              name: http
+            - containerPort: 9091
+              name: grpc
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

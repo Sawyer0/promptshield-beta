@@ -10,13 +10,23 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/testutil/mocks"
 )
 
 func TestAsyncScanEndpoint(t *testing.T) {
 	cleanup := withAsyncJobsLicense(t)
 	defer cleanup()
+	
+	// Setup with mock RulepackService
+	mockRepo := &mocks.MockRulepackRepository{}
+	rulepackService := services.NewRulepackService(mockRepo, nil)
+	
 	// Create test router with default job manager
-	router := NewMux(Options{})
+	router := NewMux(Options{
+		RulepackService: rulepackService,
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

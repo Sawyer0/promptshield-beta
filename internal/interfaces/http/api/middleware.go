@@ -4,13 +4,15 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/promptshield/promptshield/internal/observability/metrics"
 )
 
 // adminAuth enforces an admin token on protected routes when configured.
 func adminAuth(opt Options) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if opt.AdminToken == "" && !opt.AllowInsecureAdmin {
+			if opt.AdminToken == "" {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin token required", nil)
 				return
 			}
@@ -41,7 +43,7 @@ func (b *bytesCounter) Write(p []byte) (int, error) {
 	n, err := b.ResponseWriter.Write(p)
 	if n > 0 {
 		b.wroteBytes += int64(n)
-		httpBytesTotal.WithLabelValues("out", b.path).Add(float64(n))
+		metrics.HTTPBytesTotal.WithLabelValues("out", b.path).Add(float64(n))
 	}
 	return n, err
 }
@@ -64,7 +66,7 @@ func captureBytesMiddleware(next http.Handler) http.Handler {
 				io.Closer
 			}{Reader: io.TeeReader(reader, countWriterFunc(func(n int) {
 				if n > 0 {
-					httpBytesTotal.WithLabelValues("in", r.URL.Path).Add(float64(n))
+					metrics.HTTPBytesTotal.WithLabelValues("in", r.URL.Path).Add(float64(n))
 				}
 			})), Closer: reader}
 		}

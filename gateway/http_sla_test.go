@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
+	"github.com/promptshield/promptshield/internal/testutil/mocks"
 )
 
 // TestHTTPCheck_SLA enforces a minimal throughput SLA for the /check endpoint.
@@ -31,7 +34,14 @@ func TestHTTPCheck_SLA(t *testing.T) {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
 	t.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
 
-	h := enforcerhttp.NewMux()
+	// Setup with mock RulepackService
+	mockRepo := &mocks.MockRulepackRepository{}
+	rulepackService := services.NewRulepackService(mockRepo, nil)
+	
+	options := api.Options{
+		RulepackService: rulepackService,
+	}
+	h := enforcerhttp.NewMuxWithOptions(options)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 

@@ -94,27 +94,27 @@ func ValidateConfig(cfg Config) []ValidationError {
 // ValidateAPIKey validates the format of API keys for different providers
 func ValidateAPIKey(provider, key string) error {
 	if key == "" {
-		return errors.New("API key cannot be empty")
+		return errors.New("api key cannot be empty")
 	}
 
 	switch provider {
 	case "openai":
 		// OpenAI keys start with sk- and have specific format
 		if !regexp.MustCompile(`^sk-[a-zA-Z0-9]{48}$`).MatchString(key) {
-			return errors.New("OpenAI API key must start with 'sk-' and be 51 characters total")
+			return errors.New("openai api key must start with 'sk-' and be 51 characters total")
 		}
 	case "anthropic":
 		// Anthropic keys start with sk-ant- and have specific format
 		if !regexp.MustCompile(`^sk-ant-[a-zA-Z0-9\-_]{95}$`).MatchString(key) {
-			return errors.New("Anthropic API key must start with 'sk-ant-' and be 108 characters total")
+			return errors.New("anthropic api key must start with 'sk-ant-' and be 108 characters total")
 		}
 	default:
 		// Generic validation for unknown providers
 		if len(key) < 16 {
-			return errors.New("API key must be at least 16 characters")
+			return errors.New("api key must be at least 16 characters")
 		}
 		if len(key) > 512 {
-			return errors.New("API key must not exceed 512 characters")
+			return errors.New("api key must not exceed 512 characters")
 		}
 	}
 
@@ -126,7 +126,15 @@ func ValidateEnforcementMode(mode string) error {
 	if mode == "" {
 		return nil // empty is allowed, defaults to "observe"
 	}
-	validModes := []string{"observe", "redact", "quarantine", "enforce"}
+	// New semantics: observe, warn, enforce. Continue to accept legacy aliases for backward compatibility.
+	legacyMap := map[string]string{
+		"redact":     "warn",
+		"quarantine": "warn",
+	}
+	if newVal, ok := legacyMap[mode]; ok {
+		mode = newVal
+	}
+	validModes := []string{"observe", "warn", "enforce"}
 	for _, m := range validModes {
 		if mode == m {
 			return nil

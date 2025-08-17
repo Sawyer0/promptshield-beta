@@ -1,0 +1,65 @@
+rules:
+  - id: HIPAA-PII
+    category: PII
+    severity: high
+    message: Detected PHI/PII pattern in outbound prompt
+    keywords: ["ssn", "mrn", "dob", "patient id"]
+    match:
+      type: any
+      caseSensitive: false
+      wordBoundary: true
+    scope: outbound
+    action: block
+    when:
+      pathMatches: ["^/v1/chat/completions$"]
+
+  # Tier 2: Regex reinforcement for specific PHI tokens
+  - id: HIPAA-PII-REGEX
+    category: PII
+    severity: high
+    message: PHI tokens via regex
+    patterns:
+      - regex: '(?i)(mrn|medical record number)'
+      - regex: '(?i)\b(?:\d{3}-\d{2}-\d{4})\b' # US SSN pattern
+    scope: outbound
+    action: block
+
+  - id: HIPAA-EXPORT
+    category: DataExfil
+    severity: high
+    message: Disallowed export of medical data
+    keywords: ["export", "patient", "records", "medical"]
+    match:
+      type: all
+      caseSensitive: false
+      wordBoundary: false
+    scope: outbound
+    action: block
+
+  - id: HIPAA-REDACT
+    category: PII
+    severity: high
+    message: Redacting potential PHI in assistant replies
+    keywords: ["patient", "record", "mrn", "dob"]
+    match:
+      type: any
+      caseSensitive: false
+      wordBoundary: false
+    scope: inbound
+    action: redact
+    redact:
+      fields: ["choices[].message.content"]
+      replacement: "[REDACTED-PHI]"
+
+  # Tier 3: LLM escalation for subtle injection prompts
+  - id: HIPAA-LLM-INJECTION
+    category: PromptInjection
+    severity: critical
+    message: LLM detected prompt-injection risk
+    scope: both
+    action: block
+    llm:
+      classifier: prompt-injection-v1
+      label: unsafe
+      threshold: 0.7
+

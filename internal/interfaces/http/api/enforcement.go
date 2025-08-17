@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/promptshield/promptshield/internal/license"
+	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 )
@@ -136,6 +137,16 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		if opt.Events != nil {
 			opt.Events.Publish(Event{Type: "decision", Data: resp})
 		}
+		// Audit durable trail (best-effort)
+		if opt.AuditLogger != nil {
+			_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: map[string]any{
+				"path":       r.URL.Path,
+				"status":     statusCode,
+				"decision":   decision,
+				"reason":     reason,
+				"violations": total,
+			}})
+		}
 
 		// usage accounting (best-effort)
 		if store := getUsageStoreFromCtx(r.Context()); store != nil {
@@ -199,9 +210,12 @@ func scanHandler(opt Options) http.HandlerFunc {
 				if opt.Events != nil {
 					opt.Events.Publish(Event{Type: "decision", Data: res})
 				}
-				scanEventsTotal.WithLabelValues(r.URL.Path).Inc()
+				if opt.AuditLogger != nil {
+					_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: res})
+				}
+				metrics.ScanEventsTotal.WithLabelValues(r.URL.Path).Inc()
 			}
-			scanRequestDuration.WithLabelValues(modeLabel).Observe(float64(timeoutMs) / 1000.0)
+			metrics.ScanRequestDuration.WithLabelValues(modeLabel).Observe(float64(timeoutMs) / 1000.0)
 			return
 		}
 
@@ -222,6 +236,9 @@ func scanHandler(opt Options) http.HandlerFunc {
 				if opt.Events != nil {
 					opt.Events.Publish(Event{Type: "decision", Data: res})
 				}
+				if opt.AuditLogger != nil {
+					_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: res})
+				}
 			}
 			report := map[string]any{
 				"decisions": decisions,
@@ -231,7 +248,7 @@ func scanHandler(opt Options) http.HandlerFunc {
 				},
 			}
 			_ = json.NewEncoder(w).Encode(report)
-			scanRequestDuration.WithLabelValues(modeLabel).Observe(float64(timeoutMs) / 1000.0)
+			metrics.ScanRequestDuration.WithLabelValues(modeLabel).Observe(float64(timeoutMs) / 1000.0)
 			return
 		}
 		// Fallback: single record
@@ -247,7 +264,10 @@ func scanHandler(opt Options) http.HandlerFunc {
 		if opt.Events != nil {
 			opt.Events.Publish(Event{Type: "decision", Data: res})
 		}
-		scanRequestDuration.WithLabelValues(modeLabel).Observe(float64(timeoutMs) / 1000.0)
+		if opt.AuditLogger != nil {
+			_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: res})
+		}
+		metrics.ScanRequestDuration.WithLabelValues(modeLabel).Observe(float64(timeoutMs) / 1000.0)
 	}
 }
 

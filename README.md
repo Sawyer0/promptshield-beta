@@ -123,6 +123,9 @@ export PS_ENFORCER_RULEPACK=rules/prompt-injection.yaml
 export PS_ENFORCER_TIMEOUT=300ms
 export PS_ENFORCER_MAX_BODY_BYTES=1048576
 export PS_ENFORCER_FAIL_ON=HIGH
+export PS_MAX_RULEPACK_KB=1024                 # Max RulePack size (KB) accepted by API
+export PS_MAX_RULES=1000                      # Max number of rules per pack
+export PS_RULEPACK_RETENTION=10               # Keep last N versions (GC purges older)
 export PS_ENFORCER_ENFORCEMENT_MODE=observe   # observe|redact|quarantine|enforce
 export PS_ENFORCER_REDACTION_MUTATION=true    # enable body mutation in ext_proc
 # Optional telemetry
@@ -131,6 +134,16 @@ export PS_TELEMETRY_ENDPOINT=otel-collector:4317
 ```
 
 Policy bundles (RulePacks) control signals, thresholds, budgets, and actions. See `docs/RulePacks.md`.
+
+### Readiness & Fail-Open Policy
+
+PromptShield favours availability over strict blocking. At startup:
+
+1. The enforcer attempts a lightweight DB ping (`PS_PG_DSN`).
+2. If the DB is unreachable _and_ no RulePack is loaded, it switches to **observe** mode automatically (fail-open) and `/readyz` returns **503** until healthy.
+3. When DB connectivity and at least one active RulePack are both healthy, `/readyz` returns **200** and normal enforcement resumes (mode from `PS_ENFORCER_MODE`).
+
+This ensures traffic is not blocked due to transient control-plane outages while still surfacing health to orchestrators.
 
 ### Documentation
 

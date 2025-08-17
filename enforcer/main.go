@@ -5,11 +5,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	"runtime"
 
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
@@ -63,11 +63,11 @@ func main() {
 	if grpcAddr == "" {
 		grpcAddr = ":9091"
 	}
-	if s, err := grpcenforcer.Run(grpcAddr, grpcenforcer.NewWithOptions(grpcenforcer.Options{
+	if s, err := grpcenforcer.Build(grpcAddr, grpcenforcer.Options{
 		Timeout:         300 * time.Millisecond,
 		Telemetry:       telemetry,
 		EnforcementMode: os.Getenv("PS_ENFORCER_MODE"),
-	})); err == nil {
+	}); err == nil {
 		log.Printf("grpc ext_proc listening on %s", grpcAddr)
 		gs = s
 	} else {

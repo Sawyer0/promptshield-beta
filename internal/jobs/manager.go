@@ -9,17 +9,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	q "github.com/promptshield/promptshield/internal/jobs/queue"
 )
 
 // JobStatus represents the current state of a job
 type JobStatus string
 
 const (
-	JobStatusPending    JobStatus = "pending"
-	JobStatusRunning    JobStatus = "running"
-	JobStatusCompleted  JobStatus = "completed"
-	JobStatusFailed     JobStatus = "failed"
-	JobStatusCancelled  JobStatus = "cancelled"
+	JobStatusPending   JobStatus = "pending"
+	JobStatusRunning   JobStatus = "running"
+	JobStatusCompleted JobStatus = "completed"
+	JobStatusFailed    JobStatus = "failed"
+	JobStatusCancelled JobStatus = "cancelled"
 )
 
 // Job represents an asynchronous scan job
@@ -52,6 +53,8 @@ type Manager struct {
 	workers    int
 	shutdown   chan struct{}
 	done       chan struct{}
+	// durable provides an optional durable queue implementation.
+	durable q.DurableQueue
 }
 
 // NewManager creates a new job manager with the specified number of workers
@@ -69,6 +72,12 @@ func NewManager(workers int) *Manager {
 	}
 }
 
+// WithDurable attaches a durable queue implementation.
+func (m *Manager) WithDurable(d q.DurableQueue) *Manager {
+	m.durable = d
+	return m
+}
+
 // RegisterProcessor registers a job processor for a specific job type
 func (m *Manager) RegisterProcessor(processor JobProcessor) {
 	m.mu.Lock()
@@ -78,6 +87,15 @@ func (m *Manager) RegisterProcessor(processor JobProcessor) {
 
 // Start begins processing jobs with the configured number of workers
 func (m *Manager) Start(ctx context.Context) {
+	if m.durable != nil {
+		go func() {
+			_ = m.durable.RunConsumers(ctx, m.workers, func(c context.Context, msg q.Message) error {
+				m.processJob(c, msg.ID, 0)
+				return nil
+			})
+		}()
+		return
+	}
 	for i := 0; i < m.workers; i++ {
 		go m.worker(ctx, i)
 	}
@@ -110,8 +128,20 @@ func (m *Manager) Submit(jobType string, input []byte, metadata map[string]inter
 	}
 
 	m.jobs[jobID] = job
-	
-	// Queue the job for processing
+
+	// Enqueue via durable queue when configured
+	if m.durable != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := m.durable.Enqueue(ctx, q.Message{ID: jobID, Type: jobType, Input: input, Metadata: metadata}); err != nil {
+			job.Status = JobStatusFailed
+			job.Error = fmt.Sprintf("enqueue failed: %v", err)
+			return jobID, err
+		}
+		return jobID, nil
+	}
+
+	// Queue the job for processing (in-memory)
 	select {
 	case m.queue <- jobID:
 		return jobID, nil
@@ -126,12 +156,12 @@ func (m *Manager) Submit(jobType string, input []byte, metadata map[string]inter
 func (m *Manager) Get(jobID string) (*Job, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	job, exists := m.jobs[jobID]
 	if !exists {
 		return nil, fmt.Errorf("job not found: %s", jobID)
 	}
-	
+
 	// Return a copy to prevent external modification
 	jobCopy := *job
 	return &jobCopy, nil
@@ -141,7 +171,7 @@ func (m *Manager) Get(jobID string) (*Job, error) {
 func (m *Manager) List(status JobStatus) []*Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	var results []*Job
 	for _, job := range m.jobs {
 		if status == "" || job.Status == status {
@@ -156,21 +186,21 @@ func (m *Manager) List(status JobStatus) []*Job {
 func (m *Manager) Cancel(jobID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	job, exists := m.jobs[jobID]
 	if !exists {
 		return fmt.Errorf("job not found: %s", jobID)
 	}
-	
+
 	if job.Status == JobStatusCompleted || job.Status == JobStatusFailed {
 		return fmt.Errorf("cannot cancel job in status: %s", job.Status)
 	}
-	
+
 	job.Status = JobStatusCancelled
 	now := time.Now().UTC()
 	job.CompletedAt = &now
 	job.Error = "cancelled by user"
-	
+
 	return nil
 }
 
@@ -205,13 +235,13 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 		log.Printf("Worker %d: job %s not found", workerID, jobID)
 		return
 	}
-	
+
 	if job.Status != JobStatusPending {
 		m.mu.Unlock()
 		log.Printf("Worker %d: job %s not pending (status: %s)", workerID, jobID, job.Status)
 		return
 	}
-	
+
 	processor, processorExists := m.processors[job.Type]
 	if !processorExists {
 		job.Status = JobStatusFailed
@@ -221,25 +251,25 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 		m.mu.Unlock()
 		return
 	}
-	
+
 	// Mark job as running
 	job.Status = JobStatusRunning
 	now := time.Now().UTC()
 	job.StartedAt = &now
 	m.mu.Unlock()
-	
+
 	log.Printf("Worker %d: processing job %s (type: %s)", workerID, jobID, job.Type)
-	
+
 	// Process the job
 	err := processor.Process(ctx, job)
-	
+
 	// Update job status
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	completedAt := time.Now().UTC()
 	job.CompletedAt = &completedAt
-	
+
 	if err != nil {
 		job.Status = JobStatusFailed
 		job.Error = err.Error()
@@ -255,10 +285,10 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 func (m *Manager) CleanupCompleted(maxAge time.Duration) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	cutoff := time.Now().UTC().Add(-maxAge)
 	var removed int
-	
+
 	for jobID, job := range m.jobs {
 		if (job.Status == JobStatusCompleted || job.Status == JobStatusFailed || job.Status == JobStatusCancelled) &&
 			job.CompletedAt != nil && job.CompletedAt.Before(cutoff) {
@@ -266,7 +296,7 @@ func (m *Manager) CleanupCompleted(maxAge time.Duration) int {
 			removed++
 		}
 	}
-	
+
 	log.Printf("Cleaned up %d completed jobs older than %v", removed, maxAge)
 	return removed
 }

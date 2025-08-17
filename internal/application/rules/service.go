@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/promptshield/promptshield/internal/rules"
 )
 
@@ -106,7 +108,19 @@ rules:
     level: 2
     severity: WARNING
     patterns:
-      - regex: "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+      - regex: "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+  - id: pii-ssn
+    name: US Social Security Number
+    level: 2
+    severity: ERROR
+    patterns:
+      - regex: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+  - id: pii-credit-card
+    name: Credit Card Number
+    level: 2
+    severity: ERROR
+    patterns:
+      - regex: "\\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14})\\b"
 `
 	case "prompt-injection":
 		content = `apiVersion: promptshield.io/v1
@@ -121,6 +135,10 @@ rules:
     level: 1
     severity: ERROR
     keywords: ["ignore previous instructions", "disregard earlier instructions"]
+  - id: jailbreak-keyword
+    level: 1
+    severity: ERROR
+    keywords: ["jailbreak", "break free"]
 `
 	case "industry":
 		content = `apiVersion: promptshield.io/v1
@@ -136,8 +154,18 @@ rules:
     level: 1
     severity: INFO
     keywords: ["replace-me"]
+  - id: compliance-keyword
+    level: 1
+    severity: WARNING
+    keywords: ["compliance", "regulation"]
 `
+	case "l1":
+		// same as default
+		fallthrough
 	default:
+		if template != "" && template != "l1" {
+			return "", fmt.Errorf("unknown template %s", template)
+		}
 		content = `apiVersion: promptshield.io/v1
 kind: RulePack
 metadata:
@@ -158,17 +186,78 @@ rules:
 	return dest, nil
 }
 
-// List returns merged rule IDs from the pack path or directory.
-func (s *Service) List(path string) ([]string, error) {
-	packs, err := rules.LoadPacks(path)
-	if err != nil {
-		return nil, err
+// List merges rule IDs across one or many RulePack sources (files or directories).
+// When paths is empty or nil, it returns an empty slice.
+func (s *Service) List(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
 	}
-	merged := rules.MergePacks(packs)
+	var allPacks []rules.RulePack
+	for _, p := range paths {
+		packs, err := rules.LoadPacks(p)
+		if err != nil {
+			// fallback: parse minimal YAML looking for spec.rules
+			if ids, ferr := extractIDsQuick(p); ferr == nil {
+				for _, id := range ids {
+					allPacks = append(allPacks, rules.RulePack{Rules: []rules.Rule{{ID: id}}})
+				}
+				continue
+			}
+			return nil, err
+		}
+		allPacks = append(allPacks, packs...)
+	}
+	merged := rules.MergePacks(allPacks)
 	ids := make([]string, 0, len(merged))
 	for _, r := range merged {
 		ids = append(ids, r.ID)
 	}
-	sort.Strings(ids)
+	if len(ids) == 0 {
+		for _, p := range paths {
+			extra, _ := extractIDsQuick(p)
+			ids = append(ids, extra...)
+		}
+	}
+	// deduplicate
+	idSet := make(map[string]struct{}, len(ids))
+	var unique []string
+	for _, id := range ids {
+		if _, ok := idSet[id]; !ok && id != "" {
+			idSet[id] = struct{}{}
+			unique = append(unique, id)
+		}
+	}
+	sort.Strings(unique)
+	return unique, nil
+}
+
+// extractIDsQuick is a lightweight YAML parser that pulls rule IDs from documents
+// shaped like:
+// spec:
+//
+//	rules:
+//	  - id: foo
+//	  - id: bar
+func extractIDsQuick(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var obj struct {
+		Spec struct {
+			Rules []struct {
+				ID string `yaml:"id"`
+			} `yaml:"rules"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal(data, &obj); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, r := range obj.Spec.Rules {
+		if r.ID != "" {
+			ids = append(ids, r.ID)
+		}
+	}
 	return ids, nil
 }

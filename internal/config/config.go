@@ -28,6 +28,10 @@ type Config struct {
 	TraceFile    string `yaml:"trace_file" json:"trace_file"`
 	FailOn       string `yaml:"fail_on" json:"fail_on"`
 
+	// Enforcer-specific settings
+	EnforcerMode             string `yaml:"enforcer_mode" json:"enforcer_mode"`
+	RequireRulepackAtStartup bool   `yaml:"require_rulepack_at_startup" json:"require_rulepack_at_startup"`
+
 	Composition struct {
 		Strategy string `yaml:"strategy" json:"strategy"`
 	} `yaml:"composition" json:"composition"`
@@ -60,9 +64,11 @@ type Config struct {
 // Defaults provides baseline values for the CLI when nothing is provided.
 func Defaults() Config {
 	return Config{
-		OutputFormat: "stylish",
-		Workers:      0,
-		Debug:        false,
+		OutputFormat:             "stylish",
+		Workers:                  0,
+		Debug:                    false,
+		EnforcerMode:             "observe",
+		RequireRulepackAtStartup: false,
 		Performance: struct {
 			MaxLength        int    `yaml:"max_length" json:"max_length"`
 			MaxFileSizeBytes int64  `yaml:"max_file_size" json:"max_file_size"`
@@ -128,6 +134,9 @@ func Validate(cfg Config) []error {
 	if cfg.Telemetry.Sample < 0 || cfg.Telemetry.Sample > 1 {
 		errs = append(errs, fmt.Errorf("telemetry.sample must be between 0 and 1"))
 	}
+	if err := ValidateEnforcementMode(strings.ToLower(cfg.EnforcerMode)); err != nil {
+		errs = append(errs, err)
+	}
 	// Duration fields validated by consumers; keep as strings here
 	return errs
 }
@@ -173,10 +182,12 @@ func CheckUnknownKeys(yamlBytes []byte) error {
 		"redaction": map[string]any{
 			"enabled": true,
 		},
-		"rulepack":     true,
-		"metrics_file": true,
-		"trace_file":   true,
-		"fail_on":      true,
+		"rulepack":                    true,
+		"metrics_file":                true,
+		"trace_file":                  true,
+		"fail_on":                     true,
+		"enforcer_mode":               true,
+		"require_rulepack_at_startup": true,
 		"composition": map[string]any{
 			"strategy": true,
 		},
@@ -330,6 +341,12 @@ func ReadEffective(_ context.Context, configFileUsed string, get func(key string
 	}
 	if v := get("fail_on"); v != nil {
 		eff.FailOn = toString(v, eff.FailOn)
+	}
+	if v := get("enforcer_mode"); v != nil {
+		eff.EnforcerMode = toString(v, eff.EnforcerMode)
+	}
+	if v := get("require_rulepack_at_startup"); v != nil {
+		eff.RequireRulepackAtStartup = toBool(v, eff.RequireRulepackAtStartup)
 	}
 	if v := get("composition.strategy"); v != nil {
 		eff.Composition.Strategy = toString(v, eff.Composition.Strategy)

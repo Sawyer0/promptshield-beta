@@ -3,13 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/promptshield/promptshield/internal/usage"
-	"gopkg.in/yaml.v3"
 )
 
 func httpAuthOK(r *http.Request, want string) bool {
@@ -73,29 +71,6 @@ func parseFloatDefault(s string, def float64) float64 {
 	return def
 }
 
-// yamlUnmarshal is a local indirection to avoid importing yaml in multiple files
-var yamlUnmarshal = func(data []byte, v any) error { return yaml.Unmarshal(data, v) }
-
-type notFoundErr struct{ s string }
-
-func (e *notFoundErr) Error() string { return e.s }
-
-func errNotFound(what string) error { return &notFoundErr{s: what + " not found"} }
-
-func toErr(errs []error) error {
-	if len(errs) == 0 {
-		return nil
-	}
-	var b strings.Builder
-	for i, e := range errs {
-		if i > 0 {
-			b.WriteString("; ")
-		}
-		b.WriteString(e.Error())
-	}
-	return errors.New(b.String())
-}
-
 // Context key for usage store
 type usageStoreKey struct{}
 
@@ -144,13 +119,19 @@ func tenantFromRequest(r *http.Request) string {
 		try := func(keys ...string) string {
 			for _, k := range keys {
 				if v, ok := m[k]; ok {
-					if s, ok := v.(string); ok && strings.TrimSpace(s) != "" { return s }
+					if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+						return s
+					}
 				}
 			}
 			return ""
 		}
-		if s := try("tid", "tenant", "org", "azp"); s != "" { return s }
+		if s := try("tid", "tenant", "org", "azp"); s != "" {
+			return s
+		}
 	}
-	if v := strings.TrimSpace(r.Header.Get("x-tenant-id")); v != "" { return v }
+	if v := strings.TrimSpace(r.Header.Get("x-tenant-id")); v != "" {
+		return v
+	}
 	return ""
 }

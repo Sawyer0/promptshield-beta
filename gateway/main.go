@@ -30,10 +30,10 @@ func main() {
 
 	// Start gRPC ext_proc server
 	var gs *grpc.Server
-	if s, err := grpcenforcer.Run(grpcAddr, grpcenforcer.NewWithOptions(grpcenforcer.Options{
+	if s, err := grpcenforcer.Build(grpcAddr, grpcenforcer.Options{
 		Timeout:         300 * time.Millisecond,
 		EnforcementMode: "observe",
-	})); err == nil {
+	}); err == nil {
 		log.Printf("ps-gateway grpc ext_proc listening on %s", grpcAddr)
 		gs = s
 	} else {

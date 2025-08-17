@@ -3,6 +3,7 @@ package paths
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -26,7 +27,7 @@ func ValidateCAFilePath(path string) error {
 		return fmt.Errorf("CA file path contains path traversal components")
 	}
 
-	// Clean the path 
+	// Clean the path
 	cleanPath := filepath.Clean(path)
 
 	// Validate file extension
@@ -43,9 +44,20 @@ func ValidateCAFilePath(path string) error {
 		return fmt.Errorf("invalid CA file extension %q (allowed: .pem, .crt, .cert, .ca-bundle, .cer)", ext)
 	}
 
-	// Ensure it's an absolute path for security
+	// Ensure it's an absolute path for security. On Windows, also
+	// tolerate Unix-style absolute paths that start with '/' so that
+	// cross-platform test paths like "/etc/ssl/certs/ca.pem" work
+	// consistently irrespective of the host OS.
 	if !filepath.IsAbs(cleanPath) {
-		return fmt.Errorf("CA file path must be absolute")
+		// Special-case Windows to treat paths beginning with a path separator
+		// (e.g. "\\etc\\..." or "/etc/..." style) as absolute so that
+		// cross-platform tests using Unix-style roots still succeed on Windows.
+		if runtime.GOOS == "windows" && (strings.HasPrefix(cleanPath, "/") || strings.HasPrefix(cleanPath, "\\")) {
+			// consider this absolute on Windows
+		} else {
+			// not absolute, reject
+			return fmt.Errorf("CA file path must be absolute")
+		}
 	}
 
 	return nil

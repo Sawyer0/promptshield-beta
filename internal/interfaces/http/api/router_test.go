@@ -13,10 +13,62 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/application/services"
 )
 
+// mockRulepackRepo is a minimal mock for testing
+type mockRulepackRepo struct{}
+
+func (m *mockRulepackRepo) Create(ctx context.Context, tenantID uuid.UUID, name, desc string) (uuid.UUID, error) {
+	return uuid.New(), nil
+}
+
+func (m *mockRulepackRepo) CreateVersion(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, status string, createdBy uuid.UUID) (uuid.UUID, error) {
+	return uuid.New(), nil
+}
+
+func (m *mockRulepackRepo) GetActive(ctx context.Context, packID uuid.UUID) (json.RawMessage, int, error) {
+	return json.RawMessage("{}"), 1, nil
+}
+
+func (m *mockRulepackRepo) Activate(ctx context.Context, packID, versionID uuid.UUID) error {
+	return nil
+}
+
+func (m *mockRulepackRepo) GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error) {
+	return json.RawMessage("{}"), "approved", nil
+}
+
+func (m *mockRulepackRepo) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
+	return uuid.New(), 1, nil
+}
+
+func (m *mockRulepackRepo) ActivateLatest(ctx context.Context, packID uuid.UUID) error {
+	return nil
+}
+
+func (m *mockRulepackRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]services.RulepackInfo, error) {
+	return []services.RulepackInfo{}, nil
+}
+
+func (m *mockRulepackRepo) Delete(ctx context.Context, packID uuid.UUID) error {
+	return nil
+}
+
+func (m *mockRulepackRepo) CreateVersionActivateTx(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, createdBy uuid.UUID) (uuid.UUID, error) {
+	return uuid.New(), nil
+}
+
+func (m *mockRulepackRepo) PurgeOldVersions(ctx context.Context, packID uuid.UUID, keep int) error {
+	return nil
+}
+
 func TestVersion(t *testing.T) {
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true}))
+	mockRepo := &mockRulepackRepo{}
+	svc := services.NewRulepackService(mockRepo, nil)
+	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/version")
 	if err != nil {
@@ -28,7 +80,12 @@ func TestVersion(t *testing.T) {
 }
 
 func TestRulepacksListEmpty(t *testing.T) {
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackManager: NewRulepackManager()}))
+	// Create a mock service that returns empty list
+	mockRepo := &mockRulepackRepo{}
+	svc := &services.RulepackService{}
+	svc = services.NewRulepackService(mockRepo, nil)
+
+	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/rulepacks/")
 	if err != nil {
@@ -40,7 +97,9 @@ func TestRulepacksListEmpty(t *testing.T) {
 }
 
 func TestConfigGetPutReset(t *testing.T) {
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, AdminToken: "x"}))
+	mockRepo := &mockRulepackRepo{}
+	svc := services.NewRulepackService(mockRepo, nil)
+	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, AdminToken: "x", RulepackService: svc}))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/config/")
 	if err != nil {
@@ -74,7 +133,9 @@ func TestConfigGetPutReset(t *testing.T) {
 }
 
 func TestCheckAllow(t *testing.T) {
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true}))
+	mockRepo := &mockRulepackRepo{}
+	svc := services.NewRulepackService(mockRepo, nil)
+	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
 	resp, err := http.Post(srv.URL+"/check", "text/plain", bytes.NewBufferString("hello"))
 	if err != nil {
@@ -86,7 +147,9 @@ func TestCheckAllow(t *testing.T) {
 }
 
 func TestScanAggregateJSONAndNDJSON(t *testing.T) {
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true}))
+	mockRepo := &mockRulepackRepo{}
+	svc := services.NewRulepackService(mockRepo, nil)
+	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
 
 	// Aggregate JSON array input
@@ -144,7 +207,9 @@ func TestScanAggregateJSONAndNDJSON(t *testing.T) {
 
 func TestSSEEventStreamingAndFiltering(t *testing.T) {
 	hub := NewEventHub()
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, Events: hub}))
+	mockRepo := &mockRulepackRepo{}
+	svc := services.NewRulepackService(mockRepo, nil)
+	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, Events: hub, RulepackService: svc}))
 	defer srv.Close()
 
 	// Start SSE client
@@ -185,7 +250,11 @@ func TestSSEEventStreamingAndFiltering(t *testing.T) {
 }
 
 func TestRulepacksUploadMultipart(t *testing.T) {
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackManager: NewRulepackManager()}))
+	// Create a mock service
+	mockRepo := &mockRulepackRepo{}
+	svc := services.NewRulepackService(mockRepo, nil)
+
+	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
 
 	// load sample rulepack
@@ -229,8 +298,11 @@ func TestRulepacksUploadMultipart(t *testing.T) {
 
 func TestAdminShutdownDelayHandling(t *testing.T) {
 	delays := make(chan time.Duration, 1)
+	mockRepo := &mockRulepackRepo{}
+	svc := services.NewRulepackService(mockRepo, nil)
 	srv := httptest.NewServer(NewMux(Options{
 		AllowInsecureAdmin: true,
+		RulepackService:    svc,
 		OnShutdown: func(ctx context.Context, d time.Duration) error {
 			delays <- d
 			return nil

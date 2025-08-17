@@ -8,14 +8,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
+	"github.com/promptshield/promptshield/internal/testutil/mocks"
 )
 
 func TestHealthzAndMetrics(t *testing.T) {
 	// Ensure readiness does not fail due to missing rules by setting a dummy env
 	t.Setenv("PS_ENFORCER_RULEPACK", "dummy")
 
-	h := enforcerhttp.NewMux()
+	// Setup with mock RulepackService
+	mockRepo := &mocks.MockRulepackRepository{}
+	rulepackService := services.NewRulepackService(mockRepo, nil)
+	
+	options := api.Options{
+		RulepackService: rulepackService,
+	}
+	h := enforcerhttp.NewMuxWithOptions(options)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -49,7 +59,14 @@ func TestLicenseEndpointsAndGating(t *testing.T) {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
 	t.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
 
-	h := enforcerhttp.NewMux()
+	// Setup with mock RulepackService
+	mockRepo := &mocks.MockRulepackRepository{}
+	rulepackService := services.NewRulepackService(mockRepo, nil)
+	
+	options := api.Options{
+		RulepackService: rulepackService,
+	}
+	h := enforcerhttp.NewMuxWithOptions(options)
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
