@@ -42,10 +42,10 @@ type BroadcastEvent struct {
 
 // AlertFilter defines filtering for alert queries
 type AlertFilter struct {
-	Severity  Severity  `json:"severity,omitempty"`
-	RuleID    string    `json:"rule_id,omitempty"`
-	TimeRange TimeRange `json:"time_range,omitempty"`
-	Status    string    `json:"status,omitempty"`
+	Severity  ViolationSeverity `json:"severity,omitempty"`
+	RuleID    string            `json:"rule_id,omitempty"`
+	TimeRange TimeRange         `json:"time_range,omitempty"`
+	Status    string            `json:"status,omitempty"`
 }
 
 // TimeRange represents a time range for queries

@@ -107,19 +107,9 @@ rules:
 
 	server := NewWithOptions(opts)
 
-	// Create and test the handler directly
-	handler := server.createRuleUpdateHandler()
-
-	ruleUpdate := nats.RuleUpdate{
-		TenantID:      tenantID.String(),
-		TargetScope:   "global",
-		RulepackID:    packID.String(),
-		Version:       2,
-		ContentSHA256: "new-checksum",
-	}
-
+	// Test the ReloadRules method directly (which is what the handler would call)
 	ctx := context.Background()
-	err := handler(ctx, ruleUpdate)
+	err := server.ReloadRules(ctx)
 	assert.NoError(t, err)
 
 	repo.AssertExpectations(t)

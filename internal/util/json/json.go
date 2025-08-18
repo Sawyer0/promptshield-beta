@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/promptshield/promptshield/internal/shared/errors"
 )
@@ -231,10 +230,10 @@ func GetFromObject(obj interface{}, path string) (interface{}, error) {
 	if path == "" {
 		return obj, nil
 	}
-	
+
 	parts := strings.Split(path, ".")
 	current := obj
-	
+
 	for _, part := range parts {
 		switch v := current.(type) {
 		case map[string]interface{}:
@@ -256,7 +255,7 @@ func GetFromObject(obj interface{}, path string) (interface{}, error) {
 			return nil, fmt.Errorf("cannot traverse non-object/non-array at path: %s", path)
 		}
 	}
-	
+
 	return current, nil
 }
 
@@ -266,11 +265,11 @@ func Set(data []byte, path string, value interface{}) ([]byte, error) {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return nil, err
 	}
-	
+
 	if err := SetInObject(&obj, path, value); err != nil {
 		return nil, err
 	}
-	
+
 	return json.Marshal(obj)
 }
 
@@ -289,13 +288,13 @@ func SetInObject(obj *interface{}, path string, value interface{}) error {
 		*obj = value
 		return nil
 	}
-	
+
 	parts := strings.Split(path, ".")
 	current := obj
-	
+
 	for i, part := range parts {
 		isLast := i == len(parts)-1
-		
+
 		switch v := (*current).(type) {
 		case map[string]interface{}:
 			if isLast {
@@ -339,7 +338,7 @@ func SetInObject(obj *interface{}, path string, value interface{}) error {
 			return fmt.Errorf("cannot set value in non-object/non-array at path: %s", path)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -349,11 +348,11 @@ func Delete(data []byte, path string) ([]byte, error) {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return nil, err
 	}
-	
+
 	if err := DeleteFromObject(&obj, path); err != nil {
 		return nil, err
 	}
-	
+
 	return json.Marshal(obj)
 }
 
@@ -371,10 +370,10 @@ func DeleteFromObject(obj *interface{}, path string) error {
 	if path == "" {
 		return fmt.Errorf("cannot delete root object")
 	}
-	
+
 	parts := strings.Split(path, ".")
 	current := *obj
-	
+
 	// Navigate to parent
 	for i, part := range parts[:len(parts)-1] {
 		switch v := current.(type) {
@@ -397,7 +396,7 @@ func DeleteFromObject(obj *interface{}, path string) error {
 			return fmt.Errorf("cannot traverse non-object/non-array")
 		}
 	}
-	
+
 	// Delete from parent
 	lastPart := parts[len(parts)-1]
 	switch v := current.(type) {
@@ -417,21 +416,21 @@ func DeleteFromObject(obj *interface{}, path string) error {
 	default:
 		return fmt.Errorf("cannot delete from non-object/non-array")
 	}
-	
+
 	return nil
 }
 
 // Merge merges two JSON objects
 func Merge(data1, data2 []byte) ([]byte, error) {
 	var obj1, obj2 map[string]interface{}
-	
+
 	if err := json.Unmarshal(data1, &obj1); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(data2, &obj2); err != nil {
 		return nil, err
 	}
-	
+
 	merged := MergeMaps(obj1, obj2)
 	return json.Marshal(merged)
 }
@@ -448,12 +447,12 @@ func MergeString(data1, data2 string) (string, error) {
 // MergeMaps merges two maps recursively
 func MergeMaps(map1, map2 map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
-	
+
 	// Copy map1
 	for k, v := range map1 {
 		result[k] = v
 	}
-	
+
 	// Merge map2
 	for k, v := range map2 {
 		if existing, exists := result[k]; exists {
@@ -466,7 +465,7 @@ func MergeMaps(map1, map2 map[string]interface{}) map[string]interface{} {
 		}
 		result[k] = v
 	}
-	
+
 	return result
 }
 
@@ -494,7 +493,7 @@ func Keys(data []byte) ([]string, error) {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return nil, err
 	}
-	
+
 	keys := make([]string, 0, len(obj))
 	for k := range obj {
 		keys = append(keys, k)
@@ -513,7 +512,7 @@ func Values(data []byte) ([]interface{}, error) {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return nil, err
 	}
-	
+
 	values := make([]interface{}, 0, len(obj))
 	for _, v := range obj {
 		values = append(values, v)
@@ -532,7 +531,7 @@ func HasKey(data []byte, key string) (bool, error) {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return false, err
 	}
-	
+
 	_, exists := obj[key]
 	return exists, nil
 }
@@ -548,7 +547,7 @@ func Size(data []byte) (int, error) {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return 0, err
 	}
-	
+
 	switch v := obj.(type) {
 	case map[string]interface{}:
 		return len(v), nil
@@ -583,12 +582,12 @@ func ConvertToType(value interface{}, targetType reflect.Type) (interface{}, err
 	if value == nil {
 		return reflect.Zero(targetType).Interface(), nil
 	}
-	
+
 	valueType := reflect.TypeOf(value)
 	if valueType == targetType {
 		return value, nil
 	}
-	
+
 	switch targetType.Kind() {
 	case reflect.String:
 		return fmt.Sprintf("%v", value), nil
@@ -614,7 +613,7 @@ func ConvertToType(value interface{}, targetType reflect.Type) (interface{}, err
 			return strconv.ParseBool(str)
 		}
 	}
-	
+
 	return nil, fmt.Errorf("cannot convert %T to %s", value, targetType)
 }
 
@@ -624,19 +623,19 @@ func FilterKeys(data []byte, keys []string) ([]byte, error) {
 	if err := json.Unmarshal(data, &obj); err != nil {
 		return nil, err
 	}
-	
+
 	filtered := make(map[string]interface{})
 	keySet := make(map[string]bool)
 	for _, key := range keys {
 		keySet[key] = true
 	}
-	
+
 	for k, v := range obj {
 		if keySet[k] {
 			filtered[k] = v
 		}
 	}
-	
+
 	return json.Marshal(filtered)
 }
 
@@ -654,14 +653,14 @@ func SafeUnmarshal(data []byte, v interface{}) error {
 	if !IsValid(data) {
 		return errors.InvalidRequestFormat("application/json", "invalid JSON")
 	}
-	
+
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	
+
 	if err := decoder.Decode(v); err != nil {
 		return errors.ValidationFailed("json", err.Error())
 	}
-	
+
 	return nil
 }
 

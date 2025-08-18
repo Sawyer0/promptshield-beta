@@ -27,6 +27,7 @@ import (
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
+	"github.com/promptshield/promptshield/internal/shared/types"
 	"github.com/promptshield/promptshield/internal/usage"
 	redis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -532,11 +533,19 @@ func generateRequestID() string {
 	return uuid.NewString()
 }
 
-// auditAdapter adapts internal/audit.Logger to api.AuditLogger
+// auditAdapter adapts internal/audit.Logger to contracts.AuditLogger
 type auditAdapter struct{ inner audit.Logger }
 
-func (a auditAdapter) Log(ev api.AuditEvent) error {
-	return a.inner.Log(audit.Event{Type: ev.Type, Data: ev.Data, Hash: ev.Hash, PrevHash: ev.PrevHash})
+func (a auditAdapter) LogWithContext(ctx context.Context, ev types.AuditEvent) error {
+	return a.inner.Log(audit.Event{Type: ev.Action, Data: ev.Metadata, Hash: "", PrevHash: ""})
+}
+
+func (a auditAdapter) Flush() error {
+	return nil
+}
+
+func (a auditAdapter) Close() error {
+	return nil
 }
 
 // exported for reuse in api

@@ -36,24 +36,24 @@ func EnrichWithSecurityContext(ctx context.Context, event *types.AuditEvent, ipA
 	if event.Metadata == nil {
 		event.Metadata = make(map[string]interface{})
 	}
-	
+
 	if ipAddress != "" {
 		event.Metadata["ip_address"] = ipAddress
 	}
 	if userAgent != "" {
 		event.Metadata["user_agent"] = userAgent
 	}
-	
+
 	// Add any additional security context from the request context
 	enrichEventFromContext(ctx, event)
 }
 
 // EnrichWithPolicyContext adds policy enforcement context to audit events
-func EnrichWithPolicyContext(event *types.AuditEvent, policyID, ruleID string, severity types.Severity) {
+func EnrichWithPolicyContext(event *types.AuditEvent, policyID, ruleID string, severity types.ViolationSeverity) {
 	if event.Metadata == nil {
 		event.Metadata = make(map[string]interface{})
 	}
-	
+
 	if policyID != "" {
 		event.Metadata["policy_id"] = policyID
 	}

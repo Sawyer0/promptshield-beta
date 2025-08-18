@@ -16,31 +16,31 @@ type ProcessFunc func(ctx context.Context, items []Item) error
 
 // Processor manages batching and processing of items
 type Processor struct {
-	processFn   ProcessFunc
-	maxSize     int
-	maxWait     time.Duration
-	maxRetries  int
+	processFn  ProcessFunc
+	maxSize    int
+	maxWait    time.Duration
+	maxRetries int
 
-	items      []Item
-	itemsChan  chan Item
-	flushChan  chan chan error
-	closeChan  chan struct{}
-	closed     bool
-	
-	mu         sync.RWMutex
-	wg         sync.WaitGroup
-	metrics    *Metrics
+	items     []Item
+	itemsChan chan Item
+	flushChan chan chan error
+	closeChan chan struct{}
+	closed    bool
+
+	mu      sync.RWMutex
+	wg      sync.WaitGroup
+	metrics *Metrics
 }
 
 // Metrics tracks batch processor metrics
 type Metrics struct {
-	mu              sync.RWMutex
-	ItemsProcessed  int64
+	mu               sync.RWMutex
+	ItemsProcessed   int64
 	BatchesProcessed int64
-	BatchesFailed   int64
+	BatchesFailed    int64
 	AverageBatchSize float64
-	AverageWaitTime time.Duration
-	LastFlushTime   time.Time
+	AverageWaitTime  time.Duration
+	LastFlushTime    time.Time
 }
 
 // Config configures a batch processor
@@ -130,7 +130,7 @@ func (p *Processor) Flush(ctx context.Context) error {
 	p.mu.RUnlock()
 
 	errCh := make(chan error, 1)
-	
+
 	select {
 	case p.flushChan <- errCh:
 		select {
@@ -178,7 +178,7 @@ func (p *Processor) run() {
 		select {
 		case item := <-p.itemsChan:
 			p.items = append(p.items, item)
-			
+
 			// Check if batch is full
 			if len(p.items) >= p.maxSize {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -267,10 +267,10 @@ func (p *Processor) processBatch(ctx context.Context) error {
 }
 
 // GetMetrics returns current metrics
-func (p *Processor) GetMetrics() Metrics {
+func (p *Processor) GetMetrics() *Metrics {
 	p.metrics.mu.RLock()
 	defer p.metrics.mu.RUnlock()
-	return *p.metrics
+	return p.metrics
 }
 
 // Size returns the current batch size

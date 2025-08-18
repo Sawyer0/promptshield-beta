@@ -31,7 +31,7 @@ func (s *Service) LogEvent(ctx context.Context, action string, objectType string
 	if parsed, err := uuid.Parse(objectID); err == nil {
 		objUUID = parsed
 	}
-	
+
 	event := &types.AuditEvent{
 		Action:     action,
 		ObjectType: objectType,
@@ -83,7 +83,7 @@ func (s *Service) GetLogger() contracts.AuditLogger {
 }
 
 // Flush flushes any pending audit logs
-func (s *Service) Flush() error {
+func (s *Service) Flush(ctx context.Context) error {
 	s.mu.RLock()
 	logger := s.logger
 	s.mu.RUnlock()

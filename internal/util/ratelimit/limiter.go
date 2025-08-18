@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/shared/errors"
 	"github.com/promptshield/promptshield/internal/shared/types"
 )
 
@@ -14,10 +13,10 @@ type Limiter struct {
 	config     *types.RateLimitConfig
 	tokens     int
 	lastRefill time.Time
-	
-	mu         sync.Mutex
-	closed     bool
-	metrics    *Metrics
+
+	mu      sync.Mutex
+	closed  bool
+	metrics *Metrics
 }
 
 // Metrics tracks rate limiter metrics
@@ -110,7 +109,7 @@ func (l *Limiter) WaitN(ctx context.Context, n int) error {
 
 	// Calculate wait time
 	waitTime := l.timeToWait(n)
-	
+
 	// Wait with backoff
 	timer := time.NewTimer(waitTime)
 	defer timer.Stop()
@@ -124,7 +123,7 @@ func (l *Limiter) WaitN(ctx context.Context, n int) error {
 			// Recalculate wait time
 			waitTime = l.timeToWait(n)
 			timer.Reset(waitTime)
-			
+
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -138,7 +137,7 @@ func (l *Limiter) Reserve(n int) *Reservation {
 
 	if l.closed {
 		return &Reservation{
-			ok:     false,
+			ok:      false,
 			limiter: l,
 		}
 	}
@@ -151,9 +150,9 @@ func (l *Limiter) Reserve(n int) *Reservation {
 		// Tokens available now
 		l.tokens -= n
 		return &Reservation{
-			ok:       true,
-			limiter:  l,
-			tokens:   n,
+			ok:        true,
+			limiter:   l,
+			tokens:    n,
 			timeToAct: time.Now(),
 		}
 	}
@@ -163,9 +162,9 @@ func (l *Limiter) Reserve(n int) *Reservation {
 	timeToAct := time.Now().Add(time.Duration(secondsToWait * float64(time.Second)))
 
 	return &Reservation{
-		ok:       true,
-		limiter:  l,
-		tokens:   n,
+		ok:        true,
+		limiter:   l,
+		tokens:    n,
 		timeToAct: timeToAct,
 	}
 }
@@ -174,17 +173,17 @@ func (l *Limiter) Reserve(n int) *Reservation {
 func (l *Limiter) refill() {
 	now := time.Now()
 	elapsed := now.Sub(l.lastRefill)
-	
+
 	// Calculate tokens to add
 	tokensToAdd := int(elapsed.Seconds() * float64(l.config.RequestsPerSecond))
-	
+
 	if tokensToAdd > 0 {
 		l.tokens += tokensToAdd
 		if l.tokens > l.config.BurstSize {
 			l.tokens = l.config.BurstSize
 		}
 		l.lastRefill = now
-		
+
 		l.metrics.mu.Lock()
 		l.metrics.CurrentTokens = l.tokens
 		l.metrics.LastRefillTime = now
@@ -205,12 +204,12 @@ func (l *Limiter) timeToWait(n int) time.Duration {
 
 	tokensNeeded := n - l.tokens
 	secondsToWait := float64(tokensNeeded) / float64(l.config.RequestsPerSecond)
-	
+
 	waitTime := time.Duration(secondsToWait * float64(time.Second))
 	if waitTime < l.config.BackoffDelay {
 		waitTime = l.config.BackoffDelay
 	}
-	
+
 	return waitTime
 }
 
@@ -221,9 +220,9 @@ func (l *Limiter) Reset() {
 
 	l.tokens = l.config.BurstSize
 	l.lastRefill = time.Now()
-	
+
 	l.metrics = &Metrics{
-		CurrentTokens: l.config.BurstSize,
+		CurrentTokens:  l.config.BurstSize,
 		LastRefillTime: l.lastRefill,
 	}
 }
@@ -241,17 +240,17 @@ func (l *Limiter) Close() error {
 }
 
 // GetMetrics returns current metrics
-func (l *Limiter) GetMetrics() Metrics {
+func (l *Limiter) GetMetrics() *Metrics {
 	l.metrics.mu.RLock()
 	defer l.metrics.mu.RUnlock()
-	return *l.metrics
+	return l.metrics
 }
 
 // Tokens returns the current number of tokens
 func (l *Limiter) Tokens() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	l.refill()
 	return l.tokens
 }
@@ -298,7 +297,7 @@ func (r *Reservation) Delay() time.Duration {
 	if !r.ok {
 		return 0
 	}
-	
+
 	delay := time.Until(r.timeToAct)
 	if delay < 0 {
 		return 0
@@ -311,7 +310,7 @@ func (r *Reservation) DelayFrom(t time.Time) time.Duration {
 	if !r.ok {
 		return 0
 	}
-	
+
 	delay := r.timeToAct.Sub(t)
 	if delay < 0 {
 		return 0
@@ -321,11 +320,11 @@ func (r *Reservation) DelayFrom(t time.Time) time.Duration {
 
 // TokenBucket implements a token bucket rate limiter
 type TokenBucket struct {
-	capacity      int
-	tokens        float64
-	refillRate    float64
-	lastRefill    time.Time
-	mu            sync.Mutex
+	capacity   int
+	tokens     float64
+	refillRate float64
+	lastRefill time.Time
+	mu         sync.Mutex
 }
 
 // NewTokenBucket creates a new token bucket
@@ -361,11 +360,11 @@ func (tb *TokenBucket) AllowN(n int) bool {
 func (tb *TokenBucket) refill() {
 	now := time.Now()
 	elapsed := now.Sub(tb.lastRefill).Seconds()
-	
+
 	tb.tokens += elapsed * tb.refillRate
 	if tb.tokens > float64(tb.capacity) {
 		tb.tokens = float64(tb.capacity)
 	}
-	
+
 	tb.lastRefill = now
 }

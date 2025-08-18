@@ -89,16 +89,16 @@ type APITokenRepository interface {
 type UsageRepository interface {
 	// Record a single usage event
 	RecordUsage(ctx context.Context, record *types.UsageRecord) error
-	
+
 	// Query usage data with filters and aggregation
 	QueryUsage(ctx context.Context, query *types.UsageQuery) (*types.UsageResult, error)
-	
+
 	// Get aggregated metrics for a time window
 	GetMetrics(ctx context.Context, tenantID uuid.UUID, window types.TimeWindow, start, end time.Time) ([]*types.UsageMetric, error)
-	
+
 	// Get usage summary for a tenant
 	GetUsageSummary(ctx context.Context, tenantID uuid.UUID, start, end time.Time) (map[string]interface{}, error)
-	
+
 	// Delete old usage records (for data retention)
 	DeleteOldRecords(ctx context.Context, before time.Time) error
 }
@@ -107,22 +107,22 @@ type UsageRepository interface {
 type CacheRepository interface {
 	// Get a cached value by key
 	Get(ctx context.Context, key string) ([]byte, error)
-	
+
 	// Set a cached value with optional TTL
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
-	
+
 	// Delete a cached value
 	Delete(ctx context.Context, key string) error
-	
+
 	// Check if a key exists
 	Exists(ctx context.Context, key string) (bool, error)
-	
+
 	// Delete all keys matching a pattern
 	DeletePattern(ctx context.Context, pattern string) error
-	
+
 	// Get multiple keys at once
 	GetMulti(ctx context.Context, keys []string) (map[string][]byte, error)
-	
+
 	// Set multiple keys at once
 	SetMulti(ctx context.Context, items map[string][]byte, ttl time.Duration) error
 }
@@ -131,34 +131,25 @@ type CacheRepository interface {
 type TransactionManager interface {
 	// Execute a function within a transaction
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
-	
+
 	// Begin a new transaction (for manual transaction management)
 	BeginTx(ctx context.Context) (context.Context, error)
-	
+
 	// Commit the current transaction
 	CommitTx(ctx context.Context) error
-	
+
 	// Rollback the current transaction
 	RollbackTx(ctx context.Context) error
-}
-
-// HealthChecker defines operations for health checking storage systems
-type HealthChecker interface {
-	// Check if the storage system is healthy
-	HealthCheck(ctx context.Context) error
-	
-	// Get detailed health information
-	GetHealthDetails(ctx context.Context) (map[string]interface{}, error)
 }
 
 // Migrator defines operations for database schema management
 type Migrator interface {
 	// Apply pending migrations
 	Migrate(ctx context.Context) error
-	
+
 	// Get migration status
 	GetMigrationStatus(ctx context.Context) ([]map[string]interface{}, error)
-	
+
 	// Rollback to a specific migration version
 	RollbackTo(ctx context.Context, version string) error
 }

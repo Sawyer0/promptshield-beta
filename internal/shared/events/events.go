@@ -18,11 +18,11 @@ type Event interface {
 
 // BaseEvent provides common event fields
 type BaseEvent struct {
-	ID        string     `json:"id"`
-	Type      string     `json:"type"`
-	Time      time.Time  `json:"timestamp"`
-	Tenant    *uuid.UUID `json:"tenant_id,omitempty"`
-	EventVersion int     `json:"version"`
+	ID           string     `json:"id"`
+	Type         string     `json:"type"`
+	Time         time.Time  `json:"timestamp"`
+	Tenant       *uuid.UUID `json:"tenant_id,omitempty"`
+	EventVersion int        `json:"version"`
 }
 
 func (e BaseEvent) EventType() string    { return e.Type }
@@ -40,30 +40,30 @@ type TenantCreated struct {
 
 type TenantUpdated struct {
 	BaseEvent
-	TenantID uuid.UUID             `json:"tenant_id"`
-	Before   types.Tenant          `json:"before"`
-	After    types.Tenant          `json:"after"`
-	Changes  map[string]interface{} `json:"changes"`
-	UpdatedBy *uuid.UUID           `json:"updated_by,omitempty"`
+	TenantID  uuid.UUID              `json:"tenant_id"`
+	Before    types.Tenant           `json:"before"`
+	After     types.Tenant           `json:"after"`
+	Changes   map[string]interface{} `json:"changes"`
+	UpdatedBy *uuid.UUID             `json:"updated_by,omitempty"`
 }
 
 type TenantSuspended struct {
 	BaseEvent
-	TenantID uuid.UUID  `json:"tenant_id"`
-	Reason   string     `json:"reason"`
+	TenantID    uuid.UUID  `json:"tenant_id"`
+	Reason      string     `json:"reason"`
 	SuspendedBy *uuid.UUID `json:"suspended_by,omitempty"`
 }
 
 type TenantRestored struct {
 	BaseEvent
-	TenantID uuid.UUID  `json:"tenant_id"`
-	Reason   string     `json:"reason,omitempty"`
+	TenantID   uuid.UUID  `json:"tenant_id"`
+	Reason     string     `json:"reason,omitempty"`
 	RestoredBy *uuid.UUID `json:"restored_by,omitempty"`
 }
 
 type TenantDeleted struct {
 	BaseEvent
-	TenantID uuid.UUID  `json:"tenant_id"`
+	TenantID  uuid.UUID  `json:"tenant_id"`
 	DeletedBy *uuid.UUID `json:"deleted_by,omitempty"`
 }
 
@@ -76,11 +76,11 @@ type PolicyCreated struct {
 
 type PolicyUpdated struct {
 	BaseEvent
-	PolicyID uuid.UUID             `json:"policy_id"`
-	Before   types.Policy          `json:"before"`
-	After    types.Policy          `json:"after"`
-	Changes  map[string]interface{} `json:"changes"`
-	UpdatedBy *uuid.UUID           `json:"updated_by,omitempty"`
+	PolicyID  uuid.UUID              `json:"policy_id"`
+	Before    types.Policy           `json:"before"`
+	After     types.Policy           `json:"after"`
+	Changes   map[string]interface{} `json:"changes"`
+	UpdatedBy *uuid.UUID             `json:"updated_by,omitempty"`
 }
 
 type PolicyAssigned struct {
@@ -99,15 +99,15 @@ type PolicyUnassigned struct {
 
 type PolicyDeleted struct {
 	BaseEvent
-	PolicyID uuid.UUID  `json:"policy_id"`
+	PolicyID  uuid.UUID  `json:"policy_id"`
 	DeletedBy *uuid.UUID `json:"deleted_by,omitempty"`
 }
 
 // Provider key events
 type ProviderKeyAdded struct {
 	BaseEvent
-	KeyData   types.ProviderKey `json:"key_data"`
-	AddedBy   *uuid.UUID        `json:"added_by,omitempty"`
+	KeyData types.ProviderKey `json:"key_data"`
+	AddedBy *uuid.UUID        `json:"added_by,omitempty"`
 }
 
 type ProviderKeyRotated struct {
@@ -140,45 +140,45 @@ type APITokenRevoked struct {
 // Quota events
 type QuotaUpdated struct {
 	BaseEvent
-	QuotaData types.Quota               `json:"quota_data"`
-	Changes   map[string]interface{}    `json:"changes"`
-	UpdatedBy *uuid.UUID                `json:"updated_by,omitempty"`
+	QuotaData types.Quota            `json:"quota_data"`
+	Changes   map[string]interface{} `json:"changes"`
+	UpdatedBy *uuid.UUID             `json:"updated_by,omitempty"`
 }
 
 type QuotaExceeded struct {
 	BaseEvent
-	TenantID    uuid.UUID `json:"tenant_id"`
-	QuotaType   string    `json:"quota_type"`
-	Current     int64     `json:"current"`
-	Limit       int64     `json:"limit"`
-	RequestID   string    `json:"request_id,omitempty"`
+	TenantID  uuid.UUID `json:"tenant_id"`
+	QuotaType string    `json:"quota_type"`
+	Current   int64     `json:"current"`
+	Limit     int64     `json:"limit"`
+	RequestID string    `json:"request_id,omitempty"`
 }
 
 // Security and enforcement events
 type ViolationDetected struct {
 	BaseEvent
-	RequestID   string                  `json:"request_id"`
-	Violations  []types.PolicyViolation `json:"violations"`
-	ScanResult  types.ScanResult        `json:"scan_result"`
-	Provider    types.Provider          `json:"provider,omitempty"`
-	Endpoint    string                  `json:"endpoint,omitempty"`
+	RequestID  string                  `json:"request_id"`
+	Violations []types.PolicyViolation `json:"violations"`
+	ScanResult types.ScanResult        `json:"scan_result"`
+	Provider   types.Provider          `json:"provider,omitempty"`
+	Endpoint   string                  `json:"endpoint,omitempty"`
 }
 
 type RequestBlocked struct {
 	BaseEvent
-	RequestID string                  `json:"request_id"`
-	Reason    string                  `json:"reason"`
+	RequestID  string                  `json:"request_id"`
+	Reason     string                  `json:"reason"`
 	Violations []types.PolicyViolation `json:"violations,omitempty"`
-	Provider  types.Provider          `json:"provider,omitempty"`
-	Endpoint  string                  `json:"endpoint,omitempty"`
+	Provider   types.Provider          `json:"provider,omitempty"`
+	Endpoint   string                  `json:"endpoint,omitempty"`
 }
 
 type RequestAllowed struct {
 	BaseEvent
-	RequestID  string                  `json:"request_id"`
-	ScanResult types.ScanResult        `json:"scan_result"`
-	Provider   types.Provider          `json:"provider,omitempty"`
-	Endpoint   string                  `json:"endpoint,omitempty"`
+	RequestID  string           `json:"request_id"`
+	ScanResult types.ScanResult `json:"scan_result"`
+	Provider   types.Provider   `json:"provider,omitempty"`
+	Endpoint   string           `json:"endpoint,omitempty"`
 }
 
 // Usage and metrics events
@@ -195,8 +195,8 @@ type UsageAggregated struct {
 // System events
 type SystemStarted struct {
 	BaseEvent
-	Version   string                 `json:"version"`
-	Config    map[string]interface{} `json:"config,omitempty"`
+	Version string                 `json:"version"`
+	Config  map[string]interface{} `json:"config,omitempty"`
 }
 
 type SystemStopped struct {
@@ -218,12 +218,12 @@ type HealthCheckRecovered struct {
 // Semantic analysis events
 type SemanticAnalysisCompleted struct {
 	BaseEvent
-	RequestID string         `json:"request_id"`
-	Provider  types.Provider `json:"provider"`
-	Model     string         `json:"model"`
-	CacheHit  bool           `json:"cache_hit"`
-	LatencyMs int64          `json:"latency_ms"`
-	TokensUsed int           `json:"tokens_used,omitempty"`
+	RequestID  string         `json:"request_id"`
+	Provider   types.Provider `json:"provider"`
+	Model      string         `json:"model"`
+	CacheHit   bool           `json:"cache_hit"`
+	LatencyMs  int64          `json:"latency_ms"`
+	TokensUsed int            `json:"tokens_used,omitempty"`
 }
 
 type SemanticAnalysisFailed struct {
@@ -237,21 +237,21 @@ type SemanticAnalysisFailed struct {
 
 // Event type constants
 const (
-	EventTypeTenantCreated     = "tenant.created"
-	EventTypeTenantUpdated     = "tenant.updated"
-	EventTypeTenantSuspended   = "tenant.suspended"
-	EventTypeTenantRestored    = "tenant.restored"
-	EventTypeTenantDeleted     = "tenant.deleted"
+	EventTypeTenantCreated   = "tenant.created"
+	EventTypeTenantUpdated   = "tenant.updated"
+	EventTypeTenantSuspended = "tenant.suspended"
+	EventTypeTenantRestored  = "tenant.restored"
+	EventTypeTenantDeleted   = "tenant.deleted"
 
-	EventTypePolicyCreated     = "policy.created"
-	EventTypePolicyUpdated     = "policy.updated"
-	EventTypePolicyAssigned    = "policy.assigned"
-	EventTypePolicyUnassigned  = "policy.unassigned"
-	EventTypePolicyDeleted     = "policy.deleted"
+	EventTypePolicyCreated    = "policy.created"
+	EventTypePolicyUpdated    = "policy.updated"
+	EventTypePolicyAssigned   = "policy.assigned"
+	EventTypePolicyUnassigned = "policy.unassigned"
+	EventTypePolicyDeleted    = "policy.deleted"
 
-	EventTypeProviderKeyAdded    = "provider_key.added"
-	EventTypeProviderKeyRotated  = "provider_key.rotated"
-	EventTypeProviderKeyRevoked  = "provider_key.revoked"
+	EventTypeProviderKeyAdded   = "provider_key.added"
+	EventTypeProviderKeyRotated = "provider_key.rotated"
+	EventTypeProviderKeyRevoked = "provider_key.revoked"
 
 	EventTypeAPITokenCreated = "api_token.created"
 	EventTypeAPITokenRevoked = "api_token.revoked"
@@ -263,34 +263,27 @@ const (
 	EventTypeRequestBlocked    = "request.blocked"
 	EventTypeRequestAllowed    = "request.allowed"
 
-	EventTypeUsageRecorded    = "usage.recorded"
-	EventTypeUsageAggregated  = "usage.aggregated"
+	EventTypeUsageRecorded   = "usage.recorded"
+	EventTypeUsageAggregated = "usage.aggregated"
 
-	EventTypeSystemStarted         = "system.started"
-	EventTypeSystemStopped         = "system.stopped"
-	EventTypeHealthCheckFailed     = "health_check.failed"
-	EventTypeHealthCheckRecovered  = "health_check.recovered"
+	EventTypeSystemStarted        = "system.started"
+	EventTypeSystemStopped        = "system.stopped"
+	EventTypeHealthCheckFailed    = "health_check.failed"
+	EventTypeHealthCheckRecovered = "health_check.recovered"
 
 	EventTypeSemanticAnalysisCompleted = "semantic_analysis.completed"
 	EventTypeSemanticAnalysisFailed    = "semantic_analysis.failed"
 
 	// Audit action constants
-	EventTypeUserLogin          = "user.login"
-	EventTypeUserLogout         = "user.logout"
-	EventTypeUserLoginFailed    = "user.login.failed"
-	EventTypeAPIKeyCreated      = "api_key.created"
-	EventTypeAPIKeyRevoked      = "api_key.revoked"
-	EventTypePolicyCreated      = "policy.created"
-	EventTypePolicyUpdated      = "policy.updated"
-	EventTypePolicyDeleted      = "policy.deleted"
-	EventTypeRuleTriggered      = "rule.triggered"
-	EventTypeRequestBlocked     = "request.blocked"
-	EventTypeDataAccessed       = "data.accessed"
-	EventTypeConfigChanged      = "config.changed"
-	EventTypeTenantCreated      = "tenant.created"
-	EventTypeTenantUpdated      = "tenant.updated"
-	EventTypeTenantDeleted      = "tenant.deleted"
-	EventTypeEnforcementAction  = "enforcement.action"
+	EventTypeUserLogin         = "user.login"
+	EventTypeUserLogout        = "user.logout"
+	EventTypeUserLoginFailed   = "user.login.failed"
+	EventTypeAPIKeyCreated     = "api_key.created"
+	EventTypeAPIKeyRevoked     = "api_key.revoked"
+	EventTypeRuleTriggered     = "rule.triggered"
+	EventTypeDataAccessed      = "data.accessed"
+	EventTypeConfigChanged     = "config.changed"
+	EventTypeEnforcementAction = "enforcement.action"
 )
 
 // NewEventID generates a new event ID
@@ -311,13 +304,13 @@ func NewBaseEvent(eventType string, tenantID *uuid.UUID) BaseEvent {
 
 // Object type constants for audit events
 const (
-	ObjectTypeUser         = "user"
-	ObjectTypeAPIKey       = "api_key"
-	ObjectTypePolicy       = "policy"
-	ObjectTypeRule         = "rule"
-	ObjectTypeRequest      = "request"
-	ObjectTypeResponse     = "response"
-	ObjectTypeTenant       = "tenant"
-	ObjectTypeConfig       = "config"
-	ObjectTypeData         = "data"
+	ObjectTypeUser     = "user"
+	ObjectTypeAPIKey   = "api_key"
+	ObjectTypePolicy   = "policy"
+	ObjectTypeRule     = "rule"
+	ObjectTypeRequest  = "request"
+	ObjectTypeResponse = "response"
+	ObjectTypeTenant   = "tenant"
+	ObjectTypeConfig   = "config"
+	ObjectTypeData     = "data"
 )
