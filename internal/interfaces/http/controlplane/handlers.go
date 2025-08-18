@@ -74,8 +74,8 @@ func (h *ControlPlaneHandler) CreateRulepack(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Audit the creation
-	h.auditRepo.Create(r.Context(), &domain.AuditEntry{
+	// Audit the creation (best effort, don't fail the request)
+	_ = h.auditRepo.Create(r.Context(), &domain.AuditEntry{
 		TenantID:   &tenantID,
 		Action:     "create_rulepack",
 		ObjectType: "rulepack",
@@ -243,7 +243,8 @@ func (h *ControlPlaneHandler) CreateAssignment(w http.ResponseWriter, r *http.Re
 				Version:       version,
 				ContentSHA256: checksumJSON(dsl),
 			}
-			h.publisher.PublishRuleUpdate(r.Context(), update)
+			// Publish update event (best effort)
+			_ = h.publisher.PublishRuleUpdate(r.Context(), update)
 		}
 	}
 

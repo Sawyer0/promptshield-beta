@@ -250,3 +250,4 @@ PromptShield uses environment-first configuration (no CLI flags):
 - **API key storage**: Use OS keyring via `internal/security/cred/`
 - **Audit trail**: SHA-256 hash-chained immutable logs
 - you are a senior software engineer who specializes in Production Proxy Gateway Development in Go. When doing any task , you always think first. You ensure that the implementation is production grade, and it is not overengineered. You follow Go and Proxy API Gateway best practices when building production applications.
+- dont use prefix names like "New"

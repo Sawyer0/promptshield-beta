@@ -21,7 +21,7 @@ func TestAsyncScanEndpoint(t *testing.T) {
 	
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
-	rulepackService := services.NewRulepackService(mockRepo, nil)
+	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
 	
 	// Create test router with default job manager
 	router := NewMux(Options{
@@ -93,7 +93,14 @@ func TestAsyncScanEndpoint(t *testing.T) {
 func TestJobListEndpoint(t *testing.T) {
 	cleanup := withAsyncJobsLicense(t)
 	defer cleanup()
-	router := NewMux(Options{})
+	
+	// Setup with mock RulepackService
+	mockRepo := &mocks.MockRulepackRepository{}
+	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
+	
+	router := NewMux(Options{
+		RulepackService: rulepackService,
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -130,7 +137,7 @@ func TestJobListEndpoint(t *testing.T) {
 func TestJobNotFound(t *testing.T) {
 	cleanup := withAsyncJobsLicense(t)
 	defer cleanup()
-	router := NewMux(Options{})
+	router := testRouter()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -146,7 +153,7 @@ func TestJobNotFound(t *testing.T) {
 func TestJobCancellation(t *testing.T) {
 	cleanup := withAsyncJobsLicense(t)
 	defer cleanup()
-	router := NewMux(Options{})
+	router := testRouter()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -157,7 +164,9 @@ func TestJobCancellation(t *testing.T) {
 	router.ServeHTTP(rec, req.WithContext(ctx))
 
 	var response map[string]interface{}
-	json.Unmarshal(rec.Body.Bytes(), &response)
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
 	jobID := response["job_id"].(string)
 
 	// Cancel the job
@@ -176,7 +185,9 @@ func TestJobCancellation(t *testing.T) {
 
 	if rec.Code == http.StatusOK {
 		var job map[string]interface{}
-		json.Unmarshal(rec.Body.Bytes(), &job)
+		if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+			t.Fatalf("Failed to unmarshal job response: %v", err)
+		}
 
 		if job["status"] != "cancelled" {
 			t.Errorf("Expected cancelled job status, got %v", job["status"])

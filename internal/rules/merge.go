@@ -89,7 +89,7 @@ func MergePacks(packs []RulePack) []Rule {
 	for id := range byID {
 		// Skip disabled
 		r := byID[id]
-		if r.Enabled != nil && *r.Enabled == false {
+		if r.Enabled != nil && !*r.Enabled {
 			continue
 		}
 		ids = append(ids, id)
@@ -183,7 +183,7 @@ func MergePacksPriorityOrder(packs []RulePack) []Rule {
 	// Filter disabled
 	filtered := make([]Rule, 0, len(out))
 	for _, r := range out {
-		if r.Enabled != nil && *r.Enabled == false {
+		if r.Enabled != nil && !*r.Enabled {
 			continue
 		}
 		filtered = append(filtered, r)

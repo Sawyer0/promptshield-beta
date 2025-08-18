@@ -53,7 +53,7 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			defer r.Body.Close()
 		}
 
-		sc := scanner.New(0)
+		sc := scanner.ScanEngineCstor(0)
 		// Align scanner limits with runtime config defaults (env-backed for now)
 		if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
@@ -65,13 +65,6 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		sc.SetQuarantineOnError(true)
 		// Async scan gating is handled at handler level; L3 gating occurs in scanner via license entitlements
 		rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-		if rulepack == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-				rulepack = "/rules/basic-security.yaml"
-			} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-				rulepack = "rules/basic-security.yaml"
-			}
-		}
 		if rulepack != "" {
 			if packs, e := rules.LoadPacks(rulepack); e == nil {
 				sc.LoadRulePacks(packs)
@@ -272,15 +265,8 @@ func scanHandler(opt Options) http.HandlerFunc {
 }
 
 func runScanLine(ctx context.Context, data []byte) map[string]any {
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-	if rulepack == "" {
-		if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-			rulepack = "/rules/basic-security.yaml"
-		} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-			rulepack = "rules/basic-security.yaml"
-		}
-	}
 	if rulepack != "" {
 		if packs, e := rules.LoadPacks(rulepack); e == nil {
 			sc.LoadRulePacks(packs)

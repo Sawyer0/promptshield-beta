@@ -32,8 +32,13 @@ func NewMux(opt Options) http.Handler {
 	r.Use(versionHeader("1"))
 	// Error recovery and structured error handling
 	r.Use(errorRecoveryMiddleware)
+	// Distributed tracing and header propagation
+	if opt.Telemetry != nil {
+		r.Use(tracingMiddleware)
+	}
 	// Request logging and correlation
 	r.Use(correlationIDMiddleware)
+	r.Use(tenantContextMiddleware)
 	r.Use(requestLoggerMiddleware)
 	// bytes in/out accounting
 	r.Use(captureBytesMiddleware)
@@ -73,7 +78,7 @@ func NewMux(opt Options) http.Handler {
 		opt.JobManager = jobs.NewManager(2)
 
 		// Create and register scan processor with basic scanner
-		sc := scanner.New(0)
+		sc := scanner.ScanEngineCstor(0)
 		scanProcessor := processors.NewScanProcessor(sc)
 		opt.JobManager.RegisterProcessor(scanProcessor)
 
@@ -116,14 +121,7 @@ func NewMux(opt Options) http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		if os.Getenv("PS_ENFORCER_RULEPACK") == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err != nil {
-				if _, err := os.Stat("rules/basic-security.yaml"); err != nil {
-					http.Error(w, "not ready: rulepack not loaded", http.StatusServiceUnavailable)
-					return
-				}
-			}
-		}
+		// Ready regardless of rulepack presence; no built-in defaults
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
@@ -150,7 +148,7 @@ func NewMux(opt Options) http.Handler {
 	registerAuditHandlers(r, opt)
 	registerUsageHandlers(r, opt)
 	registerSystemHandlers(r, opt)
-	
+
 	// Provider management and LLM proxy
 	registerProviderHandlers(r, opt)
 	registerProxyHandlers(r, opt)
@@ -158,6 +156,10 @@ func NewMux(opt Options) http.Handler {
 	// Admin
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
+		// Optional OIDC scope check for admin operations
+		if opt.OIDC.Issuer != "" {
+			a.Use(requireScope("admin"))
+		}
 		a.Post("/admin/drain", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 			if opt.OnDrain != nil {
@@ -211,13 +213,18 @@ func NewMux(opt Options) http.Handler {
 		})
 	})
 
+	// Initialize OIDC verifier if configured
+	if opt.OIDC.Issuer != "" && opt.oidcVerifier == nil {
+		opt.oidcVerifier = oidcVerifier(opt.OIDC)
+	}
+
 	// Decision endpoints (protected with user auth)
 	r.Group(func(g chi.Router) {
 		// legacy token-based user auth
 		g.Use(userAuth(opt))
 		// optional OIDC
 		if opt.OIDC.Issuer != "" {
-			g.Use(oidcAuth(opt))
+			g.Use(oidcAuth(opt.oidcVerifier))
 		}
 		// optional per-tenant quota
 		if opt.QuotaStore != nil {

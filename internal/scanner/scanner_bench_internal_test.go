@@ -10,7 +10,7 @@ import (
 )
 
 func BenchmarkAhoKeywords_On(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	// 200 L1 keywords, case-insensitive path (default)
 	var rs []rules.Rule
 	for i := 0; i < 200; i++ {
@@ -21,12 +21,12 @@ func BenchmarkAhoKeywords_On(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
 func BenchmarkAhoKeywords_Off(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	var rs []rules.Rule
 	for i := 0; i < 200; i++ {
 		rs = append(rs, rules.Rule{ID: fmt.Sprintf("kw%d", i), Level: 1, Keywords: []string{fmt.Sprintf("keyword%d", i)}})
@@ -38,12 +38,12 @@ func BenchmarkAhoKeywords_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
 func BenchmarkRegexGate_On(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	rs := []rules.Rule{
 		{ID: "rx1", Level: 2, Patterns: []rules.Pattern{{Regex: `(?i)token-[a-z0-9]{8}`}}},
 	}
@@ -52,12 +52,12 @@ func BenchmarkRegexGate_On(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
 func BenchmarkRegexGate_Off(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	rs := []rules.Rule{
 		{ID: "rx1", Level: 2, Patterns: []rules.Pattern{{Regex: `(?i)token-[a-z0-9]{8}`}}},
 	}
@@ -69,7 +69,7 @@ func BenchmarkRegexGate_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -84,19 +84,19 @@ func buildHeavyL2Rules(n int) []rules.Rule {
 }
 
 func BenchmarkRegexGate_Heavy_NoMatch_On(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	rs := buildHeavyL2Rules(500)
 	sc.LoadRulePacks([]rules.RulePack{{Metadata: rules.Metadata{Name: "bench"}, Rules: rs}})
 	content := strings.Repeat("no tokens here ", 100000) // ~1.8MB
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
 func BenchmarkRegexGate_Heavy_NoMatch_Off(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	rs := buildHeavyL2Rules(500)
 	sc.LoadRulePacks([]rules.RulePack{{Metadata: rules.Metadata{Name: "bench"}, Rules: rs}})
 	sc.ruleTokenAho = nil
@@ -105,24 +105,24 @@ func BenchmarkRegexGate_Heavy_NoMatch_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
 func BenchmarkRegexGate_Heavy_Maybe_On(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	rs := buildHeavyL2Rules(500)
 	sc.LoadRulePacks([]rules.RulePack{{Metadata: rules.Metadata{Name: "bench"}, Rules: rs}})
 	content := strings.Repeat("prefix ", 50000) + " apikey42ABCDXX " + strings.Repeat(" suffix", 50000)
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
 func BenchmarkRegexGate_Heavy_Maybe_Off(b *testing.B) {
-	sc := New(0)
+	sc := ScanEngineCstor(0)
 	rs := buildHeavyL2Rules(500)
 	sc.LoadRulePacks([]rules.RulePack{{Metadata: rules.Metadata{Name: "bench"}, Rules: rs}})
 	sc.ruleTokenAho = nil
@@ -131,6 +131,6 @@ func BenchmarkRegexGate_Heavy_Maybe_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }

@@ -46,7 +46,7 @@ func main() {
 	defer publisher.Close()
 
 	// Initialize services
-	rulepackSvc := services.NewRulepackService(rulepackRepo, publisher)
+	rulepackSvc := services.RulepackServiceCstor(rulepackRepo, publisher)
 	validationSvc := services.NewValidationService()
 
 	// Initialize HTTP handler

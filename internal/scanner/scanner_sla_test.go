@@ -24,7 +24,7 @@ func TestScannerThroughput_SLA(t *testing.T) {
 			minMBps = f
 		}
 	}
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	sc.LoadRulePacks([]rules.RulePack{{Metadata: rules.Metadata{Name: "sla"}, Rules: []rules.Rule{{ID: "kw", Level: 1, Severity: "INFO", Keywords: []string{"secret"}}}}})
 	// 1MB buffer with scattered tokens
 	buf := make([]byte, 1<<20)

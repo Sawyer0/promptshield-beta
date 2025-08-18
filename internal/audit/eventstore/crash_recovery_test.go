@@ -213,7 +213,7 @@ func TestCrashRecovery_WriteFailureDuringAppend(t *testing.T) {
 	assert.Error(t, err, "Should fail to append to read-only file")
 
 	// Restore permissions
-	os.Chmod(storePath, 0644)
+	_ = os.Chmod(storePath, 0644)
 }
 
 // TestCrashRecovery_EmptyFileRecovery tests recovery when file is unexpectedly empty

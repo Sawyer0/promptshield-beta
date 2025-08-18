@@ -6,6 +6,8 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Context keys
@@ -17,16 +19,26 @@ const (
 	userIDKey        contextKey = "user_id"
 )
 
-// correlationIDMiddleware adds correlation ID to requests
+// correlationIDMiddleware adds correlation ID to requests with tracing support
 func correlationIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		correlationID := r.Header.Get("X-PS-Correlation-ID")
 		if correlationID == "" {
-			correlationID = uuid.New().String()
+			// Try to get from trace context if available
+			if span := trace.SpanFromContext(r.Context()); span.SpanContext().IsValid() {
+				correlationID = span.SpanContext().TraceID().String()
+			} else {
+				correlationID = uuid.New().String()
+			}
 		}
 		
 		// Add to response header
 		w.Header().Set("X-PS-Correlation-ID", correlationID)
+		
+		// Add to span attributes if tracing is active
+		if span := trace.SpanFromContext(r.Context()); span.SpanContext().IsValid() {
+			span.SetAttributes(attribute.String("correlation.id", correlationID))
+		}
 		
 		// Add to context
 		ctx := context.WithValue(r.Context(), correlationIDKey, correlationID)
@@ -34,7 +46,7 @@ func correlationIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// tenantContextMiddleware extracts and validates tenant context
+// tenantContextMiddleware extracts and validates tenant context with tracing support
 func tenantContextMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tenantID := r.Header.Get("X-PS-Tenant-ID")
@@ -43,6 +55,11 @@ func tenantContextMiddleware(next http.Handler) http.Handler {
 		// For user endpoints, it should be required and validated against token claims
 		
 		if tenantID != "" {
+			// Add tenant to span attributes if tracing is active
+			if span := trace.SpanFromContext(r.Context()); span.SpanContext().IsValid() {
+				span.SetAttributes(attribute.String("tenant.id", tenantID))
+			}
+			
 			ctx := context.WithValue(r.Context(), tenantIDKey, tenantID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		} else {

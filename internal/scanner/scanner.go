@@ -58,7 +58,7 @@ type Scanner struct {
 	totalScanBudget        time.Duration
 }
 
-func New(maxTokenBytes int) *Scanner {
+func ScanEngineCstor(maxTokenBytes int) *Scanner {
 	if maxTokenBytes <= 0 {
 		maxTokenBytes = 16 * 1024 * 1024 // 16 MiB default
 	}

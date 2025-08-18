@@ -43,7 +43,7 @@ func TestE2E_HTTPAPIRulePropagation(t *testing.T) {
 	defer publisher.Close()
 
 	// Create RulepackService with audit
-	rulepackService := services.NewRulepackService(repo, publisher)
+	rulepackService := services.RulepackServiceCstor(repo, publisher)
 
 	// Create HTTP API server
 	apiOptions := api.Options{
@@ -319,7 +319,7 @@ func TestE2E_ConcurrentRulePropagation(t *testing.T) {
 	publisher, _ := nats.NewPublisher("")
 	defer publisher.Close()
 
-	rulepackService := services.NewRulepackService(repo, publisher)
+	rulepackService := services.RulepackServiceCstor(repo, publisher)
 
 	// Create many enforcer instances
 	numEnforcers := 10

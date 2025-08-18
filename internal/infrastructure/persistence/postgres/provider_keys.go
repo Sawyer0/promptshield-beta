@@ -214,7 +214,9 @@ func (r *pgProviderKeyRepo) SetDefault(ctx context.Context, tenantID uuid.UUID, 
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	// Clear existing default for this tenant/provider
 	_, err = tx.Exec(ctx, 
