@@ -60,8 +60,12 @@ func (l *Logger) WithComponent(component string) *Logger {
 // WithContext creates a logger with context values
 func (l *Logger) WithContext(ctx context.Context) *Logger {
 	attrs := l.extractContextAttrs(ctx)
+	args := make([]any, len(attrs))
+	for i, attr := range attrs {
+		args[i] = attr
+	}
 	return &Logger{
-		Logger:    l.Logger.With(attrs...),
+		Logger:    l.Logger.With(args...),
 		component: l.component,
 	}
 }
@@ -72,8 +76,12 @@ func (l *Logger) WithFields(fields map[string]interface{}) *Logger {
 	for key, value := range fields {
 		attrs = append(attrs, slog.Any(key, value))
 	}
+	args := make([]any, len(attrs))
+	for i, attr := range attrs {
+		args[i] = attr
+	}
 	return &Logger{
-		Logger:    l.Logger.With(attrs...),
+		Logger:    l.Logger.With(args...),
 		component: l.component,
 	}
 }
@@ -94,12 +102,12 @@ func (l *Logger) WithError(err error) *Logger {
 // extractContextAttrs extracts logging attributes from context
 func (l *Logger) extractContextAttrs(ctx context.Context) []slog.Attr {
 	var attrs []slog.Attr
-	
+
 	// Add component
 	if l.component != "" {
 		attrs = append(attrs, slog.String("component", l.component))
 	}
-	
+
 	// Extract common context values
 	if requestID, ok := contextutil.GetRequestID(ctx); ok {
 		attrs = append(attrs, slog.String("request_id", requestID))
@@ -122,7 +130,7 @@ func (l *Logger) extractContextAttrs(ctx context.Context) []slog.Attr {
 	if attempt, ok := contextutil.GetRetryAttempt(ctx); ok {
 		attrs = append(attrs, slog.Int("retry_attempt", attempt))
 	}
-	
+
 	return attrs
 }
 
@@ -194,7 +202,7 @@ func (l *Logger) PanicContext(ctx context.Context, msg string, args ...interface
 
 // LogRequest logs HTTP request information
 func (l *Logger) LogRequest(ctx context.Context, method, path string, statusCode int, duration time.Duration) {
-	l.WithContext(ctx).Info("HTTP request completed",
+	l.WithContext(ctx).Logger.Info("HTTP request completed",
 		slog.String("method", method),
 		slog.String("path", path),
 		slog.Int("status_code", statusCode),
@@ -210,7 +218,7 @@ func (l *Logger) LogError(ctx context.Context, err error, msg string, args ...in
 // LogPerformance logs performance metrics
 func (l *Logger) LogPerformance(ctx context.Context, operation string, duration time.Duration, metadata map[string]interface{}) {
 	logger := l.WithContext(ctx).WithFields(metadata)
-	logger.Info("Performance metric",
+	logger.Logger.Info("Performance metric",
 		slog.String("operation", operation),
 		slog.Duration("duration", duration),
 	)
@@ -219,7 +227,7 @@ func (l *Logger) LogPerformance(ctx context.Context, operation string, duration 
 // LogSecurity logs security-related events
 func (l *Logger) LogSecurity(ctx context.Context, event string, severity string, details map[string]interface{}) {
 	logger := l.WithContext(ctx).WithFields(details)
-	logger.Error("Security event",
+	logger.Logger.Error("Security event",
 		slog.String("event", event),
 		slog.String("severity", severity),
 	)
@@ -228,7 +236,7 @@ func (l *Logger) LogSecurity(ctx context.Context, event string, severity string,
 // LogAudit logs audit trail events
 func (l *Logger) LogAudit(ctx context.Context, action string, resource string, details map[string]interface{}) {
 	logger := l.WithContext(ctx).WithFields(details)
-	logger.Info("Audit event",
+	logger.Logger.Info("Audit event",
 		slog.String("action", action),
 		slog.String("resource", resource),
 	)
@@ -257,13 +265,13 @@ func Setup(config *Config) error {
 	if config == nil {
 		config = DefaultConfig()
 	}
-	
+
 	// Create handler options
 	opts := &slog.HandlerOptions{
 		Level:     config.Level,
 		AddSource: config.AddSource,
 	}
-	
+
 	// Determine output
 	var output *os.File
 	switch strings.ToLower(config.Output) {
@@ -279,7 +287,7 @@ func Setup(config *Config) error {
 		}
 		output = file
 	}
-	
+
 	// Create handler
 	var handler slog.Handler
 	switch strings.ToLower(config.Format) {
@@ -290,10 +298,10 @@ func Setup(config *Config) error {
 	default:
 		handler = slog.NewJSONHandler(output, opts)
 	}
-	
+
 	// Set as default
 	slog.SetDefault(slog.New(handler))
-	
+
 	return nil
 }
 

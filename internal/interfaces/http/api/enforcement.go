@@ -12,10 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	"github.com/promptshield/promptshield/internal/shared/types"
 )
 
 func checkHandlerVersioned(opt Options) http.HandlerFunc {
@@ -132,13 +134,19 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		}
 		// Audit durable trail (best-effort)
 		if opt.AuditLogger != nil {
-			_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: map[string]any{
-				"path":       r.URL.Path,
-				"status":     statusCode,
-				"decision":   decision,
-				"reason":     reason,
-				"violations": total,
-			}})
+			_ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{
+				Action:     "request.decision",
+				ObjectType: "request",
+				ObjectID:   uuid.New(),
+				Metadata: map[string]interface{}{
+					"path":       r.URL.Path,
+					"status":     statusCode,
+					"decision":   decision,
+					"reason":     reason,
+					"violations": total,
+				},
+				Timestamp: time.Now().UTC(),
+			})
 		}
 
 		// usage accounting (best-effort)
@@ -204,7 +212,13 @@ func scanHandler(opt Options) http.HandlerFunc {
 					opt.Events.Publish(Event{Type: "decision", Data: res})
 				}
 				if opt.AuditLogger != nil {
-					_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: res})
+					_ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{
+						Action:     "scan.decision",
+						ObjectType: "request",
+						ObjectID:   uuid.New(),
+						Metadata:   res,
+						Timestamp:  time.Now().UTC(),
+					})
 				}
 				metrics.ScanEventsTotal.WithLabelValues(r.URL.Path).Inc()
 			}
@@ -230,7 +244,13 @@ func scanHandler(opt Options) http.HandlerFunc {
 					opt.Events.Publish(Event{Type: "decision", Data: res})
 				}
 				if opt.AuditLogger != nil {
-					_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: res})
+					_ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{
+						Action:     "scan.decision",
+						ObjectType: "request",
+						ObjectID:   uuid.New(),
+						Metadata:   res,
+						Timestamp:  time.Now().UTC(),
+					})
 				}
 			}
 			report := map[string]any{
@@ -258,7 +278,13 @@ func scanHandler(opt Options) http.HandlerFunc {
 			opt.Events.Publish(Event{Type: "decision", Data: res})
 		}
 		if opt.AuditLogger != nil {
-			_ = opt.AuditLogger.Log(AuditEvent{Type: "decision", Data: res})
+			_ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{
+				Action:     "scan.decision",
+				ObjectType: "request",
+				ObjectID:   uuid.New(),
+				Metadata:   res,
+				Timestamp:  time.Now().UTC(),
+			})
 		}
 		metrics.ScanRequestDuration.WithLabelValues(modeLabel).Observe(float64(timeoutMs) / 1000.0)
 	}

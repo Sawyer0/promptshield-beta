@@ -1,17 +1,16 @@
 package types
 
 import (
-	"context"
 	"time"
 )
 
 // MessageBrokerConfig represents configuration for message brokers
 type MessageBrokerConfig struct {
-	Type      MessageBrokerType     `json:"type"`
-	Endpoints []string              `json:"endpoints"`
-	Username  string                `json:"username,omitempty"`
-	Password  string                `json:"password,omitempty"`
-	TLS       *TLSConfig            `json:"tls,omitempty"`
+	Type      MessageBrokerType      `json:"type"`
+	Endpoints []string               `json:"endpoints"`
+	Username  string                 `json:"username,omitempty"`
+	Password  string                 `json:"password,omitempty"`
+	TLS       *TLSConfig             `json:"tls,omitempty"`
 	Options   map[string]interface{} `json:"options,omitempty"`
 }
 
@@ -26,36 +25,36 @@ const (
 
 // KafkaProducerConfig represents Kafka producer configuration
 type KafkaProducerConfig struct {
-	Topic         string        `json:"topic"`
-	Partition     int           `json:"partition,omitempty"`
-	BatchSize     int           `json:"batch_size"`
-	BatchTimeout  time.Duration `json:"batch_timeout"`
-	Compression   string        `json:"compression,omitempty"`
-	Retries       int           `json:"retries"`
-	RetryBackoff  time.Duration `json:"retry_backoff"`
-	RequiredAcks  int           `json:"required_acks"`
+	Topic        string        `json:"topic"`
+	Partition    int           `json:"partition,omitempty"`
+	BatchSize    int           `json:"batch_size"`
+	BatchTimeout time.Duration `json:"batch_timeout"`
+	Compression  string        `json:"compression,omitempty"`
+	Retries      int           `json:"retries"`
+	RetryBackoff time.Duration `json:"retry_backoff"`
+	RequiredAcks int           `json:"required_acks"`
 }
 
 // KafkaConsumerConfig represents Kafka consumer configuration
 type KafkaConsumerConfig struct {
-	Topic       string        `json:"topic"`
-	GroupID     string        `json:"group_id"`
-	AutoCommit  bool          `json:"auto_commit"`
-	StartOffset string        `json:"start_offset"`
-	MaxPollRecords int        `json:"max_poll_records"`
+	Topic          string        `json:"topic"`
+	GroupID        string        `json:"group_id"`
+	AutoCommit     bool          `json:"auto_commit"`
+	StartOffset    string        `json:"start_offset"`
+	MaxPollRecords int           `json:"max_poll_records"`
 	SessionTimeout time.Duration `json:"session_timeout"`
 }
 
 // NATSConfig represents NATS-specific configuration
 type NATSConfig struct {
-	Subject         string        `json:"subject"`
-	StreamName      string        `json:"stream_name,omitempty"`
-	ConsumerName    string        `json:"consumer_name,omitempty"`
-	MaxDeliver      int           `json:"max_deliver"`
-	AckWait         time.Duration `json:"ack_wait"`
-	ReplayPolicy    string        `json:"replay_policy,omitempty"`
-	DeliverPolicy   string        `json:"deliver_policy,omitempty"`
-	DurableName     string        `json:"durable_name,omitempty"`
+	Subject       string        `json:"subject"`
+	StreamName    string        `json:"stream_name,omitempty"`
+	ConsumerName  string        `json:"consumer_name,omitempty"`
+	MaxDeliver    int           `json:"max_deliver"`
+	AckWait       time.Duration `json:"ack_wait"`
+	ReplayPolicy  string        `json:"replay_policy,omitempty"`
+	DeliverPolicy string        `json:"deliver_policy,omitempty"`
+	DurableName   string        `json:"durable_name,omitempty"`
 }
 
 // MessageHeaders represents message headers
@@ -63,12 +62,12 @@ type MessageHeaders map[string]string
 
 // MessageMetadata represents message metadata
 type MessageMetadata struct {
-	Topic     string    `json:"topic"`
-	Partition int       `json:"partition,omitempty"`
-	Offset    int64     `json:"offset,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	Topic     string         `json:"topic"`
+	Partition int            `json:"partition,omitempty"`
+	Offset    int64          `json:"offset,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
 	Headers   MessageHeaders `json:"headers,omitempty"`
-	Key       string    `json:"key,omitempty"`
+	Key       string         `json:"key,omitempty"`
 }
 
 // PublishResult represents the result of a message publish operation
@@ -88,14 +87,14 @@ type ConsumeResult struct {
 
 // OIDCProviderConfig represents OIDC provider configuration
 type OIDCProviderConfig struct {
-	IssuerURL        string            `json:"issuer_url"`
-	ClientID         string            `json:"client_id"`
-	ClientSecret     string            `json:"client_secret,omitempty"`
-	Audience         string            `json:"audience,omitempty"`
-	Scopes           []string          `json:"scopes,omitempty"`
-	ClaimsMapping    map[string]string `json:"claims_mapping,omitempty"`
-	SkipIssuerVerify bool              `json:"skip_issuer_verify,omitempty"`
-	SkipClientIDVerify bool            `json:"skip_client_id_verify,omitempty"`
+	IssuerURL          string            `json:"issuer_url"`
+	ClientID           string            `json:"client_id"`
+	ClientSecret       string            `json:"client_secret,omitempty"`
+	Audience           string            `json:"audience,omitempty"`
+	Scopes             []string          `json:"scopes,omitempty"`
+	ClaimsMapping      map[string]string `json:"claims_mapping,omitempty"`
+	SkipIssuerVerify   bool              `json:"skip_issuer_verify,omitempty"`
+	SkipClientIDVerify bool              `json:"skip_client_id_verify,omitempty"`
 }
 
 // JWTClaims represents JWT token claims
@@ -197,11 +196,11 @@ type CacheStats struct {
 
 // ServiceDiscoveryConfig represents service discovery configuration
 type ServiceDiscoveryConfig struct {
-	Type      ServiceDiscoveryType `json:"type"`
-	Endpoints []string             `json:"endpoints,omitempty"`
-	Namespace string               `json:"namespace,omitempty"`
-	Labels    map[string]string    `json:"labels,omitempty"`
-	HealthCheck *HealthCheckConfig `json:"health_check,omitempty"`
+	Type        ServiceDiscoveryType `json:"type"`
+	Endpoints   []string             `json:"endpoints,omitempty"`
+	Namespace   string               `json:"namespace,omitempty"`
+	Labels      map[string]string    `json:"labels,omitempty"`
+	HealthCheck *HealthCheckConfig   `json:"health_check,omitempty"`
 }
 
 // ServiceDiscoveryType represents service discovery types
@@ -216,16 +215,16 @@ const (
 
 // ServiceInstance represents a service instance
 type ServiceInstance struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Address   string            `json:"address"`
-	Port      int               `json:"port"`
-	Tags      []string          `json:"tags,omitempty"`
-	Metadata  map[string]string `json:"metadata,omitempty"`
-	Health    HealthStatus      `json:"health"`
-	Version   string            `json:"version,omitempty"`
-	Region    string            `json:"region,omitempty"`
-	Zone      string            `json:"zone,omitempty"`
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Address  string            `json:"address"`
+	Port     int               `json:"port"`
+	Tags     []string          `json:"tags,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+	Health   HealthStatus      `json:"health"`
+	Version  string            `json:"version,omitempty"`
+	Region   string            `json:"region,omitempty"`
+	Zone     string            `json:"zone,omitempty"`
 }
 
 // CircuitBreakerConfig represents circuit breaker configuration
@@ -248,19 +247,19 @@ const (
 
 // CircuitBreakerStats represents circuit breaker statistics
 type CircuitBreakerStats struct {
-	State            CircuitBreakerState `json:"state"`
-	Requests         int64               `json:"requests"`
-	Successes        int64               `json:"successes"`
-	Failures         int64               `json:"failures"`
-	ConsecutiveFailures int64            `json:"consecutive_failures"`
-	LastStateChange  time.Time           `json:"last_state_change"`
+	State               CircuitBreakerState `json:"state"`
+	Requests            int64               `json:"requests"`
+	Successes           int64               `json:"successes"`
+	Failures            int64               `json:"failures"`
+	ConsecutiveFailures int64               `json:"consecutive_failures"`
+	LastStateChange     time.Time           `json:"last_state_change"`
 }
 
 // LoadBalancerConfig represents load balancer configuration
 type LoadBalancerConfig struct {
-	Algorithm LoadBalancerAlgorithm `json:"algorithm"`
-	Targets   []LoadBalancerTarget  `json:"targets"`
-	HealthCheck *HealthCheckConfig  `json:"health_check,omitempty"`
+	Algorithm   LoadBalancerAlgorithm `json:"algorithm"`
+	Targets     []LoadBalancerTarget  `json:"targets"`
+	HealthCheck *HealthCheckConfig    `json:"health_check,omitempty"`
 }
 
 // LoadBalancerAlgorithm represents load balancing algorithms
@@ -275,19 +274,19 @@ const (
 
 // LoadBalancerTarget represents a load balancer target
 type LoadBalancerTarget struct {
-	Address string  `json:"address"`
-	Port    int     `json:"port"`
-	Weight  int     `json:"weight,omitempty"`
+	Address string       `json:"address"`
+	Port    int          `json:"port"`
+	Weight  int          `json:"weight,omitempty"`
 	Health  HealthStatus `json:"health"`
 }
 
 // HealthCheckConfig represents health check configuration
 type HealthCheckConfig struct {
-	Interval    time.Duration `json:"interval"`
-	Timeout     time.Duration `json:"timeout"`
-	Path        string        `json:"path,omitempty"`
-	Method      string        `json:"method,omitempty"`
-	SuccessCodes []int        `json:"success_codes,omitempty"`
-	FailureThreshold int      `json:"failure_threshold"`
-	SuccessThreshold int      `json:"success_threshold"`
+	Interval         time.Duration `json:"interval"`
+	Timeout          time.Duration `json:"timeout"`
+	Path             string        `json:"path,omitempty"`
+	Method           string        `json:"method,omitempty"`
+	SuccessCodes     []int         `json:"success_codes,omitempty"`
+	FailureThreshold int           `json:"failure_threshold"`
+	SuccessThreshold int           `json:"success_threshold"`
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/promptshield/promptshield/internal/domain"
 	"github.com/promptshield/promptshield/internal/jobs"
 	"github.com/promptshield/promptshield/internal/observability/telemetry"
+	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/usage"
 )
 
@@ -20,7 +21,7 @@ type Options struct {
 	RulepackService    *services.RulepackService
 	UsageStore         usage.UsageStore
 	// AuditLogger, when set, receives durable audit trail events
-	AuditLogger AuditLogger
+	AuditLogger contracts.AuditLogger
 	// JobManager handles asynchronous job processing. When nil, a default manager is created.
 	JobManager *jobs.Manager
 	// Events provides a simple in-memory broadcaster for SSE and hooks.
@@ -39,40 +40,22 @@ type Options struct {
 	oidcVerifier *OIDCVerifier
 	// Telemetry provides OpenTelemetry tracing and metrics collection
 	Telemetry *telemetry.Collector
-	
+
 	// Enterprise repositories for tenant management
 	TenantRepository     domain.TenantRepository
 	AssignmentRepository domain.PolicyAssignmentRepository
 	AuditRepository      domain.AuditRepository
 	ProviderKeyStore     domain.ProviderKeyRepository
 	QuotaRepository      domain.QuotaRepository
-	
-	
+
 	// Provider API keys management (deprecated - use ProviderKeyStore)
 	ProviderKeys map[string]string // provider -> encrypted key
 }
-
-
-// AuditLogger is a narrow interface to avoid importing audit package here.
-type AuditLogger interface {
-	Log(event AuditEvent) error
-}
-
-// AuditEvent mirrors internal/audit.Event without importing the package to avoid cycle.
-type AuditEvent struct {
-	Timestamp time.Time      `json:"timestamp"`
-	Type      string         `json:"type"`
-	Data      map[string]any `json:"data"`
-	Hash      string         `json:"hash"`
-	PrevHash  string         `json:"prev_hash"`
-}
-
 
 // Deprecated: Use writeErrorJSON instead
 func writeError(w http.ResponseWriter, status int, code, msg string, details map[string]any) {
 	writeErrorJSON(w, status, code, msg, details, nil)
 }
-
 
 func versionHeader(v string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

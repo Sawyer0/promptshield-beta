@@ -4,61 +4,70 @@ import (
 	"context"
 	"fmt"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-
-	tracingpkg "github.com/promptshield/promptshield/internal/observability/tracing"
 )
 
 // TraceHTTPRequest creates a span for HTTP request tracing
-func TraceHTTPRequest(provider *tracingpkg.TracingProvider, ctx context.Context, method, path string) (context.Context, *tracingpkg.Span) {
+func TraceHTTPRequest(tracer trace.Tracer, ctx context.Context, method, path string) (context.Context, trace.Span) {
 	spanName := fmt.Sprintf("%s %s", method, path)
-	spanCtx, span := provider.StartSpan(ctx, spanName, trace.WithSpanKind(tracingpkg.SpanKindServer))
-	
-	span.SetAttribute("http.method", method)
-	span.SetAttribute("http.route", path)
-	
+	spanCtx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindServer))
+
+	span.SetAttributes(
+		attribute.String("http.method", method),
+		attribute.String("http.route", path),
+	)
+
 	return spanCtx, span
 }
 
 // TraceGRPCRequest creates a span for gRPC request tracing
-func TraceGRPCRequest(provider *tracingpkg.TracingProvider, ctx context.Context, method string) (context.Context, *tracingpkg.Span) {
+func TraceGRPCRequest(tracer trace.Tracer, ctx context.Context, method string) (context.Context, trace.Span) {
 	spanName := fmt.Sprintf("grpc %s", method)
-	spanCtx, span := provider.StartSpan(ctx, spanName, trace.WithSpanKind(tracingpkg.SpanKindServer))
-	
-	span.SetAttribute("rpc.system", "grpc")
-	span.SetAttribute("rpc.method", method)
-	
+	spanCtx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindServer))
+
+	span.SetAttributes(
+		attribute.String("rpc.system", "grpc"),
+		attribute.String("rpc.method", method),
+	)
+
 	return spanCtx, span
 }
 
 // TraceDatabaseQuery creates a span for database query tracing
-func TraceDatabaseQuery(provider *tracingpkg.TracingProvider, ctx context.Context, operation, table string) (context.Context, *tracingpkg.Span) {
+func TraceDatabaseQuery(tracer trace.Tracer, ctx context.Context, operation, table string) (context.Context, trace.Span) {
 	spanName := fmt.Sprintf("db %s %s", operation, table)
-	spanCtx, span := provider.StartSpan(ctx, spanName, trace.WithSpanKind(tracingpkg.SpanKindClient))
-	
-	span.SetAttribute("db.operation", operation)
-	span.SetAttribute("db.sql.table", table)
-	
+	spanCtx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+
+	span.SetAttributes(
+		attribute.String("db.operation", operation),
+		attribute.String("db.sql.table", table),
+	)
+
 	return spanCtx, span
 }
 
 // TraceLLMRequest creates a span for LLM request tracing
-func TraceLLMRequest(provider *tracingpkg.TracingProvider, ctx context.Context, provider_name, model string) (context.Context, *tracingpkg.Span) {
+func TraceLLMRequest(tracer trace.Tracer, ctx context.Context, provider_name, model string) (context.Context, trace.Span) {
 	spanName := fmt.Sprintf("llm %s %s", provider_name, model)
-	spanCtx, span := provider.StartSpan(ctx, spanName, trace.WithSpanKind(tracingpkg.SpanKindClient))
-	
-	span.SetAttribute("llm.provider", provider_name)
-	span.SetAttribute("llm.model", model)
-	
+	spanCtx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+
+	span.SetAttributes(
+		attribute.String("llm.provider", provider_name),
+		attribute.String("llm.model", model),
+	)
+
 	return spanCtx, span
 }
 
 // TraceRuleProcessing creates a span for rule processing
-func TraceRuleProcessing(provider *tracingpkg.TracingProvider, ctx context.Context, ruleID string) (context.Context, *tracingpkg.Span) {
+func TraceRuleProcessing(tracer trace.Tracer, ctx context.Context, ruleID string) (context.Context, trace.Span) {
 	spanName := fmt.Sprintf("rule %s", ruleID)
-	spanCtx, span := provider.StartSpan(ctx, spanName, trace.WithSpanKind(tracingpkg.SpanKindInternal))
-	
-	span.SetAttribute("rule.id", ruleID)
-	
+	spanCtx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+
+	span.SetAttributes(
+		attribute.String("rule.id", ruleID),
+	)
+
 	return spanCtx, span
 }

@@ -21,7 +21,7 @@ func BenchmarkAhoKeywords_On(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -38,7 +38,7 @@ func BenchmarkAhoKeywords_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -52,7 +52,7 @@ func BenchmarkRegexGate_On(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -69,7 +69,7 @@ func BenchmarkRegexGate_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -91,7 +91,7 @@ func BenchmarkRegexGate_Heavy_NoMatch_On(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -105,7 +105,7 @@ func BenchmarkRegexGate_Heavy_NoMatch_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -117,7 +117,7 @@ func BenchmarkRegexGate_Heavy_Maybe_On(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }
 
@@ -131,6 +131,6 @@ func BenchmarkRegexGate_Heavy_Maybe_Off(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
+		_, _ = sc.ScanReader(context.Background(), strings.NewReader(content), "x")
 	}
 }

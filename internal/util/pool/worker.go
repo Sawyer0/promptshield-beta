@@ -40,10 +40,10 @@ type Pool struct {
 	maxWorkers int
 	maxQueue   int
 
-	mu       sync.RWMutex
-	closed   bool
-	wg       sync.WaitGroup
-	metrics  *Metrics
+	mu      sync.RWMutex
+	closed  bool
+	wg      sync.WaitGroup
+	metrics *Metrics
 }
 
 // Metrics represents pool metrics
@@ -166,21 +166,19 @@ func (p *Pool) SubmitAsync(ctx context.Context, task Task) <-chan error {
 // dispatch distributes tasks to workers
 func (p *Pool) dispatch() {
 	for {
-		select {
-		case task := <-p.taskQueue:
-			// Find available worker
-			for _, worker := range p.workers {
-				select {
-				case worker.taskChan <- task:
-					goto next
-				default:
-					continue
-				}
+		task := <-p.taskQueue
+		// Find available worker
+		for _, worker := range p.workers {
+			select {
+			case worker.taskChan <- task:
+				goto next
+			default:
+				continue
 			}
-			// If no worker available, wait
-			p.workers[0].taskChan <- task
-		next:
 		}
+		// If no worker available, wait
+		p.workers[0].taskChan <- task
+	next:
 
 		p.mu.RLock()
 		if p.closed && len(p.taskQueue) == 0 {
@@ -229,7 +227,7 @@ func (p *Pool) Resize(newSize int) error {
 	}
 
 	currentSize := len(p.workers)
-	
+
 	if newSize > currentSize {
 		// Add workers
 		for i := currentSize; i < newSize; i++ {
@@ -258,10 +256,10 @@ func (p *Pool) Resize(newSize int) error {
 }
 
 // GetMetrics returns current pool metrics
-func (p *Pool) GetMetrics() Metrics {
+func (p *Pool) GetMetrics() *Metrics {
 	p.metrics.mu.RLock()
 	defer p.metrics.mu.RUnlock()
-	return *p.metrics
+	return p.metrics
 }
 
 // Size returns the current number of workers

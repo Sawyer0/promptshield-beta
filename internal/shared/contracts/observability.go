@@ -44,8 +44,6 @@ type Span interface {
 
 // AuditLogger defines the interface for audit logging
 type AuditLogger interface {
-	// Log logs an audit event
-	Log(event types.AuditEvent) error
 	
 	// LogWithContext logs an audit event with context
 	LogWithContext(ctx context.Context, event types.AuditEvent) error

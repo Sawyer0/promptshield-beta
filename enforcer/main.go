@@ -15,6 +15,8 @@ import (
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
 	"github.com/promptshield/promptshield/internal/license"
 	tel "github.com/promptshield/promptshield/internal/observability/telemetry"
+	"github.com/promptshield/promptshield/internal/shared/contracts"
+	"github.com/promptshield/promptshield/internal/shared/types"
 	"github.com/promptshield/promptshield/internal/version"
 	"google.golang.org/grpc"
 )
@@ -32,7 +34,8 @@ func main() {
 		addr = ":9090"
 	}
 	// Telemetry init (opt-out, privacy-first)
-	var telemetry *tel.Collector
+	var telemetry contracts.TelemetryCollector
+	var grpcTelemetry grpcenforcer.TelemetryCollector
 	enabled := true
 	if v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_TELEMETRY"))); v == "0" || v == "false" || v == "off" {
 		enabled = false
@@ -50,8 +53,31 @@ func main() {
 		if endpoint == "" && file == "" {
 			file = "spans.ndjson"
 		}
-		telemetry = tel.New(tel.Options{Enabled: true, Endpoint: endpoint, File: file, Sample: sample, Service: "ps-enforcer", Version: version.Version})
-		telemetry.Collect("startup", map[string]any{"version": version.Version, "commit": version.Commit, "build_date": version.BuildDate})
+		config := &types.TelemetryConfig{
+			Enabled:  true,
+			Endpoint: endpoint,
+			File:     file,
+			Sample:   sample,
+			Service:  "ps-enforcer",
+			Version:  version.Version,
+		}
+		telemetry = tel.NewCollector(config)
+		if err := telemetry.Initialize(context.Background(), config); err != nil {
+			log.Printf("Failed to initialize telemetry: %v", err)
+		}
+		// Create gRPC telemetry adapter
+		grpcTelemetry = &grpcTelemetryAdapter{telemetry: telemetry}
+		// Record startup event
+		startupEvent := &types.TelemetryEvent{
+			Type:      "startup",
+			Timestamp: time.Now(),
+			Payload: map[string]interface{}{
+				"version":    version.Version,
+				"commit":     version.Commit,
+				"build_date": version.BuildDate,
+			},
+		}
+		_ = telemetry.RecordEvent(context.Background(), startupEvent)
 	}
 
 	srv := enforcerhttp.Serve(addr)
@@ -65,7 +91,7 @@ func main() {
 	}
 	if s, err := grpcenforcer.Build(grpcAddr, grpcenforcer.Options{
 		Timeout:         300 * time.Millisecond,
-		Telemetry:       telemetry,
+		Telemetry:       grpcTelemetry,
 		EnforcementMode: os.Getenv("PS_ENFORCER_MODE"),
 	}); err == nil {
 		log.Printf("grpc ext_proc listening on %s", grpcAddr)
@@ -93,8 +119,25 @@ func main() {
 		}
 	}
 	if telemetry != nil {
-		if err := telemetry.Shutdown(ctx); err != nil {
+		if err := telemetry.Close(); err != nil {
 			log.Printf("Telemetry shutdown error: %v", err)
 		}
 	}
+}
+
+// grpcTelemetryAdapter adapts contracts.TelemetryCollector to grpcenforcer.TelemetryCollector
+type grpcTelemetryAdapter struct {
+	telemetry contracts.TelemetryCollector
+}
+
+func (a *grpcTelemetryAdapter) Collect(eventType string, payload map[string]any) {
+	if a.telemetry == nil {
+		return
+	}
+	event := &types.TelemetryEvent{
+		Type:      eventType,
+		Timestamp: time.Now(),
+		Payload:   payload,
+	}
+	_ = a.telemetry.RecordEvent(context.Background(), event)
 }
