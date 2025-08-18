@@ -2,9 +2,11 @@ package domain
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/security/crypto"
 )
 
 // Tenant represents a customer organization in the system
@@ -38,8 +40,17 @@ type ProviderKey struct {
 	IsDefault    bool          `json:"is_default"`
 	Status       KeyStatus     `json:"status"`
 	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 	LastUsed     *time.Time    `json:"last_used,omitempty"`
 	RotatedAt    *time.Time    `json:"rotated_at,omitempty"`
+}
+
+// DecryptKey decrypts and returns the provider API key
+func (pk *ProviderKey) DecryptKey() (string, error) {
+	if pk.EncryptedKey == "" {
+		return "", fmt.Errorf("no encrypted key available")
+	}
+	return crypto.DecryptString(pk.EncryptedKey)
 }
 
 // Provider represents supported LLM providers

@@ -63,6 +63,45 @@ func (s *RedisUsageStore) Record(ctx context.Context, tenant, route, decision st
 	return err
 }
 
+// RecordTokens records usage with detailed token tracking for LLM billing/observability
+func (s *RedisUsageStore) RecordTokens(ctx context.Context, record Record) error {
+	ts := floorToMinute(record.Timestamp).Unix()
+	
+	// Enhanced key format includes provider and model for granular tracking
+	providerKey := fmt.Sprintf("%s:tokens:%d:%s:%s:%s:%s", 
+		s.prefix, ts, record.Tenant, record.Route, record.Provider, record.Model)
+	
+	var col string
+	switch record.Decision {
+	case DecisionQuarantine:
+		col = "quarantine"
+	case DecisionDeny:
+		col = "deny"
+	default:
+		col = "allow"
+	}
+	
+	pipe := s.rdb.TxPipeline()
+	// Basic counters
+	pipe.HIncrBy(ctx, providerKey, col, 1)
+	pipe.HIncrBy(ctx, providerKey, "bytes", record.Bytes)
+	
+	// Token counters for billing
+	if record.PromptTokens > 0 {
+		pipe.HIncrBy(ctx, providerKey, "prompt_tokens", record.PromptTokens)
+	}
+	if record.CompletionTokens > 0 {
+		pipe.HIncrBy(ctx, providerKey, "completion_tokens", record.CompletionTokens)
+	}
+	if record.TotalTokens > 0 {
+		pipe.HIncrBy(ctx, providerKey, "total_tokens", record.TotalTokens)
+	}
+	
+	pipe.Expire(ctx, providerKey, s.ttl)
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
 func (s *RedisUsageStore) Close(ctx context.Context) error { return s.rdb.Close() }
 
 func (s *RedisUsageStore) Query(ctx context.Context, q Query) (Result, error) {
@@ -93,7 +132,7 @@ func (s *RedisUsageStore) Query(ctx context.Context, q Query) (Result, error) {
 			includeRoute = true
 		}
 	}
-	acc := make(map[keyAgg][2]int64) // [0]=count, [1]=bytes
+	acc := make(map[keyAgg][5]int64) // [0]=count, [1]=bytes, [2]=prompt_tokens, [3]=completion_tokens, [4]=total_tokens
 	scan := func(pattern string) ([]string, error) {
 		var (
 			cursor uint64
@@ -125,7 +164,7 @@ func (s *RedisUsageStore) Query(ctx context.Context, q Query) (Result, error) {
 		pipe := s.rdb.Pipeline()
 		cmds := make([]*redis.SliceCmd, 0, len(keys))
 		for range keys {
-			cmds = append(cmds, pipe.HMGet(ctx, keys[len(cmds)], "allow", "quarantine", "deny", "bytes"))
+			cmds = append(cmds, pipe.HMGet(ctx, keys[len(cmds)], "allow", "quarantine", "deny", "bytes", "prompt_tokens", "completion_tokens", "total_tokens"))
 		}
 		if _, err := pipe.Exec(ctx); err != nil {
 			return Result{}, err
@@ -142,12 +181,17 @@ func (s *RedisUsageStore) Query(ctx context.Context, q Query) (Result, error) {
 				continue
 			}
 			vals := cmds[i].Val()
-			var allow, quarantine, deny, bytesVal int64
-			if len(vals) == 4 {
+			var allow, quarantine, deny, bytesVal, promptTokens, completionTokens, totalTokens int64
+			if len(vals) >= 4 {
 				allow = toInt64(vals[0])
 				quarantine = toInt64(vals[1])
 				deny = toInt64(vals[2])
 				bytesVal = toInt64(vals[3])
+				if len(vals) >= 7 {
+					promptTokens = toInt64(vals[4])
+					completionTokens = toInt64(vals[5])
+					totalTokens = toInt64(vals[6])
+				}
 			}
 			bucket := (ts / bucketSize) * bucketSize
 			aggKey := keyAgg{bucket: bucket}
@@ -160,13 +204,23 @@ func (s *RedisUsageStore) Query(ctx context.Context, q Query) (Result, error) {
 			prev := acc[aggKey]
 			prev[0] += allow + quarantine + deny
 			prev[1] += bytesVal
+			prev[2] += promptTokens
+			prev[3] += completionTokens
+			prev[4] += totalTokens
 			acc[aggKey] = prev
 		}
 	}
 	// Build rows
 	rows := make([]Row, 0, len(acc))
 	for k, v := range acc {
-		r := Row{IntervalStart: time.Unix(k.bucket, 0).UTC(), Count: v[0], Bytes: v[1]}
+		r := Row{
+			IntervalStart:    time.Unix(k.bucket, 0).UTC(), 
+			Count:            v[0], 
+			Bytes:            v[1],
+			PromptTokens:     v[2],
+			CompletionTokens: v[3],
+			TotalTokens:      v[4],
+		}
 		if includeTenant {
 			r.Tenant = k.tenant
 		}

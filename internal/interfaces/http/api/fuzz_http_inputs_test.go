@@ -90,7 +90,7 @@ func FuzzHTTPRulepackEndpoints(f *testing.F) {
 	setupTestServer := func() *httptest.Server {
 		repo := NewMockRulepackRepository()
 		publisher, _ := nats.NewPublisher("")
-		service := services.NewRulepackService(repo, publisher)
+		service := services.RulepackServiceCstor(repo, publisher)
 
 		options := Options{
 			RulepackService: service,
@@ -257,7 +257,7 @@ func FuzzHTTPMultipartUpload(f *testing.F) {
 	setupTestServer := func() *httptest.Server {
 		repo := NewMockRulepackRepository()
 		publisher, _ := nats.NewPublisher("")
-		service := services.NewRulepackService(repo, publisher)
+		service := services.RulepackServiceCstor(repo, publisher)
 
 		options := Options{
 			RulepackService: service,
@@ -349,7 +349,7 @@ func FuzzHTTPHeaders(f *testing.F) {
 	setupTestServer := func() *httptest.Server {
 		repo := NewMockRulepackRepository()
 		publisher, _ := nats.NewPublisher("")
-		service := services.NewRulepackService(repo, publisher)
+		service := services.RulepackServiceCstor(repo, publisher)
 
 		options := Options{
 			RulepackService: service,
@@ -463,7 +463,7 @@ func FuzzHTTPHeaders(f *testing.F) {
 func TestProperty_HTTPSecurity(t *testing.T) {
 	repo := NewMockRulepackRepository()
 	publisher, _ := nats.NewPublisher("")
-	service := services.NewRulepackService(repo, publisher)
+	service := services.RulepackServiceCstor(repo, publisher)
 
 	options := Options{
 		RulepackService: service,

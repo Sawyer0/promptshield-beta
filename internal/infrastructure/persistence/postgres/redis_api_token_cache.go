@@ -38,9 +38,7 @@ func (r *RedisAPITokenRepository) tokenHashKey(hash string) string {
 	return fmt.Sprintf("token:hash:%s", hash)
 }
 
-func (r *RedisAPITokenRepository) tenantTokensKey(tenantID uuid.UUID) string {
-	return fmt.Sprintf("tokens:tenant:%s", tenantID.String())
-}
+// Removed unused function tenantTokensKey
 
 func (r *RedisAPITokenRepository) Create(ctx context.Context, token *domain.APIToken) error {
 	// Write to PostgreSQL first
@@ -84,7 +82,9 @@ func (r *RedisAPITokenRepository) GetByHash(ctx context.Context, tokenHash strin
 		var token domain.APIToken
 		if json.Unmarshal([]byte(cached), &token) == nil {
 			// Update last_used asynchronously to avoid blocking the hot path
-			go r.UpdateLastUsed(context.Background(), token.ID)
+			go func() {
+				_ = r.UpdateLastUsed(context.Background(), token.ID)
+			}()
 			return &token, nil
 		}
 	}

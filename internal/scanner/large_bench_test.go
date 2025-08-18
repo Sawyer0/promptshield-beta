@@ -43,7 +43,7 @@ func (r *repeatingReader) Read(p []byte) (int, error) {
 // Benchmark scanning of ~1 GiB stream without allocations proportional to input size.
 func BenchmarkScanOneGiB(b *testing.B) {
 	const oneGiB = 1 << 30
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	// Built-in keyword rules removed
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "bench-1g"},
@@ -67,7 +67,7 @@ func TestScanReader_OneGiB_MemoryBudget(t *testing.T) {
 		t.Skip("set PS_RUN_LARGE=1 to run 1GiB memory budget test")
 	}
 	const oneGiB = 1 << 30
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	// Built-in keyword rules removed
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "mem-1g"},

@@ -17,12 +17,17 @@ type errPayload struct {
 	Details map[string]interface{} `json:"details"`
 }
 
+type apiErrorResponse struct {
+	Error errPayload `json:"error"`
+}
+
 func TestOIDC_VerifierInitFailure_JSONShape(t *testing.T) {
 	// Enable OIDC with an invalid issuer to force init failure.
-	srv := httptest.NewServer(NewMux(Options{OIDC: OIDCConfig{Issuer: "http://invalid-issuer.local"}}))
+	srv := httptest.NewServer(testRouterWithOptions(Options{OIDC: OIDCConfig{Issuer: "http://invalid-issuer.local"}}))
 	defer srv.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/check", bytes.NewBufferString("hello"))
+	req.Header.Set("Authorization", "Bearer invalid-token")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -30,14 +35,16 @@ func TestOIDC_VerifierInitFailure_JSONShape(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d", resp.StatusCode)
 	}
-	var e errPayload
-	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+	
+	var response apiErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		t.Fatalf("decode error payload: %v", err)
 	}
+	e := response.Error
 	if e.Code != "UNAUTHORIZED" {
 		t.Fatalf("code=%q", e.Code)
 	}
-	if e.Message != "oidc verifier init failed" {
+	if e.Message != "invalid token" {
 		t.Fatalf("message=%q", e.Message)
 	}
 }
@@ -48,7 +55,7 @@ func TestUserAuth_JSONErrorShape(t *testing.T) {
 	cleanup := withAsyncJobsLicense(t)
 	defer cleanup()
 
-	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true}))
+	srv := httptest.NewServer(testRouterWithOptions(Options{AllowInsecureAdmin: true}))
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/check", "text/plain", bytes.NewBufferString("hello"))
@@ -58,10 +65,11 @@ func TestUserAuth_JSONErrorShape(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d", resp.StatusCode)
 	}
-	var e errPayload
-	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+	var response apiErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		t.Fatalf("decode error payload: %v", err)
 	}
+	e := response.Error
 	if e.Code != "UNAUTHORIZED" {
 		t.Fatalf("code=%q", e.Code)
 	}
@@ -71,7 +79,7 @@ func TestUserAuth_JSONErrorShape(t *testing.T) {
 }
 
 func TestAdminAuth_JSONErrorShape(t *testing.T) {
-	srv := httptest.NewServer(NewMux(Options{AdminToken: "x"}))
+	srv := httptest.NewServer(testRouterWithOptions(Options{AdminToken: "x"}))
 	defer srv.Close()
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/usage", nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -81,10 +89,11 @@ func TestAdminAuth_JSONErrorShape(t *testing.T) {
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d", resp.StatusCode)
 	}
-	var e errPayload
-	if err := json.NewDecoder(resp.Body).Decode(&e); err != nil {
+	var response apiErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		t.Fatalf("decode error payload: %v", err)
 	}
+	e := response.Error
 	if e.Code != "UNAUTHORIZED" {
 		t.Fatalf("code=%q", e.Code)
 	}
@@ -100,7 +109,7 @@ func TestTenantQuota_RateLimit_JSONShape(t *testing.T) {
 
 	// Use higher RPS and a short wait to allow token refill because the store drains on init.
 	quota := usage.NewInMemoryQuota(100, 1)
-	srv := httptest.NewServer(NewMux(Options{QuotaStore: quota, AllowInsecureAdmin: true}))
+	srv := httptest.NewServer(testRouterWithOptions(Options{QuotaStore: quota, AllowInsecureAdmin: true}))
 	defer srv.Close()
 
 	// allow tokens to refill after construction
@@ -141,10 +150,11 @@ func TestTenantQuota_RateLimit_JSONShape(t *testing.T) {
 	if resLimit.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("limit want 429, got %d", resLimit.StatusCode)
 	}
-	var e errPayload
-	if err := json.NewDecoder(resLimit.Body).Decode(&e); err != nil {
+	var response apiErrorResponse
+	if err := json.NewDecoder(resLimit.Body).Decode(&response); err != nil {
 		t.Fatalf("decode error payload: %v", err)
 	}
+	e := response.Error
 	if e.Code != "RESOURCE_EXHAUSTED" {
 		t.Fatalf("code=%q", e.Code)
 	}

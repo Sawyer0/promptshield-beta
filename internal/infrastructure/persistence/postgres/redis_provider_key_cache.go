@@ -93,7 +93,9 @@ func (r *RedisProviderKeyRepository) GetByAlias(ctx context.Context, tenantID uu
 		var providerKey domain.ProviderKey
 		if json.Unmarshal([]byte(cached), &providerKey) == nil {
 			// Update last_used asynchronously
-			go r.UpdateLastUsed(context.Background(), providerKey.ID)
+			go func() {
+				_ = r.UpdateLastUsed(context.Background(), providerKey.ID)
+			}()
 			return &providerKey, nil
 		}
 	}

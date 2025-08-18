@@ -20,7 +20,7 @@ func TestScanThroughput(t *testing.T) {
 		t.Skip("skipping throughput test in short mode")
 	}
 
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	
 	// Load comprehensive rule set using exact pattern from large_bench_test.go
 	sc.LoadRulePacks([]rules.RulePack{{
@@ -79,7 +79,7 @@ func TestMemoryGrowth(t *testing.T) {
 		t.Skip("skipping memory growth test in short mode")
 	}
 
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	
 	// Load rules using working pattern
 	sc.LoadRulePacks([]rules.RulePack{{
@@ -127,7 +127,7 @@ func TestConcurrentScanPerformance(t *testing.T) {
 		t.Skip("skipping concurrent performance test in short mode")
 	}
 
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "concurrent-test"},
@@ -198,7 +198,7 @@ func TestSoakStability(t *testing.T) {
 		t.Skip("set PS_RUN_SOAK=1 to run soak stability test")
 	}
 
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "soak-test"},
@@ -260,7 +260,7 @@ func TestLeakDetection(t *testing.T) {
 		t.Skip("skipping leak detection test in short mode")
 	}
 
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "leak-test"},

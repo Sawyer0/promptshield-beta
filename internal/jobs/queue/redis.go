@@ -57,7 +57,7 @@ func (q *RedisQueue) ensureGroup(ctx context.Context) error {
 }
 
 func (q *RedisQueue) Enqueue(ctx context.Context, msg Message) (string, error) {
-	payload := redisPayload{ID: msg.ID, Type: msg.Type, Input: msg.Input, Metadata: msg.Metadata}
+	payload := redisPayload(msg)
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -109,7 +109,7 @@ func (q *RedisQueue) RunConsumers(ctx context.Context, n int, handler Handler) e
 							_ = q.client.XAck(ctx, q.stream, q.group, x.ID).Err()
 							continue
 						}
-						m := Message{ID: p.ID, Type: p.Type, Input: p.Input, Metadata: p.Metadata}
+						m := Message(p)
 						hctx, cancel := context.WithTimeout(ctx, q.visTTL)
 						err := handler(hctx, m)
 						cancel()

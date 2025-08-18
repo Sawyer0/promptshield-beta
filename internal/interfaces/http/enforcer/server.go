@@ -20,7 +20,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/promptshield/promptshield/internal/audit"
-	"github.com/promptshield/promptshield/internal/discovery"
 	"github.com/promptshield/promptshield/internal/encoding/jsonx"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
@@ -166,13 +165,7 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	// Preload rulepacks early so readiness probe has accurate state.
 	{
 		rulepackPath := os.Getenv("PS_ENFORCER_RULEPACK")
-		if rulepackPath == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-				rulepackPath = "/rules/basic-security.yaml"
-			} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-				rulepackPath = "rules/basic-security.yaml"
-			}
-		}
+
 		if rulepackPath != "" {
 			if packs, e := rules.LoadPacks(rulepackPath); e == nil {
 				preloadPacks = packs
@@ -186,7 +179,7 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		}
 	}
 	scannerPool.New = func() any {
-		sc := scanner.New(0)
+		sc := scanner.ScanEngineCstor(0)
 		if maxStreamBytes > 0 {
 			sc.SetMaxStreamBytes(maxStreamBytes)
 		}
@@ -232,7 +225,7 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 			}
 		}
 		scannerPool.New = func() any {
-			sc := scanner.New(0)
+			sc := scanner.ScanEngineCstor(0)
 			if maxStreamBytes > 0 {
 				sc.SetMaxStreamBytes(maxStreamBytes)
 			}
@@ -385,7 +378,6 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 				policyBypass.WithLabelValues("config").Inc()
 			}
 		}
-		_ = discovery.ErrNoInputFiles // keep imported until multi-path support
 	}
 	// Handle all /check paths for ext_authz path_prefix behavior
 	r.Route("/check", func(checkRouter chi.Router) {

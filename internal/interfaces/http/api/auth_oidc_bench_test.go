@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/go-oidc/v3/oidc"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 )
@@ -81,7 +80,7 @@ func setupFakeOIDC(tb testing.TB, audience string) (issuer string, token string,
 
 // Benchmark the middleware with OIDC disabled (pass-through baseline).
 func BenchmarkOIDCAuth_Disabled(b *testing.B) {
-	h := oidcAuth(Options{OIDC: OIDCConfig{}})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := oidcAuth(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest(http.MethodGet, "/v1/check", nil)
@@ -102,19 +101,16 @@ func BenchmarkOIDCAuth_Enabled(b *testing.B) {
 	issuer, token, closeFn := setupFakeOIDC(b, audience)
 	defer closeFn()
 
-	opt := Options{OIDC: OIDCConfig{Issuer: issuer, Audience: audience, CacheTTL: time.Minute}}
+	config := OIDCConfig{Issuer: issuer, Audience: audience, CacheTTL: time.Minute}
+	verifier := oidcVerifier(config)
 
-	// Initialize verifier once and warm up JWKS cache.
-	if err := (&opt).initOIDCVerifier(context.Background()); err != nil {
-		b.Fatalf("init verifier: %v", err)
-	}
-	v := opt.oidcVerifier.(*oidc.IDTokenVerifier)
-	if _, err := v.Verify(context.Background(), token); err != nil {
+	// Warm up JWKS cache by doing a verification
+	if _, err := verifier.Verify(context.Background(), token); err != nil {
 		b.Fatalf("warmup verify: %v", err)
 	}
 
 	// Build middleware/handler chain
-	h := oidcAuth(opt)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := oidcAuth(verifier)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

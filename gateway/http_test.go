@@ -20,7 +20,7 @@ func TestHealthzAndMetrics(t *testing.T) {
 
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
-	rulepackService := services.NewRulepackService(mockRepo, nil)
+	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
 	
 	options := api.Options{
 		RulepackService: rulepackService,
@@ -61,7 +61,7 @@ func TestLicenseEndpointsAndGating(t *testing.T) {
 
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
-	rulepackService := services.NewRulepackService(mockRepo, nil)
+	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
 	
 	options := api.Options{
 		RulepackService: rulepackService,

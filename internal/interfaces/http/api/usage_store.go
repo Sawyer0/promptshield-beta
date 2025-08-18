@@ -40,6 +40,30 @@ func (s *UsageCache) Record(ctx context.Context, tenant, route, decision string,
 	return nil
 }
 
+// RecordTokens records usage with detailed token tracking for LLM billing/observability
+func (s *UsageCache) RecordTokens(ctx context.Context, record usage.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Create a usage row from the record
+	row := usage.Row{
+		Tenant:           record.Tenant,
+		Route:            record.Route,
+		Decision:         record.Decision,
+		Provider:         record.Provider,
+		Model:            record.Model,
+		IntervalStart:    record.Timestamp,
+		Count:            1,
+		Bytes:            record.Bytes,
+		PromptTokens:     record.PromptTokens,
+		CompletionTokens: record.CompletionTokens,
+		TotalTokens:      record.TotalTokens,
+	}
+	
+	s.records = append(s.records, row)
+	return nil
+}
+
 func (s *UsageCache) Query(ctx context.Context, query usage.Query) (usage.Result, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -106,14 +130,22 @@ func (s *UsageCache) aggregateRows(rows []usage.Row, query usage.Query) []usage.
 		if existingRow, exists := groups[groupKey]; exists {
 			existingRow.Count += row.Count
 			existingRow.Bytes += row.Bytes
+			existingRow.PromptTokens += row.PromptTokens
+			existingRow.CompletionTokens += row.CompletionTokens
+			existingRow.TotalTokens += row.TotalTokens
 		} else {
 			groups[groupKey] = &usage.Row{
-				IntervalStart: windowStart,
-				Tenant:        row.Tenant,
-				Route:         row.Route,
-				Decision:      row.Decision,
-				Count:         row.Count,
-				Bytes:         row.Bytes,
+				IntervalStart:    windowStart,
+				Tenant:           row.Tenant,
+				Route:            row.Route,
+				Decision:         row.Decision,
+				Provider:         row.Provider,
+				Model:            row.Model,
+				Count:            row.Count,
+				Bytes:            row.Bytes,
+				PromptTokens:     row.PromptTokens,
+				CompletionTokens: row.CompletionTokens,
+				TotalTokens:      row.TotalTokens,
 			}
 		}
 	}

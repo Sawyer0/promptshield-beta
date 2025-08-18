@@ -16,8 +16,6 @@ import (
 func registerAuditHandlers(r chi.Router, opt Options) {
 	r.Route("/v1/admin/audits", func(ar chi.Router) {
 		ar.Use(adminAuth(opt))
-		ar.Use(correlationIDMiddleware)
-		ar.Use(tenantContextMiddleware)
 		
 		ar.Get("/", listAuditEventsHandler(opt))
 		ar.Post("/search", searchAuditEventsHandler(opt))
@@ -284,7 +282,7 @@ func exportAuditEventsHandler(opt Options) http.HandlerFunc {
 			w.Header().Set("Content-Type", "text/csv")
 			
 			// Write CSV header
-			w.Write([]byte("timestamp,action,object_type,object_id,actor_email,tenant_id\n"))
+			_, _ = w.Write([]byte("timestamp,action,object_type,object_id,actor_email,tenant_id\n"))
 			
 			// Write events
 			for _, event := range events {
@@ -300,7 +298,7 @@ func exportAuditEventsHandler(opt Options) http.HandlerFunc {
 					event.ActorEmail + "," +
 					tenantIDStr + "\n"
 				
-				w.Write([]byte(line))
+				_, _ = w.Write([]byte(line))
 			}
 		}
 	}

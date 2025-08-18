@@ -19,7 +19,7 @@ func TestEval_PromptInjectionCorpus(t *testing.T) {
 	}
 
 	// Create scanner with prompt injection rules
-	scanner := New(0)
+	scanner := ScanEngineCstor(0)
 	
 	// Define prompt injection detection rulepack
 	pack := rules.RulePack{
@@ -207,7 +207,7 @@ func TestEval_PiiDetectionCorpus(t *testing.T) {
 		t.Skip("Skipping PII evaluation in short mode")
 	}
 
-	scanner := New(0)
+	scanner := ScanEngineCstor(0)
 	
 	// Define PII detection rulepack
 	pack := rules.RulePack{
@@ -324,7 +324,7 @@ func TestEval_CrossValidationStability(t *testing.T) {
 		t.Skip("Skipping cross-validation in short mode")
 	}
 
-	scanner := New(0)
+	scanner := ScanEngineCstor(0)
 	
 	// Create simple test rulepack
 	pack := rules.RulePack{

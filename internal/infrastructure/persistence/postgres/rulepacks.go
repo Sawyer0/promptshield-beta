@@ -55,7 +55,9 @@ func (r *pgRulepackRepo) CreateVersionActivateTx(ctx context.Context, packID uui
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	var verID uuid.UUID
 	if err := tx.QueryRow(ctx, `INSERT INTO rulepack_versions (id, rulepack_id, version, dsl, status, created_by) VALUES (gen_random_uuid(), $1, $2, $3, 'approved', $4) RETURNING id`, packID, version, dsl, createdBy).Scan(&verID); err != nil {
@@ -198,7 +200,9 @@ func (r *pgRulepackRepo) Delete(ctx context.Context, packID uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	// Delete all versions first
 	if _, err := tx.Exec(ctx, `DELETE FROM rulepack_versions WHERE rulepack_id = $1`, packID); err != nil {

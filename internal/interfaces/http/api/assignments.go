@@ -15,8 +15,6 @@ func registerAssignmentHandlers(r chi.Router, opt Options) {
 	// Assignment routes under tenant context
 	r.Route("/v1/admin/tenants/{id}/assignments", func(ar chi.Router) {
 		ar.Use(adminAuth(opt))
-		ar.Use(correlationIDMiddleware)
-		ar.Use(tenantContextMiddleware)
 		
 		ar.Post("/", createAssignmentHandler(opt))
 		ar.Get("/", listAssignmentsHandler(opt))
@@ -25,8 +23,6 @@ func registerAssignmentHandlers(r chi.Router, opt Options) {
 	// Direct assignment management
 	r.Route("/v1/admin/assignments", func(ar chi.Router) {
 		ar.Use(adminAuth(opt))
-		ar.Use(correlationIDMiddleware)
-		ar.Use(tenantContextMiddleware)
 		
 		ar.Put("/{assignmentId}", updateAssignmentHandler(opt))
 		ar.Delete("/{assignmentId}", deleteAssignmentHandler(opt))

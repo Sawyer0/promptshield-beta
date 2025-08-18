@@ -208,14 +208,6 @@ func (s *Server) Shutdown() {
 	}
 }
 
-// createRuleUpdateHandler creates a handler function for processing rule update messages
-func (s *Server) createRuleUpdateHandler() func(ctx context.Context, update nats.RuleUpdate) error {
-	return func(ctx context.Context, update nats.RuleUpdate) error {
-		// Reload rules when we receive an update for our tenant
-		return s.ReloadRules(ctx)
-	}
-}
-
 /* helper functions moved to run_server.go
 func findGRPCTLSPair() (string, string, bool) { return "","",false }
 func grpcTLSMode() string { return "auto" }

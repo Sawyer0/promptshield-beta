@@ -14,8 +14,6 @@ import (
 func registerTenantHandlers(r chi.Router, opt Options) {
 	r.Route("/v1/admin/tenants", func(tr chi.Router) {
 		tr.Use(adminAuth(opt))
-		tr.Use(correlationIDMiddleware)
-		tr.Use(tenantContextMiddleware)
 		
 		tr.Post("/", createTenantHandler(opt))
 		tr.Get("/", listTenantsHandler(opt))

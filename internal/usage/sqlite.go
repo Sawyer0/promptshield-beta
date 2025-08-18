@@ -24,7 +24,7 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	// Create table
+	// Create table with token tracking
 	schema := `
 CREATE TABLE IF NOT EXISTS usage_minute (
     tenant TEXT NOT NULL,
@@ -35,6 +35,22 @@ CREATE TABLE IF NOT EXISTS usage_minute (
     deny INTEGER NOT NULL DEFAULT 0,
     bytes BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (tenant, route, ts_minute)
+);
+
+CREATE TABLE IF NOT EXISTS usage_tokens (
+    tenant TEXT NOT NULL,
+    route TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    ts_minute INTEGER NOT NULL,
+    allow INTEGER NOT NULL DEFAULT 0,
+    quarantine INTEGER NOT NULL DEFAULT 0,
+    deny INTEGER NOT NULL DEFAULT 0,
+    bytes BIGINT NOT NULL DEFAULT 0,
+    prompt_tokens BIGINT NOT NULL DEFAULT 0,
+    completion_tokens BIGINT NOT NULL DEFAULT 0,
+    total_tokens BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (tenant, route, provider, model, ts_minute)
 );`
 	if _, err := db.Exec(schema); err != nil {
 		_ = db.Close()
@@ -76,6 +92,60 @@ DO UPDATE SET %s = %s + excluded.%s, bytes = usage_minute.bytes + excluded.bytes
 	_, err := s.db.ExecContext(ctx, q, tenant, route, ts, 1, bytes)
 	if err != nil {
 		return fmt.Errorf("record usage: %w", err)
+	}
+	return nil
+}
+
+// RecordTokens records usage with detailed token tracking for LLM billing/observability
+func (s *SQLiteStore) RecordTokens(ctx context.Context, record Record) error {
+	tenant := record.Tenant
+	if tenant == "" {
+		tenant = "default"
+	}
+	route := record.Route
+	if route == "" {
+		route = "default"
+	}
+	provider := record.Provider
+	if provider == "" {
+		provider = "unknown"
+	}
+	model := record.Model
+	if model == "" {
+		model = "unknown"
+	}
+	
+	ts := floorToMinute(record.Timestamp).Unix()
+	
+	// Determine decision column
+	var col string
+	switch record.Decision {
+	case DecisionAllow:
+		col = "allow"
+	case DecisionQuarantine:
+		col = "quarantine"
+	case DecisionDeny:
+		col = "deny"
+	default:
+		col = "allow"
+	}
+	
+	q := fmt.Sprintf(` //nolint:gosec // Column names are from closed set (allow/quarantine/deny), not user input
+INSERT INTO usage_tokens(tenant, route, provider, model, ts_minute, %s, bytes, prompt_tokens, completion_tokens, total_tokens)
+VALUES(?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(tenant, route, provider, model, ts_minute)
+DO UPDATE SET 
+	%s = %s + excluded.%s,
+	bytes = usage_tokens.bytes + excluded.bytes,
+	prompt_tokens = usage_tokens.prompt_tokens + excluded.prompt_tokens,
+	completion_tokens = usage_tokens.completion_tokens + excluded.completion_tokens,
+	total_tokens = usage_tokens.total_tokens + excluded.total_tokens
+`, col, col, col, col)
+	
+	_, err := s.db.ExecContext(ctx, q, tenant, route, provider, model, ts, 1, record.Bytes, 
+		record.PromptTokens, record.CompletionTokens, record.TotalTokens)
+	if err != nil {
+		return fmt.Errorf("record token usage: %w", err)
 	}
 	return nil
 }

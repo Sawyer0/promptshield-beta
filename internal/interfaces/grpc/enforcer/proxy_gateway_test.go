@@ -202,7 +202,7 @@ func TestIntegration_ResponseScanning(t *testing.T) {
 	extproc.RegisterExternalProcessorServer(s, server)
 
 	go func() {
-		s.Serve(lis)
+		_ = s.Serve(lis)
 	}()
 	defer s.Stop()
 
@@ -292,7 +292,7 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 	extproc.RegisterExternalProcessorServer(s, server)
 
 	go func() {
-		s.Serve(lis)
+		_ = s.Serve(lis)
 	}()
 	defer s.Stop()
 
@@ -401,7 +401,7 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 	extproc.RegisterExternalProcessorServer(s, server)
 
 	go func() {
-		s.Serve(lis)
+		_ = s.Serve(lis)
 	}()
 	defer s.Stop()
 

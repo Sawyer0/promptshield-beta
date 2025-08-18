@@ -70,7 +70,4 @@ func AssertError(t *testing.T, err error, wantErr bool) {
 	}
 }
 
-// contains is a helper for string containment
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
-}
+

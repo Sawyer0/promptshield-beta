@@ -64,8 +64,8 @@ func NewWithOptions(opt Options) *Server {
 	}
 
 	// scanners per direction
-	scReq := scanner.New(0)
-	scResp := scanner.New(0)
+	scReq := scanner.ScanEngineCstor(0)
+	scResp := scanner.ScanEngineCstor(0)
 	scReq.SetMaxStreamBytes(opt.MaxStreamBytes)
 	scResp.SetMaxStreamBytes(opt.MaxStreamBytes)
 	scReq.SetQuarantineOnTimeout(true)
@@ -88,25 +88,11 @@ func NewWithOptions(opt Options) *Server {
 	}
 
 	// Fallback to file-based loading if database loading failed or no rules found
-	if !loaded {
-		if s.rulepackPath != "" {
-			if packs, err := rules.LoadPacks(s.rulepackPath); err == nil {
-				scReq.LoadRulePacks(packs)
-				scResp.LoadRulePacks(packs)
-				loaded = true
-			}
-		} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-			if packs, err := rules.LoadPacks("rules/basic-security.yaml"); err == nil {
-				scReq.LoadRulePacks(packs)
-				scResp.LoadRulePacks(packs)
-				loaded = true
-			}
-		} else if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-			if packs, err := rules.LoadPacks("/rules/basic-security.yaml"); err == nil {
-				scReq.LoadRulePacks(packs)
-				scResp.LoadRulePacks(packs)
-				loaded = true
-			}
+	if !loaded && s.rulepackPath != "" {
+		if packs, err := rules.LoadPacks(s.rulepackPath); err == nil {
+			scReq.LoadRulePacks(packs)
+			scResp.LoadRulePacks(packs)
+			loaded = true
 		}
 	}
 

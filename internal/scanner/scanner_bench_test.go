@@ -13,7 +13,7 @@ import (
 )
 
 func BenchmarkScanLargeFile(b *testing.B) {
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "bench"},
 		Rules: []rules.Rule{
@@ -32,7 +32,7 @@ func BenchmarkScanLargeFile(b *testing.B) {
 }
 
 func BenchmarkParallelScan(b *testing.B) {
-	sc := scanner.New(4) // 4 workers
+	sc := scanner.ScanEngineCstor(4) // 4 workers
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "bench"},
 		Rules: []rules.Rule{
@@ -65,7 +65,7 @@ func BenchmarkRuleMatching(b *testing.B) {
 		})
 	}
 
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "bench"},
 		Rules:    benchRules,
@@ -87,7 +87,7 @@ func BenchmarkP95L1L2(b *testing.B) {
 		benchRules = append(benchRules, rules.Rule{ID: fmt.Sprintf("kw%d", i), Level: 1, Keywords: []string{fmt.Sprintf("keyword%d", i)}})
 		benchRules = append(benchRules, rules.Rule{ID: fmt.Sprintf("rx%d", i), Level: 2, Patterns: []rules.Pattern{{Regex: fmt.Sprintf(`token%d-[a-z0-9]{8}`, i)}}})
 	}
-	sc := scanner.New(8 * 1024 * 1024)
+	sc := scanner.ScanEngineCstor(8 * 1024 * 1024)
 	sc.LoadRulePacks([]rules.RulePack{{Metadata: rules.Metadata{Name: "bench"}, Rules: benchRules}})
 	content := strings.Repeat("some text token10-abcdefgh and keyword25 here\n", 200)
 	timings := make([]int64, 0, b.N)
@@ -139,7 +139,7 @@ func percentile95(xs []int64) int64 {
 }
 
 func BenchmarkAhoKeywordScan(b *testing.B) {
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	// Build 200 keywords
 	var benchRules []rules.Rule
 	for i := 0; i < 200; i++ {
@@ -155,7 +155,7 @@ func BenchmarkAhoKeywordScan(b *testing.B) {
 }
 
 func BenchmarkBloomGateRegex(b *testing.B) {
-	sc := scanner.New(0)
+	sc := scanner.ScanEngineCstor(0)
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "bench"},
 		Rules: []rules.Rule{

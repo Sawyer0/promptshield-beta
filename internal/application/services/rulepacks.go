@@ -49,14 +49,10 @@ type RulepackService struct {
 	audit audit.Logger
 }
 
-// NewRulepackServiceWithAudit is the primary constructor.
-func NewRulepackServiceWithAudit(r contracts.RulepackRepository, pub *nats.Publisher, lg audit.Logger) *RulepackService {
-	return &RulepackService{repo: r, pub: pub, audit: lg}
-}
-
-// NewRulepackService is kept for backward compatibility; it constructs a service without auditing.
-func NewRulepackService(r contracts.RulepackRepository, pub *nats.Publisher) *RulepackService {
-	return NewRulepackServiceWithAudit(r, pub, nil)
+// RulepackServiceCstor creates a RulepackService with auditing configured from environment.
+func RulepackServiceCstor(r contracts.RulepackRepository, pub *nats.Publisher) *RulepackService {
+	auditLogger, _, _ := audit.NewLoggerFromEnv() // TODO: Handle close func and error properly
+	return &RulepackService{repo: r, pub: pub, audit: auditLogger}
 }
 
 func checksumJSON(raw json.RawMessage) string {
