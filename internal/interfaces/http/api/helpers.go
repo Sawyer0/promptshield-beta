@@ -111,25 +111,8 @@ func intFromAny(v any) int {
 	return 0
 }
 
-// tenantFromRequest resolves a tenant id using (in order):
-// 1) OIDC claims (tid | tenant | org | azp)
-// 2) Header x-tenant-id
+// tenantFromRequest resolves a tenant id from header x-tenant-id
 func tenantFromRequest(r *http.Request) string {
-	if m := claimsFromCtx(r.Context()); m != nil {
-		try := func(keys ...string) string {
-			for _, k := range keys {
-				if v, ok := m[k]; ok {
-					if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-						return s
-					}
-				}
-			}
-			return ""
-		}
-		if s := try("tid", "tenant", "org", "azp"); s != "" {
-			return s
-		}
-	}
 	if v := strings.TrimSpace(r.Header.Get("x-tenant-id")); v != "" {
 		return v
 	}

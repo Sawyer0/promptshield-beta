@@ -103,47 +103,22 @@ type PolicyDeleted struct {
 	DeletedBy *uuid.UUID `json:"deleted_by,omitempty"`
 }
 
-// Provider key events
-type ProviderKeyAdded struct {
+type PolicyActivated struct {
 	BaseEvent
-	KeyData types.ProviderKey `json:"key_data"`
-	AddedBy *uuid.UUID        `json:"added_by,omitempty"`
+	PolicyID    uuid.UUID     `json:"policy_id"`
+	PolicyData  types.Policy  `json:"policy"`
+	ActivatedBy *uuid.UUID    `json:"activated_by,omitempty"`
 }
 
-type ProviderKeyRotated struct {
+type PolicyDeactivated struct {
 	BaseEvent
-	KeyID     uuid.UUID  `json:"key_id"`
-	RotatedBy *uuid.UUID `json:"rotated_by,omitempty"`
+	PolicyID      uuid.UUID    `json:"policy_id"`
+	PolicyData    types.Policy `json:"policy"`
+	DeactivatedBy *uuid.UUID   `json:"deactivated_by,omitempty"`
 }
 
-type ProviderKeyRevoked struct {
-	BaseEvent
-	KeyID     uuid.UUID  `json:"key_id"`
-	Reason    string     `json:"reason,omitempty"`
-	RevokedBy *uuid.UUID `json:"revoked_by,omitempty"`
-}
-
-// API token events
-type APITokenCreated struct {
-	BaseEvent
-	TokenData types.APIToken `json:"token_data"`
-	CreatedBy *uuid.UUID     `json:"created_by,omitempty"`
-}
-
-type APITokenRevoked struct {
-	BaseEvent
-	TokenID   uuid.UUID  `json:"token_id"`
-	Reason    string     `json:"reason,omitempty"`
-	RevokedBy *uuid.UUID `json:"revoked_by,omitempty"`
-}
-
-// Quota events
-type QuotaUpdated struct {
-	BaseEvent
-	QuotaData types.Quota            `json:"quota_data"`
-	Changes   map[string]interface{} `json:"changes"`
-	UpdatedBy *uuid.UUID             `json:"updated_by,omitempty"`
-}
+// Security Gateway - provider key and quota events removed
+// Security Gateway uses simple token auth only
 
 type QuotaExceeded struct {
 	BaseEvent
@@ -160,7 +135,7 @@ type ViolationDetected struct {
 	RequestID  string                  `json:"request_id"`
 	Violations []types.PolicyViolation `json:"violations"`
 	ScanResult types.ScanResult        `json:"scan_result"`
-	Provider   types.Provider          `json:"provider,omitempty"`
+	// Provider removed - Security Gateway doesn't manage providers
 	Endpoint   string                  `json:"endpoint,omitempty"`
 }
 
@@ -169,7 +144,7 @@ type RequestBlocked struct {
 	RequestID  string                  `json:"request_id"`
 	Reason     string                  `json:"reason"`
 	Violations []types.PolicyViolation `json:"violations,omitempty"`
-	Provider   types.Provider          `json:"provider,omitempty"`
+	// Provider removed - Security Gateway doesn't manage providers
 	Endpoint   string                  `json:"endpoint,omitempty"`
 }
 
@@ -181,16 +156,7 @@ type RequestAllowed struct {
 	Endpoint   string           `json:"endpoint,omitempty"`
 }
 
-// Usage and metrics events
-type UsageRecorded struct {
-	BaseEvent
-	UsageData types.UsageRecord `json:"usage_data"`
-}
-
-type UsageAggregated struct {
-	BaseEvent
-	Metric types.UsageMetric `json:"metric"`
-}
+// Security Gateway - complex usage tracking removed
 
 // System events
 type SystemStarted struct {
@@ -243,11 +209,13 @@ const (
 	EventTypeTenantRestored  = "tenant.restored"
 	EventTypeTenantDeleted   = "tenant.deleted"
 
-	EventTypePolicyCreated    = "policy.created"
-	EventTypePolicyUpdated    = "policy.updated"
-	EventTypePolicyAssigned   = "policy.assigned"
-	EventTypePolicyUnassigned = "policy.unassigned"
-	EventTypePolicyDeleted    = "policy.deleted"
+	EventTypePolicyCreated     = "policy.created"
+	EventTypePolicyUpdated     = "policy.updated"
+	EventTypePolicyAssigned    = "policy.assigned"
+	EventTypePolicyUnassigned  = "policy.unassigned"
+	EventTypePolicyDeleted     = "policy.deleted"
+	EventTypePolicyActivated   = "policy.activated"
+	EventTypePolicyDeactivated = "policy.deactivated"
 
 	EventTypeProviderKeyAdded   = "provider_key.added"
 	EventTypeProviderKeyRotated = "provider_key.rotated"

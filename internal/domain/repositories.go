@@ -38,29 +38,10 @@ type PolicyAssignmentRepository interface {
 	DeleteByTenantAndPolicy(ctx context.Context, tenantID, policyID uuid.UUID) error
 }
 
-// ProviderKeyRepository defines operations for managing provider API keys
-type ProviderKeyRepository interface {
-	Create(ctx context.Context, key *ProviderKey) error
-	Get(ctx context.Context, id uuid.UUID) (*ProviderKey, error)
-	GetByAlias(ctx context.Context, tenantID uuid.UUID, provider string, alias string) (*ProviderKey, error)
-	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*ProviderKey, error)
-	ListByProvider(ctx context.Context, tenantID uuid.UUID, provider string) ([]*ProviderKey, error)
-	Update(ctx context.Context, key *ProviderKey) error
-	Delete(ctx context.Context, id uuid.UUID) error
-	Rotate(ctx context.Context, id uuid.UUID, newEncryptedKey string) error
-	SetDefault(ctx context.Context, tenantID uuid.UUID, provider string, keyID uuid.UUID) error
-	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
-}
+// Security Gateway - no provider key management needed
 
-// QuotaRepository defines operations for quota management and rate limiting
-type QuotaRepository interface {
-	Create(ctx context.Context, quota *Quota) error
-	Get(ctx context.Context, tenantID uuid.UUID) (*Quota, error)
-	Update(ctx context.Context, quota *Quota) error
-	Delete(ctx context.Context, tenantID uuid.UUID) error
-	CheckRateLimit(ctx context.Context, tenantID uuid.UUID) (*RateLimitResult, error)
-	IncrementUsage(ctx context.Context, tenantID uuid.UUID, tokens int64) error
-}
+// Security Gateway uses simple environment-based rate limiting
+// No complex per-tenant quota management needed
 
 // APITokenRepository defines operations for API token management
 type APITokenRepository interface {

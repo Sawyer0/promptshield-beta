@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,6 +18,9 @@ import (
 // - HTTP: /healthz, /readyz, /metrics, /check
 // - gRPC: ext_proc ExternalProcessor
 func main() {
+	// Initialize structured logging
+	logger := slog.With("component", "ps-gateway")
+	
 	license.Check()
 
 	// Fixed addresses (no flags/env)
@@ -26,7 +29,7 @@ func main() {
 
 	// Start HTTP server (health/metrics/check)
 	srv := enforcerhttp.Serve(httpAddr)
-	log.Printf("ps-gateway http listening on %s", httpAddr)
+	logger.Info("ps-gateway http server starting", "address", httpAddr)
 
 	// Start gRPC ext_proc server
 	var gs *grpc.Server
@@ -34,20 +37,21 @@ func main() {
 		Timeout:         300 * time.Millisecond,
 		EnforcementMode: "observe",
 	}); err == nil {
-		log.Printf("ps-gateway grpc ext_proc listening on %s", grpcAddr)
+		logger.Info("ps-gateway grpc ext_proc server starting", "address", grpcAddr)
 		gs = s
 	} else {
-		log.Printf("grpc ext_proc startup failed: %v", err)
+		logger.Error("grpc ext_proc startup failed", "error", err)
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
+	logger.Info("Shutting down servers...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+		logger.Error("HTTP server shutdown error", "error", err)
 	}
 	if gs != nil {
 		done := make(chan struct{})
@@ -58,4 +62,5 @@ func main() {
 			gs.Stop()
 		}
 	}
+	logger.Info("Shutdown complete")
 }

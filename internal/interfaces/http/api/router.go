@@ -144,22 +144,16 @@ func NewMux(opt Options) http.Handler {
 	// repositories are nil, so safe to mount unconditionally).
 	registerTenantHandlers(r, opt)
 	registerAssignmentHandlers(r, opt)
-	registerQuotaHandlers(r, opt)
+	// registerQuotaHandlers(r, opt) - removed for Security Gateway
 	registerAuditHandlers(r, opt)
-	registerUsageHandlers(r, opt)
+	registerPolicyHandlers(r, opt)
 	registerSystemHandlers(r, opt)
 
-	// Provider management and LLM proxy
-	registerProviderHandlers(r, opt)
-	registerProxyHandlers(r, opt)
+	// Security Gateway - no complex usage/quota management needed
 
-	// Admin
+	// Admin endpoints (simple token auth)
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
-		// Optional OIDC scope check for admin operations
-		if opt.OIDC.Issuer != "" {
-			a.Use(requireScope("admin"))
-		}
 		a.Post("/admin/drain", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusAccepted)
 			if opt.OnDrain != nil {
@@ -213,20 +207,11 @@ func NewMux(opt Options) http.Handler {
 		})
 	})
 
-	// Initialize OIDC verifier if configured
-	if opt.OIDC.Issuer != "" && opt.oidcVerifier == nil {
-		opt.oidcVerifier = oidcVerifier(opt.OIDC)
-	}
-
-	// Decision endpoints (protected with user auth)
+	// Security Gateway decision endpoints (simple token auth + basic rate limiting)
 	r.Group(func(g chi.Router) {
-		// legacy token-based user auth
+		// Simple token-based user auth
 		g.Use(userAuth(opt))
-		// optional OIDC
-		if opt.OIDC.Issuer != "" {
-			g.Use(oidcAuth(opt.oidcVerifier))
-		}
-		// optional per-tenant quota
+		// Basic per-tenant rate limiting
 		if opt.QuotaStore != nil {
 			g.Use(tenantQuota(opt))
 		}
@@ -461,4 +446,21 @@ func NewMux(opt Options) http.Handler {
 		})
 	}
 	return r
+}
+
+// registerPolicyHandlers registers policy management endpoints
+func registerPolicyHandlers(r chi.Router, opt Options) {
+	if opt.PolicyService == nil {
+		// Policy management not configured - skip registration
+		// Debug output
+		println("WARNING: PolicyService is nil, skipping policy endpoint registration")
+		return
+	}
+	
+	// Create policy handlers with the policy service
+	handlers := NewPolicyHandlers(opt.PolicyService)
+	
+	// Register routes
+	handlers.RegisterRoutes(r, opt)
+	println("INFO: Policy endpoints registered at /admin/policies")
 }

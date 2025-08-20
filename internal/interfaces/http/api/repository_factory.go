@@ -11,23 +11,20 @@ import (
 	"github.com/promptshield/promptshield/internal/usage"
 )
 
-// Repositories creates PostgreSQL repository implementations for production
-func Repositories(ctx context.Context, databaseURL string) (domain.TenantRepository, domain.PolicyAssignmentRepository, domain.AuditRepository, domain.ProviderKeyRepository, error) {
+// Repositories creates PostgreSQL repository implementations for Security Gateway
+func Repositories(ctx context.Context, databaseURL string) (domain.TenantRepository, domain.PolicyAssignmentRepository, domain.AuditRepository, error) {
 	// Connect to PostgreSQL
 	pool, err := postgres.NewPool(ctx, databaseURL)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	
-	// Create PostgreSQL repository implementations for business data
+	// Create PostgreSQL repository implementations for security business data
 	tenantRepo := postgres.TenantRepo(pool)
 	assignmentRepo := postgres.PolicyAssignmentRepo(pool)
 	auditRepo := postgres.AuditRepo(pool)
 	
-	// Provider key repository uses PostgreSQL storage
-	providerKeyRepo := postgres.ProviderKeyRepo(pool)
-	
-	return tenantRepo, assignmentRepo, auditRepo, providerKeyRepo, nil
+	return tenantRepo, assignmentRepo, auditRepo, nil
 }
 
 // ProductionRepositories creates Redis-cached repositories with PostgreSQL backing
@@ -75,15 +72,8 @@ func (f *ProductionRepositoryFactory) Audit() domain.AuditRepository {
 	return postgres.AuditRepo(f.pool)
 }
 
-func (f *ProductionRepositoryFactory) ProviderKey() domain.ProviderKeyRepository {
-	pgRepo := postgres.ProviderKeyRepo(f.pool)
-	return postgres.NewRedisProviderKeyRepository(pgRepo, f.redis, 30*time.Minute)
-}
+// Security Gateway - no complex quota/provider key management needed
 
-func (f *ProductionRepositoryFactory) Quota() domain.QuotaRepository {
-	pgRepo := postgres.QuotaRepo(f.pool)
-	return postgres.NewRedisQuotaRepository(pgRepo, f.redis, 5*time.Minute)
-}
 
 
 // ProductionOptions creates Options with Redis-cached repositories for maximum performance
@@ -102,13 +92,9 @@ func ProductionOptions(ctx context.Context, databaseURL, redisAddr string) (Opti
 		TenantRepository:     factory.Tenant(),
 		AssignmentRepository: factory.PolicyAssignment(),
 		AuditRepository:      factory.Audit(),
-		ProviderKeyStore:     factory.ProviderKey(),
-		QuotaRepository:      factory.Quota(),
+		// Security Gateway - no complex quota/provider key management needed
 		UsageStore:          redisUsageStore,
-		OIDC: OIDCConfig{
-			Issuer:   "",
-			Audience: "",
-		},
+		// Security Gateway uses simple token auth only
 		OnDrain:    nil,
 		OnShutdown: nil,
 	}, nil

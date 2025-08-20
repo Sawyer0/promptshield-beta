@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -19,11 +19,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/audit"
-	"github.com/promptshield/promptshield/internal/encoding/jsonx"
+	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
-	"github.com/promptshield/promptshield/internal/license"
+	"github.com/promptshield/promptshield/internal/bootstrap"
+	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
@@ -31,7 +33,6 @@ import (
 	"github.com/promptshield/promptshield/internal/usage"
 	redis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // HTTP server for the PromptShield enforcer.
@@ -99,6 +100,11 @@ func NewMux() http.Handler { // backward-compatible wrapper
 
 // getAPIOptions constructs API options from environment variables
 func getAPIOptions() api.Options {
+	return getAPIOptionsWithDB(nil)
+}
+
+// getAPIOptionsWithDB constructs API options with optional database pool
+func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
 
 	// Optional insecure mode toggle for local dev / demos
@@ -110,45 +116,89 @@ func getAPIOptions() api.Options {
 		}
 	}
 
-	// OIDC configuration
-	oidcConfig := api.OIDCConfig{
-		Issuer:   os.Getenv("PS_ENFORCER_OIDC_ISSUER"),
-		Audience: os.Getenv("PS_ENFORCER_OIDC_AUDIENCE"),
+	// Initialize services with database if available
+	var rulepackService *services.RulepackService
+	var policyService contracts.PolicyService
+	
+	if dbPool != nil {
+		// Use PostgreSQL repositories
+		rulepackRepo := pg.RulepackRepo(dbPool)
+		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
+		
+		// For policies, we should also use PostgreSQL but for now use in-memory
+		// TODO: Implement PostgreSQL PolicyRepository
+		policyService = initializePolicyService()
+	} else {
+		// Fall back to in-memory implementations for local development
+		logger := slog.With("component", "enforcer-http")
+		logger.Info("No database configured; using in-memory repositories for development")
+		
+		// Create in-memory rulepack repository
+		rulepackRepo := memory.NewRulepackRepository()
+		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
+		
+		// Use in-memory policy repository
+		policyService = initializePolicyService()
 	}
 
+	// Create scanner manager for event-driven real-time enforcement
+	scannerManager := NewScannerManager()
+	
 	return api.Options{
 		AdminToken:         adminToken,
 		AllowInsecureAdmin: allowInsecure,
-		OIDC:               oidcConfig,
+		PolicyService:      policyService,
+		RulepackService:    rulepackService,
+		ScannerManager:     scannerManager,
 	}
+}
+
+// initializePolicyService creates and configures the policy management service
+func initializePolicyService() contracts.PolicyService {
+	// Initialize policy dependencies with bootstrap
+	policyDeps := bootstrap.InitializePolicyDependencies(
+		nil, // ruleCompiler - will be nil for now, add later when integrating with scanner
+		nil, // scanEngine - will be nil for now, add later when integrating with scanner  
+		nil, // auditLogger - will be nil for now, add later when integrating with audit
+	)
+	
+	return policyDeps.Service
 }
 
 // NewMuxWithOptions constructs the HTTP handler mux with injectable API options.
 func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	r := chi.NewRouter()
-	// Perform startup DB health check (optional). When DB is unreachable, we
-	// downgrade enforcement mode to "observe" and mark readiness probe
-	// unhealthy, but still allow the service to start (fail-open) so traffic
-	// is not blocked during outages.
+	// Initialize database pool if configured
+	var dbPool *pg.Pool
 	dbHealthy := true
 	if dsn := os.Getenv("PS_PG_DSN"); dsn != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if pool, err := pg.NewPool(ctx, dsn); err == nil {
+		pool, err := pg.NewPool(ctx, dsn)
+		if err == nil {
 			pingCtx, cancelPing := context.WithTimeout(ctx, 2*time.Second)
 			if _, err := pool.Raw().Exec(pingCtx, "SELECT 1"); err != nil {
 				dbHealthy = false
+				pool.Close()
+				pool = nil
+			} else {
+				dbPool = pool
 			}
 			cancelPing()
-			pool.Close()
 		} else {
 			dbHealthy = false
 		}
 		if !dbHealthy {
 			// Switch to observe mode to fail-open.
 			os.Setenv("PS_ENFORCER_MODE", "observe")
-			log.Printf("[WARN] Database unreachable at startup (%s); entering OBSERVE fail-open mode", dsn)
+			logger := slog.With("component","enforcer-http")
+			logger.Warn("Database unreachable at startup; entering OBSERVE fail-open mode", "dsn", dsn)
 		}
+	}
+	
+	// If API options don't have services configured, initialize them with DB
+	if apiOpt.RulepackService == nil {
+		apiOpt = getAPIOptionsWithDB(dbPool)
 	}
 
 	// Middlewares: request id, real ip, recoverer, timeout (defense in depth; keep short)
@@ -239,152 +289,6 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		}
 	}
 
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		// Optional bearer token check
-		reqToken := os.Getenv("PS_ENFORCER_AUTH_TOKEN")
-		if reqToken != "" {
-			if !HttpAuthOK(r, reqToken) {
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte("unauthorized"))
-				if metricsEnabled() {
-					enforcerRequests.WithLabelValues("/check", "401").Inc()
-				}
-				return
-			}
-		}
-		if !license.IsLicensed() {
-			w.Header().Set("X-PromptShield-License", "EVALUATION")
-			if !license.AllowEvalRequest() {
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
-				if metricsEnabled() {
-					enforcerRequests.WithLabelValues("/check", "429").Inc()
-				}
-				return
-			}
-		} else {
-			w.Header().Set("X-PromptShield-License", "LICENSED")
-		}
-		// Stream request body to scanner for real-time analysis
-		// Enforce configurable body size limit for resource protection
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		start := time.Now()
-
-		// Default 1MB limit; configurable via environment
-		maxBytes := int64(1 << 20)
-		if v := os.Getenv("PS_ENFORCER_MAX_BODY_BYTES"); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-				maxBytes = n
-			}
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-		if r.Body != nil {
-			defer r.Body.Close()
-		}
-
-		sc := scannerPool.Get().(*scanner.Scanner)
-		defer scannerPool.Put(sc)
-		// Stream scan directly from the request body to avoid temp-file I/O
-		res, err := sc.ScanReader(ctx, r.Body, "http:request")
-		if err != nil {
-			// Map body-size errors to 400; otherwise 500
-			msg := err.Error()
-			code := http.StatusInternalServerError
-			api := map[string]any{"code": "INTERNAL", "message": "scan failed", "details": map[string]any{"error": msg}}
-			if strings.Contains(strings.ToLower(msg), "request body too large") {
-				code = http.StatusBadRequest
-				api = map[string]any{"code": "INVALID_ARGUMENT", "message": "request body too large or invalid", "details": map[string]any{"max_bytes": maxBytes}}
-			}
-			w.Header().Set("content-type", "application/json")
-			w.WriteHeader(code)
-			_ = jsonx.NewEncoder(w).Encode(api)
-			if metricsEnabled() {
-				enforcerRequests.WithLabelValues("/check", strconv.Itoa(code)).Inc()
-			}
-			return
-		}
-		// Decision logic: allow if no violations; quarantine/deny based on response actions
-		decision := "allow"
-		reason := "no_signals"
-		total := 0
-		// Response-action aware decisioning
-		anyQuarantine := false
-		anyDeny := false
-		firstRule := ""
-		// aggregate over struct result
-		total = len(res.Violations)
-		for _, v := range res.Violations {
-			if firstRule == "" {
-				firstRule = v.RuleID
-			}
-			a := v.ResponseAction
-			switch a {
-			case "deny", "block":
-				anyDeny = true
-			case "quarantine":
-				anyQuarantine = true
-			}
-		}
-		if anyDeny {
-			decision = "deny"
-			reason = firstNonEmpty(firstRule, "response_action")
-		} else if anyQuarantine || total > 0 {
-			decision = "quarantine"
-			reason = firstNonEmpty(firstRule, "signals_detected")
-		}
-		// Request correlation id
-		reqID := middleware.GetReqID(r.Context())
-		if reqID == "" {
-			reqID = generateRequestID()
-		}
-		// Map decision to HTTP status for use with Envoy ext_authz (HTTP service).
-		// Honor enforcement mode: observe -> 200 always; enforce/quarantine -> 403 on violations.
-		mode := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_MODE")))
-		if mode == "" {
-			mode = strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_ENFORCEMENT_MODE")))
-		}
-		statusCode := http.StatusOK
-		if (mode == "enforce" || mode == "quarantine") && decision != "allow" {
-			statusCode = http.StatusForbidden
-		}
-
-		// Trace correlation header
-		if span := trace.SpanFromContext(r.Context()); span != nil {
-			sc := span.SpanContext()
-			if sc.IsValid() {
-				w.Header().Set("x-ps-trace-id", sc.TraceID().String())
-			}
-		}
-		w.Header().Set("x-ps-request-id", reqID)
-		w.Header().Set("x-ps-decision", decision)
-		w.Header().Set("x-ps-reason", reason)
-		w.Header().Set("content-type", "application/json")
-		w.WriteHeader(statusCode)
-		_ = jsonx.NewEncoder(w).Encode(map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": reqID})
-		if metricsEnabled() {
-			enforcerDecisions.WithLabelValues(decision).Inc()
-			enforcerRequests.WithLabelValues("/check", strconv.Itoa(statusCode)).Inc()
-			enforcerReqDuration.WithLabelValues("/check", decision).Observe(time.Since(start).Seconds())
-		}
-
-		// Emit policy bypass metric when serving with no active rulepack or when configured bypass is in effect.
-		if len(preloadPacks) == 0 {
-			if metricsEnabled() {
-				policyBypass.WithLabelValues("no_rules").Inc()
-			}
-		} else if !requireAtStartup {
-			if metricsEnabled() {
-				policyBypass.WithLabelValues("config").Inc()
-			}
-		}
-	}
-	// Handle all /check paths for ext_authz path_prefix behavior
-	r.Route("/check", func(checkRouter chi.Router) {
-		checkRouter.HandleFunc("/*", handler) // /check/*
-		checkRouter.HandleFunc("/", handler)  // /check
-	})
 	// Filter noisy endpoints from tracing
 	if tracingEnabled() {
 		return otelhttp.NewHandler(r, "ps_enforcer_http", otelhttp.WithFilter(func(r *http.Request) bool {
@@ -401,8 +305,23 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 // Serve starts an HTTP server on addr with sane timeouts.
 func Serve(addr string) *http.Server {
 	var srv *http.Server
-	// Inject shutdown hooks into API mux
-	options := getAPIOptions()
+	// Initialize database pool if configured
+	var dbPool *pg.Pool
+	if dsn := os.Getenv("PS_PG_DSN"); dsn != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if pool, err := pg.NewPool(ctx, dsn); err == nil {
+			pingCtx, cancelPing := context.WithTimeout(ctx, 2*time.Second)
+			if _, err := pool.Raw().Exec(pingCtx, "SELECT 1"); err == nil {
+				dbPool = pool
+			} else {
+				pool.Close()
+			}
+			cancelPing()
+		}
+	}
+	// Inject shutdown hooks into API mux with database pool
+	options := getAPIOptionsWithDB(dbPool)
 	// Wire Redis-backed UsageStore when configured
 	if options.UsageStore == nil {
 		if addr := strings.TrimSpace(os.Getenv("PS_USAGE_REDIS_ADDR")); addr != "" {
@@ -446,6 +365,9 @@ func Serve(addr string) *http.Server {
 		if options.UsageStore != nil {
 			_ = options.UsageStore.Close(ctx)
 		}
+		if dbPool != nil {
+			dbPool.Close()
+		}
 		if srv != nil {
 			return srv.Shutdown(ctx)
 		}
@@ -470,24 +392,26 @@ func Serve(addr string) *http.Server {
 	startHTTPS := func(certFile, keyFile string) {
 		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 		if clientCA != "" {
+			logger := slog.With("component","enforcer-http")
 			if err := paths.ValidateCAFilePath(clientCA); err != nil {
-				log.Printf("invalid client CA file path: %v", err)
+				logger.Error("invalid client CA file path", "error", err)
 			} else if caPEM, err := os.ReadFile(clientCA); err == nil {
 				pool := x509.NewCertPool()
 				if pool.AppendCertsFromPEM(caPEM) {
 					tlsCfg.ClientCAs = pool
 					tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
 				} else {
-					log.Printf("failed to parse client CA certificate")
+					logger.Error("failed to parse client CA certificate")
 				}
 			} else {
-				log.Printf("failed to read client CA file: %v", err)
+				logger.Error("failed to read client CA file", "error", err)
 			}
 		}
 		srv.TLSConfig = tlsCfg
 		go func() {
 			if err := srv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-				log.Printf("enforcer https server error: %v", err)
+				logger := slog.With("component","enforcer-http")
+				logger.Error("enforcer https server error", "error", err)
 			}
 		}()
 	}
@@ -497,20 +421,25 @@ func Serve(addr string) *http.Server {
 		// Explicit insecure mode
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Printf("enforcer http server error: %v", err)
+				logger := slog.With("component","enforcer-http")
+				logger.Error("enforcer http server error", "error", err)
 			}
 		}()
 		return srv
 	case "require":
 		if !havePair {
-			log.Fatalf("TLS required but no certificate configured for %s; set PS_ENFORCER_TLS_CERT and PS_ENFORCER_TLS_KEY or mount /tls/server.crt and /tls/server.key (set PS_ENFORCER_TLS_MODE=disable for local dev)", addr)
+			logger := slog.With("component","enforcer-http")
+			logger.Error("TLS required but no certificate configured", "address", addr)
+			os.Exit(1)
 		}
 		startHTTPS(certFile, keyFile)
 		return srv
 	default: // auto
 		if nonLoop {
 			if !havePair {
-				log.Fatalf("Refusing to listen on non-loopback address %s without TLS; set PS_ENFORCER_TLS_CERT and PS_ENFORCER_TLS_KEY or mount /tls/server.crt and /tls/server.key, or set PS_ENFORCER_TLS_MODE=disable to allow insecure", addr)
+				logger := slog.With("component","enforcer-http")
+				logger.Error("Refusing to listen on non-loopback address without TLS", "address", addr)
+				os.Exit(1)
 			}
 			startHTTPS(certFile, keyFile)
 			return srv
@@ -521,7 +450,8 @@ func Serve(addr string) *http.Server {
 		} else {
 			go func() {
 				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					log.Printf("enforcer http server error: %v", err)
+					logger := slog.With("component","enforcer-http")
+					logger.Error("enforcer http server error", "error", err)
 				}
 			}()
 		}

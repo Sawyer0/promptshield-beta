@@ -36,6 +36,9 @@ type PolicyRepository interface {
 	Update(ctx context.Context, policy *types.Policy) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetLatestVersion(ctx context.Context, name string) (*types.Policy, error)
+	// New methods for policy management
+	GetActive(ctx context.Context) ([]*types.Policy, error)
+	ListWithFilter(ctx context.Context, filter map[string]interface{}) ([]*types.Policy, int, error)
 }
 
 // PolicyAssignmentRepository defines operations for policy assignments
@@ -50,58 +53,13 @@ type PolicyAssignmentRepository interface {
 	DeleteByTenantAndPolicy(ctx context.Context, tenantID, policyID uuid.UUID) error
 }
 
-// ProviderKeyRepository defines operations for managing provider API keys
-type ProviderKeyRepository interface {
-	Create(ctx context.Context, key *types.ProviderKey) error
-	Get(ctx context.Context, id uuid.UUID) (*types.ProviderKey, error)
-	GetByAlias(ctx context.Context, tenantID uuid.UUID, provider types.Provider, alias string) (*types.ProviderKey, error)
-	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*types.ProviderKey, error)
-	ListByProvider(ctx context.Context, tenantID uuid.UUID, provider types.Provider) ([]*types.ProviderKey, error)
-	Update(ctx context.Context, key *types.ProviderKey) error
-	Delete(ctx context.Context, id uuid.UUID) error
-	Rotate(ctx context.Context, id uuid.UUID, newEncryptedKey string) error
-	SetDefault(ctx context.Context, tenantID uuid.UUID, provider types.Provider, keyID uuid.UUID) error
-	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
-}
+// Security Gateway - no provider key management needed
 
-// QuotaRepository defines operations for quota management and rate limiting
-type QuotaRepository interface {
-	Create(ctx context.Context, quota *types.Quota) error
-	Get(ctx context.Context, tenantID uuid.UUID) (*types.Quota, error)
-	Update(ctx context.Context, quota *types.Quota) error
-	Delete(ctx context.Context, tenantID uuid.UUID) error
-	CheckRateLimit(ctx context.Context, tenantID uuid.UUID) (*types.RateLimitResult, error)
-	IncrementUsage(ctx context.Context, tenantID uuid.UUID, tokens int64) error
-}
+// Security Gateway uses simple environment-based rate limiting
+// No complex per-tenant quota management needed
 
-// APITokenRepository defines operations for API token management
-type APITokenRepository interface {
-	Create(ctx context.Context, token *types.APIToken) error
-	Get(ctx context.Context, id uuid.UUID) (*types.APIToken, error)
-	GetByHash(ctx context.Context, hashedToken string) (*types.APIToken, error)
-	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*types.APIToken, error)
-	Update(ctx context.Context, token *types.APIToken) error
-	Delete(ctx context.Context, id uuid.UUID) error
-	Rotate(ctx context.Context, id uuid.UUID) (string, error)
-}
-
-// UsageRepository defines operations for usage tracking and analytics
-type UsageRepository interface {
-	// Record a single usage event
-	RecordUsage(ctx context.Context, record *types.UsageRecord) error
-
-	// Query usage data with filters and aggregation
-	QueryUsage(ctx context.Context, query *types.UsageQuery) (*types.UsageResult, error)
-
-	// Get aggregated metrics for a time window
-	GetMetrics(ctx context.Context, tenantID uuid.UUID, window types.TimeWindow, start, end time.Time) ([]*types.UsageMetric, error)
-
-	// Get usage summary for a tenant
-	GetUsageSummary(ctx context.Context, tenantID uuid.UUID, start, end time.Time) (map[string]interface{}, error)
-
-	// Delete old usage records (for data retention)
-	DeleteOldRecords(ctx context.Context, before time.Time) error
-}
+// Security Gateway - no API token or usage tracking repositories needed
+// Simple token auth via environment variables only
 
 // CacheRepository defines operations for caching frequently accessed data
 type CacheRepository interface {
@@ -153,3 +111,4 @@ type Migrator interface {
 	// Rollback to a specific migration version
 	RollbackTo(ctx context.Context, version string) error
 }
+

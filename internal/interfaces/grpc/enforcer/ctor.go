@@ -2,7 +2,7 @@ package grpcenforcer
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -197,7 +197,8 @@ func NewWithOptions(opt Options) *Server {
 			// Start subscriber in background
 			go func() {
 				if err := sub.Start(context.Background()); err != nil {
-					log.Printf("Rule update subscriber stopped: %v", err)
+					logger := slog.With("component","grpc-enforcer")
+					logger.Error("Rule update subscriber stopped", "error", err)
 				}
 			}()
 		}
@@ -274,7 +275,8 @@ func Build(addr string, opts Options) (*grpc.Server, error) {
 	// Start serving in a goroutine
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
-			log.Printf("gRPC server error: %v", err)
+			logger := slog.With("component","grpc-enforcer")
+			logger.Error("gRPC server error", "error", err)
 		}
 	}()
 

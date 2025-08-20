@@ -159,8 +159,7 @@ type ValidationService interface {
 	// ValidatePolicy validates a policy configuration
 	ValidatePolicy(ctx context.Context, policy *types.Policy) (*types.ValidationResult, error)
 
-	// ValidateQuota validates a quota configuration
-	ValidateQuota(ctx context.Context, quota *types.Quota) (*types.ValidationResult, error)
+	// ValidateQuota removed - Security Gateway uses simple rate limiting
 
 	// ValidateAPIToken validates an API token format
 	ValidateAPIToken(ctx context.Context, token string) (*types.ValidationResult, error)

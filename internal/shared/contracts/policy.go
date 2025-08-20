@@ -3,6 +3,7 @@ package contracts
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/shared/types"
 )
 
@@ -94,4 +95,39 @@ type DecisionCache interface {
 	
 	// InvalidateTenant removes all cached decisions for a tenant
 	InvalidateTenant(ctx context.Context, tenantID string) error
+}
+
+
+// PolicyService defines the interface for policy management business logic
+type PolicyService interface {
+	// CreatePolicy creates a new policy with validation
+	CreatePolicy(ctx context.Context, policy *types.Policy) (*types.Policy, error)
+	
+	// UpdatePolicy updates an existing policy
+	UpdatePolicy(ctx context.Context, policy *types.Policy) (*types.Policy, error)
+	
+	// DeletePolicy deletes a policy
+	DeletePolicy(ctx context.Context, id uuid.UUID) error
+	
+	// GetPolicy retrieves a policy by ID
+	GetPolicy(ctx context.Context, id uuid.UUID) (*types.Policy, error)
+	
+	// ListPolicies lists policies with filtering
+	ListPolicies(ctx context.Context, filter map[string]interface{}) ([]*types.Policy, int, error)
+	
+	// ActivatePolicy activates a policy and triggers scanner reload
+	ActivatePolicy(ctx context.Context, id uuid.UUID) error
+	
+	// DeactivatePolicy deactivates a policy
+	DeactivatePolicy(ctx context.Context, id uuid.UUID) error
+	
+	// ValidatePolicy validates policy structure and rules
+	ValidatePolicy(ctx context.Context, policy *types.Policy) error
+	
+	// TestPolicy tests content against a specific policy
+	TestPolicy(ctx context.Context, policyID uuid.UUID, content string) (*types.ScanResult, error)
+	
+	// Real-time enforcement support
+	GetActiveScanner() interface{} // Returns scanner for real-time enforcement
+	HasActivePolicies() bool       // Check if any policies are active
 }

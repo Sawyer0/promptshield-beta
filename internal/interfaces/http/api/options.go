@@ -9,8 +9,11 @@ import (
 	"github.com/promptshield/promptshield/internal/domain"
 	"github.com/promptshield/promptshield/internal/jobs"
 	"github.com/promptshield/promptshield/internal/observability/telemetry"
+	"github.com/promptshield/promptshield/internal/rules"
+	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/usage"
+	pkg "github.com/promptshield/promptshield/pkg/types"
 )
 
 // Options configures the API mux.
@@ -19,6 +22,7 @@ type Options struct {
 	AllowInsecureAdmin bool
 	ConfigStore        *RuntimeConfigStore
 	RulepackService    *services.RulepackService
+	PolicyService      contracts.PolicyService
 	UsageStore         usage.UsageStore
 	// AuditLogger, when set, receives durable audit trail events
 	AuditLogger contracts.AuditLogger
@@ -34,10 +38,7 @@ type Options struct {
 	OnShutdown func(ctx context.Context, delay time.Duration) error
 	// QuotaStore enables per-tenant rate limiting when set.
 	QuotaStore usage.QuotaStore
-	// OIDC enables JWT validation when configured.
-	OIDC OIDCConfig
-	// oidcVerifier handles JWT validation with thread-safe initialization
-	oidcVerifier *OIDCVerifier
+	// Security Gateway uses simple token auth only
 	// Telemetry provides OpenTelemetry tracing and metrics collection
 	Telemetry *telemetry.Collector
 
@@ -45,11 +46,22 @@ type Options struct {
 	TenantRepository     domain.TenantRepository
 	AssignmentRepository domain.PolicyAssignmentRepository
 	AuditRepository      domain.AuditRepository
-	ProviderKeyStore     domain.ProviderKeyRepository
-	QuotaRepository      domain.QuotaRepository
+	// Security Gateway - no provider key management needed
+	// Security Gateway - no complex quota management needed
+
+	// Security Gateway - no routing needed
 
 	// Provider API keys management (deprecated - use ProviderKeyStore)
 	ProviderKeys map[string]string // provider -> encrypted key
+
+	// Security scanning components
+	Scanner   *scanner.Scanner  // Core scanning engine for policy enforcement
+	RulePacks []*rules.RulePack // Active rule packs for scanning
+	// ScannerManager handles event-driven real-time enforcement scanning
+	ScannerManager interface {
+		HasActivePolicies() bool
+		ScanReader(ctx context.Context, reader interface{}, inputName string) (pkg.ScanResult, error)
+	}
 }
 
 // Deprecated: Use writeErrorJSON instead

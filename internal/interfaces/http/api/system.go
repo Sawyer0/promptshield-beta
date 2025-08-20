@@ -47,7 +47,7 @@ type SystemFeatures struct {
 	AuditLogging     bool `json:"audit_logging"`
 	UsageTracking    bool `json:"usage_tracking"`
 	QuotaManagement  bool `json:"quota_management"`
-	OIDCAuth         bool `json:"oidc_auth"`
+	// OIDCAuth removed - Security Gateway uses simple token auth only
 }
 
 // SystemStats represents system performance statistics
@@ -117,7 +117,7 @@ func getFeaturesHandler(opt Options) http.HandlerFunc {
 			AuditLogging:     opt.AuditRepository != nil,
 			UsageTracking:    opt.UsageStore != nil,
 			QuotaManagement:  opt.QuotaStore != nil,
-			OIDCAuth:         opt.OIDC.Issuer != "",
+			// OIDCAuth removed - Security Gateway uses simple token auth only
 		}
 
 		writeJSON(w, http.StatusOK, features, r)
@@ -221,7 +221,7 @@ func getSystemInfoHandler(opt Options) http.HandlerFunc {
 				AuditLogging:     opt.AuditRepository != nil,
 				UsageTracking:    opt.UsageStore != nil,
 				QuotaManagement:  opt.QuotaStore != nil,
-				OIDCAuth:         opt.OIDC.Issuer != "",
+				// OIDCAuth removed - Security Gateway uses simple token auth only
 			},
 		}
 

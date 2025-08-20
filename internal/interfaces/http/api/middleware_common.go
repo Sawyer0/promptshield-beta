@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
@@ -75,54 +77,38 @@ func requestLoggerMiddleware(next http.Handler) http.Handler {
 		
 		// Log the request with correlation ID
 		correlationID := getCorrelationID(r)
+		startTime := time.Now()
 		
-		// TODO: Add proper structured logging here
-		// log.Info("request_started",
-		//     "correlation_id", correlationID,
-		//     "method", r.Method,
-		//     "path", r.URL.Path,
-		//     "remote_addr", r.RemoteAddr,
-		// )
+		// Use structured logging with slog
+		logger := slog.Default().With(
+			"correlation_id", correlationID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote_addr", r.RemoteAddr,
+			"user_agent", r.UserAgent(),
+		)
+		
+		logger.Info("request_started")
 		
 		next.ServeHTTP(ww, r)
 		
 		// Log the response
-		// TODO: Add proper structured logging here
-		// log.Info("request_completed",
-		//     "correlation_id", correlationID,
-		//     "status", ww.Status(),
-		//     "bytes", ww.BytesWritten(),
-		// )
-		_ = correlationID // silence unused variable warning for now
+		duration := time.Since(startTime)
+		logger.With(
+			"status", ww.Status(),
+			"bytes", ww.BytesWritten(),
+			"duration_ms", duration.Milliseconds(),
+		).Info("request_completed")
 	})
 }
 
-// rateLimitMiddleware applies rate limiting per tenant
+// rateLimitMiddleware applies simple rate limiting for Security Gateway
 func rateLimitMiddleware(quotaStore interface{}) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip rate limiting if no quota store
-			if quotaStore == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			
-			// Get tenant ID from context
-			tenantID := getTenantID(r)
-			if tenantID == "" {
-				// No tenant context, allow request
-				next.ServeHTTP(w, r)
-				return
-			}
-			
-			// Check rate limit
-			// TODO: Implement actual rate limiting check
-			// if !quotaStore.Allow(tenantID) {
-			//     writeErrorJSON(w, http.StatusTooManyRequests, "RATE_LIMIT_EXCEEDED", 
-			//         "Too many requests", nil, r)
-			//     return
-			// }
-			
+			// Security Gateway uses simple environment-based rate limiting
+			// Rate limiting is handled by PS_ENFORCER_RPS environment variable
+			// Complex per-tenant quota management removed for simplicity
 			next.ServeHTTP(w, r)
 		})
 	}

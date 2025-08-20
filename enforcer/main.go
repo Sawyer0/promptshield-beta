@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -22,10 +22,14 @@ import (
 )
 
 func main() {
+	// Initialize structured logging
+	logger := slog.With("component", "enforcer")
+	
 	// Optional GOMAXPROCS override for performance experiments
 	if v := strings.TrimSpace(os.Getenv("PS_GOMAXPROCS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			runtime.GOMAXPROCS(n)
+			logger.Info("GOMAXPROCS override", "value", n)
 		}
 	}
 	license.Check()
@@ -63,7 +67,7 @@ func main() {
 		}
 		telemetry = tel.NewCollector(config)
 		if err := telemetry.Initialize(context.Background(), config); err != nil {
-			log.Printf("Failed to initialize telemetry: %v", err)
+			logger.Warn("Failed to initialize telemetry", "error", err)
 		}
 		// Create gRPC telemetry adapter
 		grpcTelemetry = &grpcTelemetryAdapter{telemetry: telemetry}
@@ -81,7 +85,7 @@ func main() {
 	}
 
 	srv := enforcerhttp.Serve(addr)
-	log.Printf("http listening on %s", addr)
+	logger.Info("HTTP server starting", "address", addr)
 
 	// Start gRPC ext_proc server (optional)
 	grpcAddr := os.Getenv("PS_ENFORCER_GRPC_ADDR")
@@ -94,10 +98,10 @@ func main() {
 		Telemetry:       grpcTelemetry,
 		EnforcementMode: os.Getenv("PS_ENFORCER_MODE"),
 	}); err == nil {
-		log.Printf("grpc ext_proc listening on %s", grpcAddr)
+		logger.Info("gRPC ext_proc server starting", "address", grpcAddr)
 		gs = s
 	} else {
-		log.Printf("grpc ext_proc startup failed: %v", err)
+		logger.Error("gRPC ext_proc startup failed", "error", err)
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM
@@ -106,8 +110,9 @@ func main() {
 	<-sigs
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	logger.Info("Shutting down servers...")
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
+		logger.Error("HTTP server shutdown error", "error", err)
 	}
 	if gs != nil {
 		done := make(chan struct{})
@@ -120,9 +125,10 @@ func main() {
 	}
 	if telemetry != nil {
 		if err := telemetry.Close(); err != nil {
-			log.Printf("Telemetry shutdown error: %v", err)
+			logger.Error("Telemetry shutdown error", "error", err)
 		}
 	}
+	logger.Info("Shutdown complete")
 }
 
 // grpcTelemetryAdapter adapts contracts.TelemetryCollector to grpcenforcer.TelemetryCollector
