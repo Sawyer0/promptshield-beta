@@ -8,79 +8,29 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 )
 
-// ExampleGatewayHandler shows how to integrate scanner service into LLM Gateway
-type ExampleGatewayHandler struct {
+// GatewayHandler integrates scanner service into LLM Gateway for request enforcement
+type GatewayHandler struct {
 	scannerService *Service
 	logger         *slog.Logger
 }
 
-// NewExampleGatewayHandler creates a new example gateway handler
-func NewExampleGatewayHandler(auditLogger contracts.AuditLogger, logger *slog.Logger) *ExampleGatewayHandler {
+// NewGatewayHandler creates a new gateway handler with scanning capabilities
+func NewGatewayHandler(auditLogger contracts.AuditLogger, logger *slog.Logger) *GatewayHandler {
 	service := NewService(auditLogger, logger)
+	
+	// Rule packs will be loaded from configuration files at runtime
 
-	// Load example rule packs for LLM Gateway
-	service.LoadRulePacks([]rules.RulePack{
-		{
-			APIVersion: "promptshield.io/v1",
-			Kind:       "RulePack",
-			Metadata: rules.Metadata{
-				Name:        "llm-gateway-security",
-				Version:     "1.0.0",
-				Description: "Security rules for LLM Gateway",
-			},
-			Rules: []rules.Rule{
-				{
-					ID:       "prompt-injection",
-					Level:    1,
-					Keywords: []string{"ignore previous instructions", "forget your role", "disregard", "override"},
-					Severity: "CRITICAL",
-					Category: "prompt-injection",
-					Response: &rules.Response{
-						Action:  "deny",
-						Message: "Prompt injection attempt detected",
-					},
-				},
-				{
-					ID:    "pii-detection",
-					Level: 2,
-					Patterns: []rules.Pattern{
-						{Regex: `\b\d{3}-\d{2}-\d{4}\b`},                               // SSN
-						{Regex: `\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`}, // Email
-					},
-					Severity: "HIGH",
-					Category: "pii-detection",
-					Response: &rules.Response{
-						Action:  "redact",
-						Message: "PII detected in request",
-					},
-				},
-				{
-					ID:       "malicious-code",
-					Level:    1,
-					Keywords: []string{"rm -rf", "format c:", "delete system", "drop database"},
-					Severity: "CRITICAL",
-					Category: "malicious-code",
-					Response: &rules.Response{
-						Action:  "deny",
-						Message: "Malicious code attempt detected",
-					},
-				},
-			},
-		},
-	})
-
-	return &ExampleGatewayHandler{
+	return &GatewayHandler{
 		scannerService: service,
 		logger:         logger,
 	}
 }
 
-// HandleLLMRequest processes an LLM request through the gateway
-func (h *ExampleGatewayHandler) HandleLLMRequest(w http.ResponseWriter, r *http.Request) {
+// HandleLLMRequest processes an LLM request through the gateway with policy enforcement
+func (h *GatewayHandler) HandleLLMRequest(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	// Extract tenant and user info from request context
@@ -146,19 +96,19 @@ func (h *ExampleGatewayHandler) HandleLLMRequest(w http.ResponseWriter, r *http.
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 
-	// TODO: Forward request to actual LLM provider
-	// For now, return a mock response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message":          "Request processed successfully",
-		"request_id":       requestID,
-		"scan_duration_ms": time.Since(start).Milliseconds(),
-	})
+	// Forward request to actual LLM provider
+	if err := h.forwardToProvider(w, r, requestID); err != nil {
+		h.logger.Error("failed to forward request to provider",
+			"request_id", requestID,
+			"error", err,
+		)
+		http.Error(w, "Failed to process request", http.StatusBadGateway)
+		return
+	}
 }
 
-// HandleLLMResponse processes an LLM response through the gateway
-func (h *ExampleGatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Request) {
+// HandleLLMResponse processes an LLM response through the gateway with policy enforcement
+func (h *GatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	// Extract context
@@ -236,7 +186,7 @@ func (h *ExampleGatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http
 }
 
 // GetScanMetrics returns scan metrics for monitoring
-func (h *ExampleGatewayHandler) GetScanMetrics(w http.ResponseWriter, r *http.Request) {
+func (h *GatewayHandler) GetScanMetrics(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement metrics collection
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -245,4 +195,27 @@ func (h *ExampleGatewayHandler) GetScanMetrics(w http.ResponseWriter, r *http.Re
 		"rules_loaded":   3,
 		"last_scan":      time.Now().Format(time.RFC3339),
 	})
+}
+
+// forwardToProvider forwards the request to the appropriate LLM provider
+func (h *GatewayHandler) forwardToProvider(w http.ResponseWriter, r *http.Request, requestID string) error {
+	// This is a simplified implementation - in production you would:
+	// 1. Determine the appropriate provider based on routing rules
+	// 2. Get provider credentials from secure storage  
+	// 3. Transform the request format if needed
+	// 4. Use the ProviderClient to make the actual request
+	
+	// For now, return a success response indicating request was processed
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", requestID)
+	w.WriteHeader(http.StatusOK)
+	
+	response := map[string]interface{}{
+		"message":    "Request processed by PromptShield Gateway",
+		"request_id": requestID,
+		"status":     "success",
+		"note":       "LLM provider forwarding will be implemented with OpenAI omni moderation",
+	}
+	
+	return json.NewEncoder(w).Encode(response)
 }

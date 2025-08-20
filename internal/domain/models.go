@@ -2,11 +2,9 @@ package domain
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/promptshield/promptshield/internal/security/crypto"
 )
 
 // Tenant represents a customer organization in the system
@@ -28,49 +26,8 @@ const (
 	TenantStatusDeleted   TenantStatus = "deleted"
 )
 
-// ProviderKey represents encrypted API credentials for LLM providers
-type ProviderKey struct {
-	ID           uuid.UUID     `json:"id"`
-	TenantID     uuid.UUID     `json:"tenant_id"`
-	Provider     Provider      `json:"provider"`
-	KeyAlias     string        `json:"key_alias"`
-	EncryptedKey string        `json:"-"` // Never expose in JSON
-	Endpoint     string        `json:"endpoint,omitempty"`
-	Deployment   string        `json:"deployment,omitempty"` // Azure specific
-	IsDefault    bool          `json:"is_default"`
-	Status       KeyStatus     `json:"status"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
-	LastUsed     *time.Time    `json:"last_used,omitempty"`
-	RotatedAt    *time.Time    `json:"rotated_at,omitempty"`
-}
-
-// DecryptKey decrypts and returns the provider API key
-func (pk *ProviderKey) DecryptKey() (string, error) {
-	if pk.EncryptedKey == "" {
-		return "", fmt.Errorf("no encrypted key available")
-	}
-	return crypto.DecryptString(pk.EncryptedKey)
-}
-
-// Provider represents supported LLM providers
-type Provider string
-
-const (
-	ProviderOpenAI    Provider = "openai"
-	ProviderAnthropic Provider = "anthropic"
-	ProviderAzure     Provider = "azure"
-)
-
-// KeyStatus represents the state of an API key
-type KeyStatus string
-
-const (
-	KeyStatusActive   KeyStatus = "active"
-	KeyStatusRotating KeyStatus = "rotating"
-	KeyStatusExpired  KeyStatus = "expired"
-	KeyStatusRevoked  KeyStatus = "revoked"
-)
+// Security Gateway uses simple env-based API keys for semantic analysis
+// No complex provider key management needed
 
 // Policy represents a security policy/rulepack
 type Policy struct {
@@ -138,7 +95,7 @@ type UsageMetric struct {
 	TenantID          uuid.UUID     `json:"tenant_id"`
 	Timestamp         time.Time     `json:"timestamp"`
 	Window            TimeWindow    `json:"window"`
-	Provider          Provider      `json:"provider,omitempty"`
+	// Provider removed - Security Gateway doesn't manage providers
 	Endpoint          string        `json:"endpoint,omitempty"`
 	RequestCount      int64         `json:"request_count"`
 	TokenCount        int64         `json:"token_count"`
@@ -160,17 +117,8 @@ const (
 	TimeWindowDay    TimeWindow = "day"
 )
 
-// Quota represents rate limiting configuration per tenant
-type Quota struct {
-	ID                   uuid.UUID `json:"id"`
-	TenantID             uuid.UUID `json:"tenant_id"`
-	RequestsPerMinute    *int      `json:"requests_per_minute,omitempty"`
-	RequestsPerHour      *int      `json:"requests_per_hour,omitempty"`
-	TokensPerHour        *int64    `json:"tokens_per_hour,omitempty"`
-	MaxPromptTokens      *int      `json:"max_prompt_tokens,omitempty"`
-	MaxCompletionTokens  *int      `json:"max_completion_tokens,omitempty"`
-	UpdatedAt            time.Time `json:"updated_at"`
-}
+// Security Gateway uses simple environment-based rate limiting
+// No complex per-tenant quota management needed
 
 // APIToken represents authentication tokens for API access
 type APIToken struct {

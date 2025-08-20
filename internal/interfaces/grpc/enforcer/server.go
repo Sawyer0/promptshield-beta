@@ -3,7 +3,7 @@ package grpcenforcer
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -18,7 +18,7 @@ import (
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/shared/severity"
-	"github.com/promptshield/promptshield/pkg/types"
+	pkgtypes "github.com/promptshield/promptshield/pkg/types"
 	"golang.org/x/time/rate"
 )
 
@@ -85,14 +85,15 @@ func sendImmediateResponse(stream extproc.ExternalProcessor_ProcessServer, decis
 	return sendImmediateResponseWithDetails(stream, decision, reason, nil)
 }
 
-func sendImmediateResponseWithDetails(stream extproc.ExternalProcessor_ProcessServer, decision, reason string, scanResult *types.ScanResult) error {
+func sendImmediateResponseWithDetails(stream extproc.ExternalProcessor_ProcessServer, decision, reason string, scanResult *pkgtypes.ScanResult) error {
 	var body []byte
 
 	// Debug logging
+	logger := slog.With("component","grpc-enforcer")
 	if scanResult != nil {
-		log.Printf("DEBUG: sendImmediateResponseWithDetails called with %d violations", len(scanResult.Violations))
+		logger.Debug("sendImmediateResponseWithDetails called", "violations", len(scanResult.Violations))
 	} else {
-		log.Printf("DEBUG: sendImmediateResponseWithDetails called with nil scanResult")
+		logger.Debug("sendImmediateResponseWithDetails called with nil scanResult")
 	}
 
 	if scanResult != nil && len(scanResult.Violations) > 0 {
@@ -157,7 +158,7 @@ func sendImmediateReplacementResponse(stream extproc.ExternalProcessor_ProcessSe
 	return stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ImmediateResponse{ImmediateResponse: resp}})
 }
 
-func hasThresholdHit(r types.ScanResult, threshold string) bool {
+func hasThresholdHit(r pkgtypes.ScanResult, threshold string) bool {
 	if threshold == "" {
 		return false
 	}
@@ -169,7 +170,7 @@ func hasThresholdHit(r types.ScanResult, threshold string) bool {
 	return false
 }
 
-func firstReason(r types.ScanResult) string {
+func firstReason(r pkgtypes.ScanResult) string {
 	if len(r.Violations) == 0 {
 		return "signals_detected"
 	}
@@ -195,7 +196,8 @@ func (s *Server) ReloadRules(ctx context.Context) error {
 	if len(packs) > 0 {
 		s.scReq.LoadRulePacks(packs)
 		s.scResp.LoadRulePacks(packs)
-		log.Printf("Reloaded %d rulepacks from database", len(packs))
+		logger := slog.With("component","grpc-enforcer")
+		logger.Info("Reloaded rulepacks from database", "count", len(packs))
 	}
 
 	return nil

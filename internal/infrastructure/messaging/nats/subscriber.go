@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -134,7 +134,8 @@ func (s *Subscriber) initializeConsumerGroup() {
 	for attempts := 0; attempts < 5; attempts++ {
 		// Check if Redis is available
 		if err := s.rdb.Ping(ctx).Err(); err != nil {
-			log.Printf("Redis not available for consumer group creation: %v (attempt %d/5)", err, attempts+1)
+			logger := slog.With("component", "nats-subscriber")
+			logger.Warn("Redis not available for consumer group creation", "error", err, "attempt", attempts+1, "max_attempts", 5)
 			time.Sleep(backoff.FullJitter(base, 3*time.Second, attempts))
 			continue
 		}
@@ -143,16 +144,19 @@ func (s *Subscriber) initializeConsumerGroup() {
 		stream := fmt.Sprintf("rulepacks.updates:%s", s.tenantID)
 		err := s.rdb.XGroupCreate(ctx, stream, s.consumerGroup, "0").Err()
 		if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
-			log.Printf("Failed to create consumer group: %v (attempt %d/5)", err, attempts+1)
+			logger := slog.With("component", "nats-subscriber")
+			logger.Error("Failed to create consumer group", "error", err, "attempt", attempts+1, "max_attempts", 5)
 			time.Sleep(backoff.FullJitter(base, 3*time.Second, attempts))
 			continue
 		}
 
-		log.Printf("Consumer group '%s' initialized successfully", s.consumerGroup)
+		logger := slog.With("component", "nats-subscriber")
+		logger.Info("Consumer group initialized successfully", "consumer_group", s.consumerGroup)
 		return
 	}
 
-	log.Printf("Failed to initialize consumer group after 5 attempts - will retry during operation")
+	logger := slog.With("component", "nats-subscriber")
+	logger.Warn("Failed to initialize consumer group after 5 attempts - will retry during operation")
 }
 
 // Start begins consuming messages from the stream with production-grade reliability
@@ -162,7 +166,8 @@ func (s *Subscriber) Start(ctx context.Context) error {
 		return nil // no-op when not configured
 	}
 
-	log.Printf("Starting Redis subscriber for tenant %s (group: %s, consumer: %s)", s.tenantID, s.consumerGroup, s.consumerName)
+	logger := slog.With("component", "nats-subscriber")
+	logger.Info("Starting Redis subscriber", "tenant_id", s.tenantID, "consumer_group", s.consumerGroup, "consumer_name", s.consumerName)
 
 	// Circuit breaker state
 	consecutiveFailures := 0
@@ -185,7 +190,7 @@ func (s *Subscriber) Start(ctx context.Context) error {
 
 			// Circuit breaker: if too many failures, enter "open" state with longer backoff
 			if consecutiveFailures >= maxFailures {
-				log.Printf("Redis circuit breaker OPEN - backing off for %v (failures: %d)", backoffDur, consecutiveFailures)
+				logger.Warn("Redis circuit breaker OPEN - backing off", "backoff_duration", backoffDur, "failures", consecutiveFailures)
 				circuitStateTransitions.WithLabelValues("open", "max_failures").Inc()
 				time.Sleep(backoffDur)
 
@@ -194,7 +199,7 @@ func (s *Subscriber) Start(ctx context.Context) error {
 					consecutiveFailures = maxFailures // Keep circuit open
 					continue
 				} else {
-					log.Printf("Redis circuit breaker HALF-OPEN - attempting recovery")
+					logger.Info("Redis circuit breaker HALF-OPEN - attempting recovery")
 					circuitStateTransitions.WithLabelValues("half_open", "ping_success").Inc()
 					consecutiveFailures = maxFailures - 1 // Allow one retry
 				}
@@ -219,14 +224,14 @@ func (s *Subscriber) Start(ctx context.Context) error {
 					// No new messages - reset failure count on successful poll
 					if consecutiveFailures > 0 {
 						consecutiveFailures = 0
-						log.Printf("Redis circuit breaker CLOSED - connection healthy")
+						logger.Info("Redis circuit breaker CLOSED - connection healthy")
 						circuitStateTransitions.WithLabelValues("closed", "recovery").Inc()
 					}
 					continue
 				}
 
 				consecutiveFailures++
-				log.Printf("Error reading from Redis stream: %v (failure %d/%d)", err, consecutiveFailures, maxFailures)
+				logger.Error("Error reading from Redis stream", "error", err, "failure", consecutiveFailures, "max_failures", maxFailures)
 				continue
 			}
 
@@ -261,7 +266,7 @@ func (s *Subscriber) Start(ctx context.Context) error {
 			// Successful read - reset failure count
 			if consecutiveFailures > 0 {
 				consecutiveFailures = 0
-				log.Printf("Redis circuit breaker CLOSED - connection recovered")
+				logger.Info("Redis circuit breaker CLOSED - connection recovered")
 				circuitStateTransitions.WithLabelValues("closed", "recovery").Inc()
 				metrics.ConsumerRestartsTotal.Inc()
 			}
@@ -291,29 +296,29 @@ func (s *Subscriber) Start(ctx context.Context) error {
 					// Check version and duplicate
 					var update RuleUpdate
 					if err := json.Unmarshal([]byte(jsonData), &update); err != nil {
-						log.Printf("Failed to parse RuleUpdate from message %s: %v", msg.ID, err)
+						logger.Error("Failed to parse RuleUpdate from message", "message_id", msg.ID, "error", err)
 						s.routeToDLQ(ctx, msg, "parse_error")
 						continue
 					} else {
 						if update.Version <= state.lastAppliedVersion {
-							log.Printf("Dropping stale message %s (version %d <= last applied %d)", msg.ID, update.Version, state.lastAppliedVersion)
+							logger.Debug("Dropping stale message", "message_id", msg.ID, "version", update.Version, "last_applied", state.lastAppliedVersion)
 							if err := s.rdb.XAck(ctx, fmt.Sprintf("rulepacks.updates:%s", s.tenantID), s.consumerGroup, msg.ID).Err(); err != nil {
-								log.Printf("Failed to ACK stale message %s: %v", msg.ID, err)
+								logger.Error("Failed to ACK stale message", "message_id", msg.ID, "error", err)
 							}
 							continue
 						}
 
 						if state.isDuplicate(update.ContentSHA256, now) {
-							log.Printf("Dropping duplicate message %s (sha256 %s already seen)", msg.ID, update.ContentSHA256)
+							logger.Debug("Dropping duplicate message", "message_id", msg.ID, "sha256", update.ContentSHA256)
 							if err := s.rdb.XAck(ctx, fmt.Sprintf("rulepacks.updates:%s", s.tenantID), s.consumerGroup, msg.ID).Err(); err != nil {
-								log.Printf("Failed to ACK duplicate message %s: %v", msg.ID, err)
+								logger.Error("Failed to ACK duplicate message", "message_id", msg.ID, "error", err)
 							}
 							continue
 						}
 
 						// Process
 						if err := s.handler(ctx, update); err != nil {
-							log.Printf("Error processing message %s: %v", msg.ID, err)
+							logger.Error("Error processing message", "message_id", msg.ID, "error", err)
 							// Message processing error doesn't count as Redis failure
 						} else {
 							// Update state and add to buffer
@@ -322,7 +327,7 @@ func (s *Subscriber) Start(ctx context.Context) error {
 
 							// ACK
 							if err := s.rdb.XAck(ctx, fmt.Sprintf("rulepacks.updates:%s", s.tenantID), s.consumerGroup, msg.ID).Err(); err != nil {
-								log.Printf("Failed to ACK message %s: %v", msg.ID, err)
+								logger.Error("Failed to ACK message", "message_id", msg.ID, "error", err)
 							}
 						}
 					}
@@ -420,9 +425,11 @@ func (s *Subscriber) recoverPending() {
 				Count:    100,
 			}).Result()
 			if err != nil {
-				log.Printf("XAUTOCLAIM error: %v", err)
+				logger := slog.With("component", "nats-subscriber")
+				logger.Error("XAUTOCLAIM error", "error", err)
 			} else if len(claimed) > 0 {
-				log.Printf("Recovered %d pending messages", len(claimed))
+				logger := slog.With("component", "nats-subscriber")
+				logger.Info("Recovered pending messages", "count", len(claimed))
 				// Process them? Or let normal loop handle since claimed to this consumer.
 			}
 		}

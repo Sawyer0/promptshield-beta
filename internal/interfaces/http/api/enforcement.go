@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/shared/types"
+	pkg "github.com/promptshield/promptshield/pkg/types"
 )
 
 func checkHandlerVersioned(opt Options) http.HandlerFunc {
@@ -55,25 +57,37 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			defer r.Body.Close()
 		}
 
-		sc := scanner.ScanEngineCstor(0)
-		// Align scanner limits with runtime config defaults (env-backed for now)
-		if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-				sc.SetMaxStreamBytes(n)
+		logger := slog.With("component", "api-check")
+		var res pkg.ScanResult
+		var err error
+		
+		// Use event-driven scanner manager if available for real-time enforcement
+		if opt.ScannerManager != nil && opt.ScannerManager.HasActivePolicies() {
+			logger.Info("Using event-driven policy scanner for real-time enforcement")
+			res, err = opt.ScannerManager.ScanReader(ctx, r.Body, "http:v1:check:event-driven")
+		} else {
+			// Fallback to static file-based scanner
+			logger.Info("Using static file-based scanner fallback")
+			sc := scanner.ScanEngineCstor(0)
+			// Align scanner limits with runtime config defaults (env-backed for now)
+			if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
+				if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+					sc.SetMaxStreamBytes(n)
+				}
 			}
-		}
-		// Quarantine behavior consistent with runtime defaults
-		sc.SetQuarantineOnTimeout(true)
-		sc.SetQuarantineOnError(true)
-		// Async scan gating is handled at handler level; L3 gating occurs in scanner via license entitlements
-		rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-		if rulepack != "" {
-			if packs, e := rules.LoadPacks(rulepack); e == nil {
-				sc.LoadRulePacks(packs)
+			// Quarantine behavior consistent with runtime defaults
+			sc.SetQuarantineOnTimeout(true)
+			sc.SetQuarantineOnError(true)
+			// Async scan gating is handled at handler level; L3 gating occurs in scanner via license entitlements
+			rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
+			if rulepack != "" {
+				if packs, e := rules.LoadPacks(rulepack); e == nil {
+					sc.LoadRulePacks(packs)
+				}
 			}
+			// Stream scan directly from the request body
+			res, err = sc.ScanReader(ctx, r.Body, "http:v1:check:static")
 		}
-		// Stream scan directly from the request body
-		res, err := sc.ScanReader(ctx, r.Body, "http:v1:check")
 		if err != nil {
 			// Map body-size errors to 400; otherwise 500
 			msg := err.Error()

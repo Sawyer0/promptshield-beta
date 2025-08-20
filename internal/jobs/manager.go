@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -215,10 +215,12 @@ func (m *Manager) worker(ctx context.Context, workerID int) {
 	for {
 		select {
 		case <-m.shutdown:
-			log.Printf("Job worker %d shutting down", workerID)
+			logger := slog.With("component","jobs-manager")
+			logger.Info("Job worker shutting down", "worker_id", workerID)
 			return
 		case <-ctx.Done():
-			log.Printf("Job worker %d cancelled", workerID)
+			logger := slog.With("component","jobs-manager")
+			logger.Info("Job worker cancelled", "worker_id", workerID)
 			return
 		case jobID := <-m.queue:
 			m.processJob(ctx, jobID, workerID)
@@ -232,13 +234,15 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	job, exists := m.jobs[jobID]
 	if !exists {
 		m.mu.Unlock()
-		log.Printf("Worker %d: job %s not found", workerID, jobID)
+		logger := slog.With("component","jobs-manager")
+		logger.Warn("Job not found", "worker_id", workerID, "job_id", jobID)
 		return
 	}
 
 	if job.Status != JobStatusPending {
 		m.mu.Unlock()
-		log.Printf("Worker %d: job %s not pending (status: %s)", workerID, jobID, job.Status)
+		logger := slog.With("component","jobs-manager")
+		logger.Warn("Job not pending", "worker_id", workerID, "job_id", jobID, "status", job.Status)
 		return
 	}
 
@@ -249,6 +253,8 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 		now := time.Now().UTC()
 		job.CompletedAt = &now
 		m.mu.Unlock()
+		logger := slog.With("component","jobs-manager")
+		logger.Error("No processor for job type", "job_type", job.Type, "job_id", jobID)
 		return
 	}
 
@@ -258,7 +264,8 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	job.StartedAt = &now
 	m.mu.Unlock()
 
-	log.Printf("Worker %d: processing job %s (type: %s)", workerID, jobID, job.Type)
+	logger := slog.With("component","jobs-manager")
+	logger.Info("Processing job", "worker_id", workerID, "job_id", jobID, "job_type", job.Type)
 
 	// Process the job
 	err := processor.Process(ctx, job)
@@ -270,14 +277,15 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	completedAt := time.Now().UTC()
 	job.CompletedAt = &completedAt
 
+	logger = slog.With("component","jobs-manager")
 	if err != nil {
 		job.Status = JobStatusFailed
 		job.Error = err.Error()
-		log.Printf("Worker %d: job %s failed: %v", workerID, jobID, err)
+		logger.Error("Job failed", "worker_id", workerID, "job_id", jobID, "error", err)
 	} else {
 		job.Status = JobStatusCompleted
 		job.Progress = 100
-		log.Printf("Worker %d: job %s completed", workerID, jobID)
+		logger.Info("Job completed", "worker_id", workerID, "job_id", jobID)
 	}
 }
 
@@ -297,6 +305,7 @@ func (m *Manager) CleanupCompleted(maxAge time.Duration) int {
 		}
 	}
 
-	log.Printf("Cleaned up %d completed jobs older than %v", removed, maxAge)
+	logger := slog.With("component","jobs-manager")
+	logger.Info("Cleaned up completed jobs", "removed", removed, "max_age", maxAge)
 	return removed
 }

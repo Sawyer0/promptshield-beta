@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,17 +17,19 @@ import (
 
 func main() {
 	ctx := context.Background()
+	logger := slog.With("component", "controlplane")
 
 	// Database connection
 	dsn := os.Getenv("PS_PG_DSN")
 	if dsn == "" {
 		dsn = "postgres://postgres:password@localhost/promptshield?sslmode=disable"
-		log.Printf("PS_PG_DSN not set, using default: %s", dsn)
+		logger.Warn("PS_PG_DSN not set, using default", "dsn", dsn)
 	}
 
 	db, err := pg.NewPool(ctx, dsn)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		logger.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
@@ -41,7 +43,8 @@ func main() {
 	natsURL := os.Getenv("PS_NATS_URL") // Optional - will be no-op if empty
 	publisher, err := nats.NewPublisher(natsURL)
 	if err != nil {
-		log.Fatalf("Failed to initialize NATS publisher: %v", err)
+		logger.Error("Failed to initialize NATS publisher", "error", err)
+		os.Exit(1)
 	}
 	defer publisher.Close()
 
@@ -79,9 +82,10 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("PromptShield Control Plane starting on %s", addr)
+		logger.Info("PromptShield Control Plane starting", "address", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP server failed: %v", err)
+			logger.Error("HTTP server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -89,15 +93,16 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server...")
 
 	// Graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		logger.Error("Server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("Server exited")
+	logger.Info("Server exited")
 }
