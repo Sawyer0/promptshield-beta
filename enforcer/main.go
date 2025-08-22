@@ -84,6 +84,10 @@ func main() {
 		_ = telemetry.RecordEvent(context.Background(), startupEvent)
 	}
 
+	// Start policy sync from frontend database
+	ctx := context.Background()
+	enforcerhttp.StartPolicySync(ctx)
+	
 	srv := enforcerhttp.Serve(addr)
 	logger.Info("HTTP server starting", "address", addr)
 

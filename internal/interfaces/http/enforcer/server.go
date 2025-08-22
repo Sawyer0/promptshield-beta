@@ -29,6 +29,7 @@ import (
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
+	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	"github.com/promptshield/promptshield/internal/usage"
 	redis "github.com/redis/go-redis/v9"
@@ -125,13 +126,12 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 		rulepackRepo := pg.RulepackRepo(dbPool)
 		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
 		
-		// For policies, we should also use PostgreSQL but for now use in-memory
-		// TODO: Implement PostgreSQL PolicyRepository
+		// Use in-memory policy service for fast enforcement
+		// Policies are persisted in frontend and synced via API
 		policyService = initializePolicyService()
 	} else {
-		// Fall back to in-memory implementations for local development
-		logger := slog.With("component", "enforcer-http")
-		logger.Info("No database configured; using in-memory repositories for development")
+		// Use in-memory implementations for high-performance enforcement
+		// Policies are persisted in frontend database and synced via API
 		
 		// Create in-memory rulepack repository
 		rulepackRepo := memory.NewRulepackRepository()
@@ -239,6 +239,29 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		if len(preloadPacks) > 0 {
 			sc.LoadRulePacks(preloadPacks)
 		}
+		
+		// Initialize semantic analyzer if enabled
+		if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
+			provider := os.Getenv("PS_SEMANTIC_PROVIDER")
+			if provider == "openai" {
+				apiKey := os.Getenv("OPENAI_API_KEY")
+				if apiKey != "" {
+					analyzer := semopenai.New(semopenai.Options{
+						APIKey:         apiKey,
+						MaxConcurrency: 2,
+						CacheSize:      1000,
+						CacheTTL:       15 * time.Minute,
+						RequestsPerSecond: 10,
+						BurstSize:      20,
+					})
+					sc.SetSemanticAnalyzer(analyzer)
+					if logger := slog.With("component", "semantic"); logger != nil {
+						logger.Info("OpenAI semantic analyzer initialized")
+					}
+				}
+			}
+		}
+		
 		return sc
 	}
 
