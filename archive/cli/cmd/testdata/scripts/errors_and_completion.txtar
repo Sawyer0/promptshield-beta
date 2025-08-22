@@ -1,0 +1,19 @@
+-- bad.yaml --
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: rp
+  version: 0.1.0
+rules: []
+-- script --
+# validate should error on empty rules
+! go run ./cmd/promptshield validate bad.yaml
+
+# unknown input should fail discovery
+! go run ./cmd/promptshield scan:file missing.txt
+
+# completion exists for rulepack flag and positional, but we can't exercise shell here;
+# instead, assert command shows completion help path via cobra builtin
+go run ./cmd/promptshield help completion
+stdout 'Generate the autocompletion script'
+

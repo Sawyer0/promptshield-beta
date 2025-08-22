@@ -11,7 +11,7 @@ Set the following environment variables:
 - `PS_SEMANTIC_ENABLED=true`
 - `PS_SEMANTIC_PROVIDER=openai`
 - Provide an API key via one of:
-  - OS keychain: `promptshield auth set --provider openai`
+  - OS keychain
   - `OPENAI_API_KEY` (or `PS_OPENAI_API_KEY`)
 
 Optional tuning (applies to all semantic providers):

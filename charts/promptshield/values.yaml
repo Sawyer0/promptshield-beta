@@ -1,0 +1,33 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/promptshield/enforcer
+  tag: "0.2.0"
+  pullPolicy: IfNotPresent
+
+mode: observe # observe | enforce
+
+rbac:
+  create: true
+  type: ClusterRole # ClusterRole | Namespaced
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 9090
+  grpcPort: 9091
+
+resources: {}
+
+nodeSelector: {}
+
+affinity: {}
+
+tolerations: []
+
+egress:
+  policy: allow # allow | deny
+  cidrBlock: 0.0.0.0/0

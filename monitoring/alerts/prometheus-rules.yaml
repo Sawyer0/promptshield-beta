@@ -1,0 +1,28 @@
+groups:
+- name: promptshield-slo
+  rules:
+  - alert: PSLatencyP95High
+    expr: histogram_quantile(0.95, sum by (le,region) (rate(ps_enforcer_request_duration_seconds_bucket[5m]))) > 0.3
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "PromptShield p95 latency > 300ms (region={{ $labels.region }})"
+      runbook_url: "https://runbooks/promptshield/latency"
+
+  - alert: PSViolationRateHigh
+    expr: sum by (region) (rate(ps_enforcer_decisions_total{decision!="allow"}[5m])) > 50
+    for: 10m
+    labels:
+      severity: info
+    annotations:
+      summary: "High non-allow decision rate (region={{ $labels.region }})"
+
+  - alert: PSAvailabilityDrop
+    expr: probe_success{job="enforcer-http"} == 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Enforcer HTTP endpoint down"
+

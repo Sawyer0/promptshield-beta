@@ -101,6 +101,7 @@ type Cache struct {
 
 type Composition struct {
 	Strategy string `yaml:"strategy"`
+	Priority int    `yaml:"priority,omitempty"` // Higher values = higher priority (processed first)
 }
 
 type Performance struct {

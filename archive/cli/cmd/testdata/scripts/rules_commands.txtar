@@ -1,0 +1,75 @@
+-- valid_rules.yaml --
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: test-pack
+  version: 1.0.0
+rules:
+  - id: rule1
+    level: 1
+    severity: HIGH
+    keywords: ["test"]
+  - id: rule2
+    level: 2
+    severity: WARNING
+    patterns:
+      - regex: '\d{3}-\d{2}-\d{4}'
+        flags: []
+
+-- invalid_level.yaml --
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: bad
+rules:
+  - id: bad
+    level: 99  # Invalid level
+    severity: HIGH
+
+-- invalid_severity.yaml --
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: bad
+rules:
+  - id: bad
+    level: 1
+    severity: UNKNOWN  # Invalid severity
+
+-- invalid_regex.yaml --
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: bad
+rules:
+  - id: bad
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: '[unclosed'  # Invalid regex
+
+-- script --
+# Rules list should show IDs
+go run ./cmd/promptshield rules:list --rulepack valid_rules.yaml
+stdout 'rule1'
+stdout 'rule2'
+
+# Rules validate should pass for valid
+go run ./cmd/promptshield rules:validate valid_rules.yaml
+stdout 'OK'
+
+# Rules validate should fail for invalid level
+! go run ./cmd/promptshield rules:validate invalid_level.yaml
+stderr 'level'
+
+# Rules validate should fail for invalid severity
+! go run ./cmd/promptshield rules:validate invalid_severity.yaml
+stderr 'severity'
+
+# Rules validate should fail for invalid regex
+! go run ./cmd/promptshield rules:validate invalid_regex.yaml
+stderr 'regex'
+
+# Rules init should create default pack
+go run ./cmd/promptshield rules:create test_output.yaml
+grep 'apiVersion: promptshield.io/v1' test_output.yaml

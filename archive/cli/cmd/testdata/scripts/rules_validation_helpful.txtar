@@ -1,0 +1,24 @@
+-- bad.yaml --
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: bad-pack
+rules:
+  - id: missing-semantic
+    level: 3
+    severity: ERROR
+  - id: bad-flags
+    level: 2
+    severity: ERROR
+    patterns:
+      - regex: "test"
+        flags: [invalid]
+
+-- script --
+# rules:validate should print helpful grouped errors
+! go run ./cmd/promptshield rules:validate --path bad.yaml
+stderr 'Invalid: .*bad.yaml'
+stderr 'level 3.*requires semantic'
+stderr 'flag'
+
+

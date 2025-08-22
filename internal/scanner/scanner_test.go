@@ -14,7 +14,7 @@ import (
 )
 
 func TestKeywordMatching(t *testing.T) {
-	h := testutil.NewScannerHelper(t, []rules.Rule{testutil.Rules.Keyword})
+	h := testutil.ScannerHelperCstor(t, []rules.Rule{testutil.Rules.Keyword})
 
 	tests := []struct {
 		input string
@@ -32,7 +32,7 @@ func TestKeywordMatching(t *testing.T) {
 }
 
 func TestRegexMatching(t *testing.T) {
-	h := testutil.NewScannerHelper(t, []rules.Rule{
+	h := testutil.ScannerHelperCstor(t, []rules.Rule{
 		testutil.Rules.Regex,
 		testutil.Rules.EmailRegex,
 	})
@@ -69,14 +69,14 @@ func TestContextGating(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := testutil.NewScannerHelper(t, []rules.Rule{tt.rule})
+			h := testutil.ScannerHelperCstor(t, []rules.Rule{tt.rule})
 			h.WithContext(tt.context).AssertViolations(tt.input, tt.want)
 		})
 	}
 }
 
 func TestLongLines(t *testing.T) {
-	h := testutil.NewScannerHelper(t, []rules.Rule{testutil.Rules.Keyword})
+	h := testutil.ScannerHelperCstor(t, []rules.Rule{testutil.Rules.Keyword})
 
 	// Test that scanner handles very long lines
 	longLine := strings.Repeat("x", 1024*1024) + "secret" + strings.Repeat("y", 1024*1024)
@@ -94,7 +94,7 @@ func TestLongLines(t *testing.T) {
 }
 
 func TestMultipleRuleTypes(t *testing.T) {
-	h := testutil.NewScannerHelper(t, []rules.Rule{
+	h := testutil.ScannerHelperCstor(t, []rules.Rule{
 		testutil.Rules.Keyword,
 		testutil.Rules.Regex,
 	})
@@ -115,7 +115,7 @@ func TestMultipleRuleTypes(t *testing.T) {
 }
 
 func TestFailOnThreshold(t *testing.T) {
-	h := testutil.NewScannerHelper(t, []rules.Rule{
+	h := testutil.ScannerHelperCstor(t, []rules.Rule{
 		{ID: "warn", Level: 1, Severity: "WARNING", Keywords: []string{"warn"}},
 		{ID: "err", Level: 1, Severity: "ERROR", Keywords: []string{"boom"}},
 	})
@@ -130,7 +130,7 @@ func TestEnabledFlag(t *testing.T) {
 	enabled := true
 	disabled := false
 
-	h := testutil.NewScannerHelper(t, []rules.Rule{
+	h := testutil.ScannerHelperCstor(t, []rules.Rule{
 		{ID: "on", Level: 1, Keywords: []string{"find"}, Enabled: &enabled},
 		{ID: "off", Level: 1, Keywords: []string{"skip"}, Enabled: &disabled},
 		{ID: "default", Level: 1, Keywords: []string{"also"}}, // nil = enabled
@@ -150,12 +150,12 @@ func TestEnabledFlag(t *testing.T) {
 
 func TestEdgeCases(t *testing.T) {
 	t.Run("empty input", func(t *testing.T) {
-		h := testutil.NewScannerHelper(t, []rules.Rule{testutil.Rules.Keyword})
+		h := testutil.ScannerHelperCstor(t, []rules.Rule{testutil.Rules.Keyword})
 		h.AssertViolations("", 0)
 	})
 
 	t.Run("invalid regex", func(t *testing.T) {
-		sc := scanner.New(0)
+		sc := scanner.ScanEngineCstor(0)
 		sc.LoadRulePacks([]rules.RulePack{{
 			Metadata: rules.Metadata{Name: "test"},
 			Rules: []rules.Rule{{
@@ -177,8 +177,8 @@ func TestEdgeCases(t *testing.T) {
 }
 
 func TestSemanticLevel3_WithFakeAdapter(t *testing.T) {
-	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	sc := scanner.ScanEngineCstor(0)
+	// Built-in keyword rules removed
 	sc.SetSemanticAnalyzer(semfake.Analyzer{})
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "sem"},
@@ -196,8 +196,8 @@ func TestSemanticLevel3_WithFakeAdapter(t *testing.T) {
 }
 
 func TestSemanticLevel3_TimeoutFallsBack(t *testing.T) {
-	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	sc := scanner.ScanEngineCstor(0)
+	// Built-in keyword rules removed
 	// Fake delays beyond budget so we fall back to regex
 	sc.SetSemanticAnalyzer(semfake.Analyzer{Delay: 200 * time.Millisecond})
 	sc.LoadRulePacks([]rules.RulePack{{
@@ -229,8 +229,8 @@ func TestSemanticLevel3_TimeoutFallsBack(t *testing.T) {
 
 func TestKeywordOptions_Precedence(t *testing.T) {
 	// Global defaults: case sensitive false, whole word false
-	sc := scanner.New(0)
-	sc.SetBuiltinKeywordsEnabled(false)
+	sc := scanner.ScanEngineCstor(0)
+	// Built-in keyword rules removed
 	sc.SetRuleDefaults(0, false, false)
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "kw"},

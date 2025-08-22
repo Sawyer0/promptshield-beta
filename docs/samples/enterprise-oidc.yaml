@@ -1,0 +1,123 @@
+# Enterprise OIDC Authentication Example
+# This sample shows how to configure PromptShield with OIDC authentication
+# for enterprise deployment with tenant-based access control.
+
+# Environment variables for OIDC configuration:
+# PS_ENFORCER_OIDC_ISSUER=https://auth.company.com
+# PS_ENFORCER_OIDC_AUDIENCE=promptshield-api
+
+# Example JWT claims expected:
+# {
+#   "iss": "https://auth.company.com",
+#   "aud": "promptshield-api",
+#   "sub": "user@company.com",
+#   "tid": "tenant-123",           # Microsoft Azure tenant ID
+#   "tenant": "acme-corp",         # Generic tenant claim
+#   "org": "engineering",          # Organization claim
+#   "azp": "client-app-id",        # Authorized party (client ID)
+#   "email": "user@company.com",
+#   "name": "John Doe",
+#   "groups": ["admin", "security"],
+#   "exp": 1234567890,
+#   "iat": 1234567890
+# }
+
+# Tenant resolution priority:
+# 1. OIDC claims: tid (Microsoft) > tenant > org > azp
+# 2. HTTP header: x-tenant-id
+
+# Protected endpoints requiring authentication:
+# - POST /v1/check - Security decision API
+# - POST /v1/scan - Batch scanning API  
+# - POST /v1/scan/async - Async job submission
+
+# Admin endpoints (require PS_ENFORCER_ADMIN_TOKEN):
+# - GET /v1/license - License information
+# - POST /v1/license - License updates
+# - GET /v1/usage - Usage analytics
+# - GET /v1/stats - Performance statistics
+# - GET /v1/events - Real-time events
+# - PUT /v1/config - Runtime configuration
+# - POST /v1/rulepacks - Rule pack management
+# - POST /v1/admin/shutdown - Service control
+
+# Example Docker deployment:
+# docker run -d \
+#   -e PS_ENFORCER_OIDC_ISSUER=https://auth.company.com \
+#   -e PS_ENFORCER_OIDC_AUDIENCE=promptshield-api \
+#   -e PS_ENFORCER_AUTH_TOKEN="" \
+#   -e PS_ENFORCER_ADMIN_TOKEN=admin-secret \
+#   -p 9090:9090 \
+#   promptshield/ps-enforcer
+
+# Example Kubernetes ConfigMap:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promptshield-config
+  namespace: security
+data:
+  PS_ENFORCER_OIDC_ISSUER: "https://auth.company.com"
+  PS_ENFORCER_OIDC_AUDIENCE: "promptshield-api"
+  PS_ENFORCER_AUTH_TOKEN: ""  # Disable token auth when using OIDC
+
+---
+# Example Kubernetes Secret for admin token
+apiVersion: v1
+kind: Secret
+metadata:
+  name: promptshield-admin
+  namespace: security
+type: Opaque
+stringData:
+  PS_ENFORCER_ADMIN_TOKEN: "admin-secret-token"
+
+---
+# Example Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promptshield-enforcer
+  namespace: security
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: promptshield-enforcer
+  template:
+    metadata:
+      labels:
+        app: promptshield-enforcer
+    spec:
+      containers:
+      - name: enforcer
+        image: promptshield/ps-enforcer:latest
+        ports:
+        - containerPort: 9090
+          name: http
+        - containerPort: 9091
+          name: grpc
+        envFrom:
+        - configMapRef:
+            name: promptshield-config
+        - secretRef:
+            name: promptshield-admin
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 9090
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

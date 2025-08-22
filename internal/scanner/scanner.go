@@ -16,7 +16,6 @@ import (
 // will be extended to the full rule engine per the plan.
 type Scanner struct {
 	bufferSizeBytes     int
-	keywordRules        []keywordRule
 	compiled            []compiledRule
 	runtimeContext      map[string]string
 	tracer              trace.Tracer
@@ -25,10 +24,12 @@ type Scanner struct {
 	quarantineOnTimeout bool
 	quarantineOnError   bool
 	// Composition and performance controls
-	firstMatch          bool
-	maxLineForRegex     int
-	fileTimeout         time.Duration
-	maxFileBytes        int64
+	firstMatch      bool
+	maxLineForRegex int
+	fileTimeout     time.Duration
+	maxFileBytes    int64
+	// MaxStreamBytes caps total bytes processed per reader scan (0 disables the cap)
+	maxStreamBytes      int64
 	compositionStrategy string
 
 	// Semantic analyzer pluggable hook
@@ -57,17 +58,14 @@ type Scanner struct {
 	totalScanBudget        time.Duration
 }
 
-func New(maxTokenBytes int) *Scanner {
+func ScanEngineCstor(maxTokenBytes int) *Scanner {
 	if maxTokenBytes <= 0 {
 		maxTokenBytes = 16 * 1024 * 1024 // 16 MiB default
 	}
 	return &Scanner{
-		bufferSizeBytes: maxTokenBytes,
-		tracer:          otel.Tracer("promptshield/scanner"),
-		logger:          nil,
-		// Do not enable built-in keyword rules by default in library code.
-		// Tests and callers explicitly load rules via LoadRulePacks.
-		keywordRules:        nil,
+		bufferSizeBytes:     maxTokenBytes,
+		tracer:              otel.Tracer("promptshield/scanner"),
+		logger:              nil,
 		budgets:             defaultBudgets,
 		quarantineOnTimeout: DefaultQuarantineOnTimeout,
 		quarantineOnError:   DefaultQuarantineOnError,
@@ -78,6 +76,9 @@ func New(maxTokenBytes int) *Scanner {
 }
 
 // semantic helpers moved to semantic.go
+
+// HasSemanticAnalyzer reports whether a semantic analyzer has been configured.
+func (s *Scanner) HasSemanticAnalyzer() bool { return s.semantic != nil }
 
 // SetTracer configures an OpenTelemetry tracer for emitting spans. Passing nil resets to default.
 func (s *Scanner) SetTracer(t trace.Tracer) {
@@ -103,6 +104,11 @@ func (s *Scanner) SetRuleDefaults(timeoutMs int64, caseSensitive bool, wholeWord
 // SetFileSizeLimit sets a hard cap for input file sizes in bytes (0 disables the cap).
 func (s *Scanner) SetFileSizeLimit(limitBytes int64) { s.maxFileBytes = limitBytes }
 
+// SetMaxStreamBytes sets a cap on total bytes processed in ScanReader/scanChunked.
+// When exceeded, behavior depends on quarantine flags: either emit a synthetic violation
+// and return success, or return an error to be mapped by the runtime API layer.
+func (s *Scanner) SetMaxStreamBytes(limitBytes int64) { s.maxStreamBytes = limitBytes }
+
 // SetCompositionStrategy overrides pack-provided composition preference.
 // Valid values: "", "first_match", "priority_order".
 func (s *Scanner) SetCompositionStrategy(strategy string) { s.compositionStrategy = strategy }
@@ -119,6 +125,14 @@ func (s *Scanner) SetChunkOverlap(n int) {
 	if n >= 0 {
 		s.chunkOverlapBytes = n
 	}
+}
+
+// SetStreamingParams is a convenience method to configure streaming parameters.
+// bufferSize controls the scanner's token buffer size for reading lines.
+// overlap controls the overlap bytes when chunking very long lines.
+func (s *Scanner) SetStreamingParams(bufferSize, overlap int) {
+	s.SetBufferBytes(bufferSize)
+	s.SetChunkOverlap(overlap)
 }
 
 // SetRuntimeContext configures a context map used for rule gating (when/unless).
@@ -140,6 +154,12 @@ func (s *Scanner) SetMaxResidentMemoryBytes(b uint64) { s.maxResidentMemoryBytes
 
 // SetTotalScanBudget sets a global budget for an entire multi-file scan. A context deadline takes precedence.
 func (s *Scanner) SetTotalScanBudget(d time.Duration) { s.totalScanBudget = d }
+
+// SetQuarantineOnTimeout controls whether timeouts produce a synthetic violation instead of an error.
+func (s *Scanner) SetQuarantineOnTimeout(enable bool) { s.quarantineOnTimeout = enable }
+
+// SetQuarantineOnError controls whether non-timeout errors produce a synthetic violation instead of an error.
+func (s *Scanner) SetQuarantineOnError(enable bool) { s.quarantineOnError = enable }
 
 // ScanFile, ScanReader, scanChunked: see io.go
 // evaluateLine, evaluateLongLine: see evaluate.go

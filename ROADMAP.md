@@ -2,9 +2,9 @@
 
 ## ✅ v0.2.0 (Current - Beta Release)
 
-**Core functionality stable and production-ready for CLI use cases:**
+**Core functionality stable and production-ready for Gateway use cases:**
 
-- [x] CLI scanning with 3-tier rule system (keywords → regex → semantic)
+- [x] Gateway enforcement with 3-tier rule system (keywords → regex → semantic)
 - [x] OpenAI and Anthropic semantic analysis providers  
 - [x] Streaming architecture with bounded memory (handles large files)
 - [x] Multiple output formats (stylish, json, github, ndjson, markdown, csv, html, table)
@@ -17,14 +17,14 @@
  - [x] Pattern-level verifiers to reduce false positives (per-pattern `verifier: luhn|ssn_area`)
  - [x] Baseline pattern complexity guard (max regex length; configurable)
  - [x] Per-rule caching for Level‑3 semantics (configurable TTL/size)
- - [x] Runtime response actions (experimental): deny/block and redact via gRPC ext_proc body mutation
+- [x] Runtime response actions: deny/block, redact (body mutation), and replace (ImmediateResponse 200)
  - [x] Kubernetes manifests (HPA/PDB/ServiceMonitor) and Grafana dashboard for enforcer
  - [x] OpenTelemetry tracing wiring (otelhttp/otelgrpc); OTLP export opt‑in
 
 **Known limitations:**
 - Audit trails schema still beta; further hardening and signing to come
 - Input validation and pattern complexity limits need expansion
-- ps-enforcer is experimental (not production-ready)
+- ps-enforcer is in beta (usable behind Envoy; continue hardening quotas/tenancy)
  - Runtime response actions: replacement and alerting not yet implemented; redaction limited to best‑effort secret masking
 
 ## 🎯 v0.3.0 (Next Release - Production Security)
@@ -42,8 +42,8 @@
 - [x] **Enhanced redaction** - Expanded patterns: AWS STS, GCP keys, Azure SAS/Client Secret, JWT/Bearer, SSH keys, Slack, GitHub PAT, Stripe, generic API tokens; global toggle honored
 
 ### Configuration & UX  
-- [x] **CLI flag simplification**: User-facing flags limited to paths, `--output-format|--json`, `--fail-on`, `--rulepack`, and `--context`. Engine/perf/tuning moved to env/config (`performance.*`, `metrics_file`, etc.). Deprecated noisy flags with guidance (`--perf`, `--no-hints`) and steered advanced formats to config.
-- [x] **Config precedence & discovery**: Enforce and document Flags > env (`PS_*`) > config file > defaults. Deterministic config discovery via `--config`, project `promptshield.yaml`, XDG, and home. Error gracefully when not found.
+- [x] **Runtime config hardening**: Env-first configuration (`PS_*`), optional service YAML; deterministic discovery and validation.
+- [x] **Control-plane ready**: Versioned `/v1` API for config and policy lifecycle.
 - [x] **Strict config validation**: Reject unknown keys; validate types/ranges; actionable errors with suggestions. Provide JSON Schema for `promptshield.yaml` and RulePacks.
 - [x] **Config commands**: `promptshield config validate` (strict, supports `--json`), `promptshield config print` (stable JSON; `--with-schema`), `promptshield config schema` (JSON Schema), `promptshield config doctor` (lint common pitfalls; supports `--json`).
 - [x] **Interactive onboarding**: `promptshield init` wizard to scaffold `promptshield.yaml`, select RulePacks, and set sensible defaults (TTY-aware; non-interactive fallback).
@@ -91,7 +91,7 @@
   - [x] gRPC health service with statuses for overall, ext_proc, and feature flags (redaction)
 - [x] **Response actions**
   - [x] Block (ImmediateResponse 403), Redact (chunk mutation), Deny/Quarantine mapping
-  - [ ] Replace (regex capture → replacement) and Alert event sinks
+- [x] Replace (regex capture → replacement) via ImmediateResponse 200; Alert event sinks [pending]
 - [x] **Enforcement modes**
   - [x] observe, redact, quarantine, enforce (baseline complete)
 - [ ] **Multitenancy**
@@ -194,8 +194,8 @@
   - **Features**: Hot‑reload via checksummed ConfigMaps/Secrets, canary via `.strategy`, readiness gates, pre/post‑upgrade hooks validating policy/rulepacks
   - **CI**: Chart testing, schema validation for `values.yaml`, Artifact Hub metadata
 
-- [x] **Docker images** — Official container distribution
-  - **Images**: `ghcr.io/promptshield/promptshield` (CLI), `ghcr.io/promptshield/enforcer`
+-- [x] **Docker images** — Official container distribution
+  - **Images**: `ghcr.io/promptshield/enforcer`
   - **Build**: Multi‑arch (linux/amd64, arm64) via buildx; distroless/static; SBOM (Syft) and signatures (Cosign); provenance (SLSA)
   - **Tags**: `vX.Y.Z`, `latest` (stable only), immutable `sha-<short>`, and `edge` for nightly
   - **Security**: `gosec`/`govulncheck` in pipeline, Trivy/Grype scan gates
@@ -226,7 +226,7 @@
 
 **Incremental value:** Each release adds meaningful functionality without breaking existing users.
 
-**Backward compatibility:** Configuration and CLI interfaces remain stable within major versions.
+**Backward compatibility:** Gateway HTTP and Envoy gRPC interfaces remain stable within major versions.
 
 **Security first:** Security fixes and hardening take precedence over new features.
 

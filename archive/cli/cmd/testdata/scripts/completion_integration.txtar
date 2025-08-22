@@ -1,0 +1,11 @@
+-- script --
+# Cobra exposes a special __complete subcommand that simulates shell completion
+
+# Positional completion should filter by extensions; we only assert the directive marker
+go run ./cmd/promptshield __complete scan foo
+stdout '__complete'
+
+# Flag completion for --rulepack should exist (cannot inspect file system filters portably)
+go run ./cmd/promptshield __complete scan --rulepack ''
+stdout '__complete'
+

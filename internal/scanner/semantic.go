@@ -26,6 +26,8 @@ func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) 
 	if cr.semantic == nil || s.semantic == nil {
 		return false
 	}
+	// License/feature gating is enforced at runtime layers (gateway/CLI).
+	// The core scanner remains feature-agnostic to preserve testability and OSS usability.
 	// Derive timeout
 	var timeout time.Duration
 	if cr.timeoutMs > 0 {

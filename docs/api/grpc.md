@@ -22,13 +22,19 @@ Reference: Envoy docs — `envoy.extensions.filters.http.ext_proc.v3`.
 - Immediate quarantine on threshold hit (ImmediateResponse)
 - Decision headers injected (`x-ps-decision`, `x-ps-reason`)
 
-## Body Mutation (Redaction)
+## Body Mutation (Redaction/Replacement)
 
 When response rules specify `response.action: redact|mask`, the enforcer may mutate body chunks using ext_proc `BodyResponse` with `CommonResponse.body_mutation` set to the replacement body. Enable via `PS_ENFORCER_REDACTION_MUTATION=true` and set desired `PS_ENFORCER_ENFORCEMENT_MODE`.
 
-- Non-streamed replacement per chunk:
+When rules specify `response.action: replace`, the enforcer terminates processing with an `ImmediateResponse` and `HTTP 200 OK` and the provided replacement body, fully replacing the upstream response. Control via `PS_ENFORCER_REPLACEMENT_MUTATION=true`.
+
+- Non-streamed redaction per chunk:
   - Set `CommonResponse.body_mutation = BodyMutation{ body: <redacted bytes> }`
   - Ext Proc reference: `CommonResponse.body_mutation` and `BodyMutation.body` in Envoy docs.
+
+- Full response replacement:
+  - Send `ImmediateResponse{ status: 200, body: <replacement bytes> }`
+  - Ext Proc reference: `ImmediateResponse`
 - For FULL_DUPLEX_STREAMED, use `BodyMutation.streamed_response`; current implementation uses the non-streamed `body` variant.
 
 Reference: Envoy External Processing API — BodyResponse/CommonResponse/BodyMutation [link](https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/ext_proc/v3/external_processor.proto.html)
@@ -51,6 +57,6 @@ Prometheus counters/histograms exported by the process:
 
 ## Timeouts and Limits
 
-- Per-request timeout: default 300ms (`PS_ENFORCER_TIMEOUT`)
-- Max stream bytes: default 5,000,000 (`PS_ENFORCER_MAX_STREAM_BYTES`)
+- Stream byte cap: default 5,000,000 (`PS_ENFORCER_MAX_STREAM_BYTES`)
+- Request/response timeouts (HTTP API scan path): defaults from runtime config (`request_timeout_ms` / `response_timeout_ms`)
 - Fail-on severity threshold: default `HIGH` (`PS_ENFORCER_FAIL_ON`)

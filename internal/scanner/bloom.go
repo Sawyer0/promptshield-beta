@@ -10,7 +10,7 @@ func NewBloom(n int, p float64) *Bloom {
     if n <= 0 { n = 1 }
     if p <= 0 || p >= 1 { p = 0.02 }
     // Use bits-and-blooms allocator (m and k chosen internally when using NewWithEstimates)
-    bf := bbloom.NewWithEstimates(uint(n), p)
+    bf := bbloom.NewWithEstimates(uint(n), p) //nolint:gosec // n is validated to be positive
     return &Bloom{inner: bf}
 }
 

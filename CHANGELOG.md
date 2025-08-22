@@ -1,6 +1,6 @@
-## v0.2.0-beta (2024-XX-XX) - Beta Release
+## v0.2.0-beta (2025-14-08) - Beta Release
 
-**PromptShield is now ready for production CLI use cases!**
+**PromptShield is now ready for production Gateway use cases!**
 
 ### ✅ Production-Ready Features
 
@@ -13,13 +13,12 @@
 **Output & Integration:**
 - Output formats: stylish (default), json, github, ndjson (removed: markdown, csv, html, table)
 - CI auto-detection (defaults to JSON output in CI environments)
-- Deterministic output ordering for consistent results
-- Shell completion for bash, zsh, fish
+- Deterministic decision ordering and stable headers/JSON responses
 
 **Configuration:**
-- Flexible configuration hierarchy: CLI flags > environment > config file > defaults  
-- Context gating with `when`/`unless` conditions and CLI overrides
-- First-run helper that scaffolds minimal config automatically
+- Flexible configuration hierarchy: environment > service config > defaults  
+- Context gating with `when`/`unless` conditions via runtime context
+- Versioned HTTP Gateway under `/v1`
 
 **Security & Audit:**
 - Basic audit logging with daily rotation
@@ -49,7 +48,6 @@
 - Development and testing of LLM applications
 
 **❌ Not recommended for:**
-- Real-time enforcement (ps-enforcer experimental)
 - Security compliance audit trails (schema may evolve)
 
 ### 🚀 Coming Next
@@ -68,7 +66,7 @@ Features:
 - NDJSON event streaming (per‑violation + summary)
 - Audit logging with daily rotation, hash chain, and global redaction toggle
 - Large‑file guardrails: 1 GiB streaming benchmark + memory budget test
-- Runtime enforcer (HTTP + gRPC ext_proc) experimental and documented
+- Runtime enforcer (HTTP + gRPC ext_proc) moved to beta; documented usage behind Envoy
 
 Improvements:
 - Keyword matching options (case_sensitive, whole_word) with config defaults
@@ -79,12 +77,10 @@ Docs:
 - Output formats, audit schema, runtime architecture, Envoy integration
 
 Breaking changes:
-- CLI flag simplification: infrastructure settings moved to env/config only.
-  - Workers: use `PS_WORKERS` env or `workers:` in `promptshield.yaml`
+- CLI references removed; focus on Gateway and Envoy integration. Use `PS_*` env for configuration.
   - Debug logging: use `PS_DEBUG` or `debug: true`
   - Redaction: use `PS_REDACTION_ENABLED` or `redaction.enabled`
   - Audit/Metrics/Trace files: use `PS_AUDIT_FILE`, `PS_METRICS_FILE`, `PS_TRACE_FILE` or config (`audit_file`, `metrics_file`, `trace_file`)
   - `fail_on`: use config key or `PS_FAIL_ON`
-  - Frequently changed flags remain: `--rulepack/-r`, `--output-format/--json`, `--context`, `--fail-on`, `--quiet`, `--force`
 
 

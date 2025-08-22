@@ -1,0 +1,45 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: test-moderation
+  version: 1.0.0
+  description: Simple test for omni-moderation
+
+rules:
+  # Level 1: Basic keyword detection
+  - id: basic-keywords
+    name: Basic harmful keywords
+    level: 1
+    severity: MEDIUM
+    keywords:
+      - "harassment"
+      - "threatening"
+      - "harmful"
+    response:
+      action: warn
+      message: "Potentially harmful keywords detected"
+
+  # Level 3: Semantic analysis with omni-moderation
+  - id: universal-moderation-check
+    name: Check all content with omni-moderation
+    level: 3
+    severity: HIGH
+    semantic:
+      provider: openai
+      model: omni-moderation-latest
+      confidence_threshold: 0.7  # Higher threshold to reduce false positives
+      timeout: 5000  # 5 seconds
+      fallback_on_error: true
+    fallback:
+      patterns:
+        - regex: '(?i)(harassment|hate|threat|harmful)'
+    response:
+      action: enforce
+      message: "Content flagged by OpenAI moderation"
+
+performance:
+  per_rule_timeout: 10s
+  total_timeout: 15s
+  
+composition:
+  strategy: all_matches

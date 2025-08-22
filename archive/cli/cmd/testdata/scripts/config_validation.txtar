@@ -1,0 +1,39 @@
+-- valid.yaml --
+output_format: json
+workers: 4
+debug: true
+fail_on: WARNING
+composition:
+  strategy: first_match
+performance:
+  max_length: 10000
+  timeout: 30s
+
+-- invalid.yaml --
+output_format: xml  # Invalid format
+workers: -1         # Negative workers
+unknown_key: value  # Unknown key
+fail_on: INVALID    # Invalid severity
+
+-- unknown_keys.yaml --
+this_key_does_not_exist: true
+nested:
+  also_unknown: false
+
+-- script --
+# Valid config should pass
+go run ./cmd/promptshield config validate valid.yaml
+! stderr .
+
+# Invalid values should fail
+! go run ./cmd/promptshield config validate invalid.yaml
+stderr 'invalid output_format'
+
+# Unknown keys should fail
+! go run ./cmd/promptshield config validate unknown_keys.yaml
+stderr 'unknown.*key'
+
+# Config print should output JSON
+go run ./cmd/promptshield config print
+stdout '"output_format"'
+stdout '"workers"'

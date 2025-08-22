@@ -1,0 +1,54 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: education-ferpa
+  version: "1.0.0"
+
+rules:
+  - id: FERPA-DISCLOSURE
+    level: 1
+    severity: HIGH
+    category: StudentData
+    message: Student record disclosure attempt
+    keywords: ["student", "record", "grades", "marks", "share", "email"]
+    logic: any
+    options:
+      case_sensitive: false
+      whole_word: true
+    response:
+      action: block
+
+  - id: FERPA-REGEX
+    level: 2
+    severity: HIGH
+    category: StudentData
+    message: Student data token via regex
+    patterns:
+      - regex: "(?i)(student id|transcript|guardian)"
+    response:
+      action: block
+
+  - id: FERPA-REDACT
+    level: 2
+    severity: HIGH
+    category: StudentData
+    message: Redacting student identifiers in assistant reply
+    patterns:
+      - regex: "(?i)(student|record|grades)"
+    response:
+      action: redact
+      replacement: "[REDACTED-STUDENT]"
+
+  - id: FERPA-LLM-PRIVACY
+    level: 3
+    severity: CRITICAL
+    category: Privacy
+    message: LLM flagged privacy risk
+    semantic:
+      model: privacy-risk-v1
+      confidence_threshold: 0.7
+      analysis_prompt: 
+         Does this text risk disclosing student records or other FERPA-protected information? 
+         Respond only “safe” or “unsafe”.
+    response:
+      action: block

@@ -6,17 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
+type Entitlements struct {
+	MaxRPS   float64         `json:"max_rps"`
+	Features map[string]bool `json:"features"`
+}
+
 type License struct {
-	Organization string    `json:"org"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	Tier         string    `json:"tier"`
+	Organization string       `json:"org"`
+	ExpiresAt    time.Time    `json:"expires_at"`
+	Tier         string       `json:"tier"`
+	Entitlements Entitlements `json:"entitlements"`
 }
 
 var (
@@ -33,6 +38,39 @@ func Check() {
 	initOnce.Do(func() {
 		evalLimiter = newTokenBucket(evalRatePerMinute, time.Minute)
 	})
+	
+	// License bypass for enterprise deployment
+	if os.Getenv("PS_DISABLE_LICENSE") == "1" {
+		// Silent mode - no output for production
+		devLicense := License{
+			Organization: "Enterprise",
+			ExpiresAt:    time.Now().Add(365 * 24 * time.Hour),
+			Tier:         "enterprise",
+			Entitlements: Entitlements{
+				MaxRPS:   1000.0,
+				Features: map[string]bool{"l3_semantic": true, "enterprise": true},
+			},
+		}
+		setLicensed(true, devLicense)
+		return
+	}
+	
+	// Development mode with output
+	if strings.ToLower(os.Getenv("PS_DEV_MODE")) == "true" {
+		fmt.Print("🛠️  PromptShield Pro - Development Mode (No License Required)\n")
+		devLicense := License{
+			Organization: "Development",
+			ExpiresAt:    time.Now().Add(365 * 24 * time.Hour),
+			Tier:         "enterprise",
+			Entitlements: Entitlements{
+				MaxRPS:   1000.0,
+				Features: map[string]bool{"l3_semantic": true, "enterprise": true},
+			},
+		}
+		setLicensed(true, devLicense)
+		return
+	}
+	
 	key := strings.TrimSpace(os.Getenv("PROMPTSHIELD_LICENSE_KEY"))
 	if key == "" {
 		fmt.Print("⚠️  PromptShield Pro - Unlicensed\n\nThis is commercial software requiring a paid license.\n- 30-day trial: sales@promptshield.io\n- Community version: npm install @promptshield/cli\n\nStarting in EVALUATION MODE (watermarked output, 10 req/min limit)\n")
@@ -42,7 +80,9 @@ func Check() {
 	}
 	lic, err := validate(key)
 	if err != nil {
-		log.Fatal("Invalid license key")
+		fmt.Printf("⚠️  Invalid license key: %v\n\nFalling back to EVALUATION MODE (watermarked output, 10 req/min limit)\n", err)
+		time.Sleep(3 * time.Second)
+		setLicensed(false, License{})
 		return
 	}
 	setLicensed(true, *lic)
@@ -50,6 +90,7 @@ func Check() {
 }
 
 func IsLicensed() bool {
+	ensureLoaded()
 	mu.RLock()
 	v := licensed
 	mu.RUnlock()
@@ -61,6 +102,32 @@ func Info() License {
 	v := licenseInfo
 	mu.RUnlock()
 	return v
+}
+
+// HasFeature reports whether the current license permits a specific feature.
+func HasFeature(name string) bool {
+	ensureLoaded()
+	mu.RLock()
+	defer mu.RUnlock()
+	if !licensed {
+		return false
+	}
+	if name == "" {
+		return false
+	}
+	n := strings.ToLower(name)
+	if licenseInfo.Entitlements.Features == nil {
+		return false
+	}
+	return licenseInfo.Entitlements.Features[n]
+}
+
+// Entitlement returns entitlements and whether the process is licensed.
+func Entitlement() (Entitlements, bool) {
+	ensureLoaded()
+	mu.RLock()
+	defer mu.RUnlock()
+	return licenseInfo.Entitlements, licensed
 }
 
 func AllowEvalRequest() bool {
@@ -128,6 +195,23 @@ func validate(token string) (*License, error) {
 		}
 	}
 	return &lic, nil
+}
+
+// ensureLoaded lazily initializes license state from environment without printing or sleeping.
+func ensureLoaded() {
+	mu.RLock()
+	if licensed {
+		mu.RUnlock()
+		return
+	}
+	mu.RUnlock()
+	key := strings.TrimSpace(os.Getenv("PROMPTSHIELD_LICENSE_KEY"))
+	if key == "" {
+		return
+	}
+	if lic, err := validate(key); err == nil {
+		setLicensed(true, *lic)
+	}
 }
 
 type tokenBucket struct {

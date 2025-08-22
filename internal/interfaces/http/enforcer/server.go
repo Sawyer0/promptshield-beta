@@ -4,32 +4,44 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
-	"log"
+	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
 
 	"strconv"
+	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-    "github.com/promptshield/promptshield/internal/license"
-	appscan "github.com/promptshield/promptshield/internal/application/scan"
-	"github.com/promptshield/promptshield/internal/discovery"
+	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/audit"
+	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
+	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
+	"github.com/promptshield/promptshield/internal/interfaces/http/api"
+	"github.com/promptshield/promptshield/internal/bootstrap"
+	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	"github.com/promptshield/promptshield/internal/security/paths"
+	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
+	"github.com/promptshield/promptshield/internal/shared/types"
+	"github.com/promptshield/promptshield/internal/usage"
+	redis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel/trace"
 )
 
-// Simple HTTP server stub for the PromptShield enforcer.
+// HTTP server for the PromptShield enforcer.
 // Exposes:
 // - GET /healthz: liveness probe
-// - POST /check: minimal allow/deny stub (currently always allow)
+// - GET /readyz: readiness probe with rule validation
+// - GET /metrics: Prometheus metrics
+// - POST /check: enforcement decision endpoint
 
 // NewMux constructs the HTTP handler mux for the enforcer.
 var (
@@ -45,232 +57,427 @@ var (
 		prometheus.HistogramOpts{Name: "ps_enforcer_request_duration_seconds", Help: "Request duration in seconds", Buckets: prometheus.DefBuckets},
 		[]string{"path", "decision"},
 	)
+	policyBypass = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "ps_policy_bypass_total", Help: "Total requests served in policy bypass mode"},
+		[]string{"reason"},
+	)
 )
+
+// Optional performance toggles (env-driven)
+func metricsEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_DISABLE_METRICS")))
+	return !(v == "1" || v == "true" || v == "yes")
+}
+
+func tracingEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_DISABLE_TRACING")))
+	return !(v == "1" || v == "true" || v == "yes")
+}
+
+func fastMode() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_FAST")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// envBool returns true when the provided env var is set to 1, true, yes, or on (case-insensitive).
+func envBool(key string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
 
 func init() {
 	// Best-effort registration; ignore panics on duplicate in tests
-	prometheus.MustRegister(enforcerRequests, enforcerDecisions, enforcerReqDuration)
+	prometheus.MustRegister(enforcerRequests, enforcerDecisions, enforcerReqDuration, policyBypass)
 }
 
-func NewMux() http.Handler {
+func NewMux() http.Handler { // backward-compatible wrapper
+	return NewMuxWithOptions(getAPIOptions())
+}
+
+// getAPIOptions constructs API options from environment variables
+func getAPIOptions() api.Options {
+	return getAPIOptionsWithDB(nil)
+}
+
+// getAPIOptionsWithDB constructs API options with optional database pool
+func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
+	adminToken := os.Getenv("PS_ENFORCER_ADMIN_TOKEN")
+
+	// Optional insecure mode toggle for local dev / demos
+	allowInsecure := false
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_ALLOW_INSECURE_ADMIN"))); v != "" {
+		switch v {
+		case "1", "true", "yes", "on":
+			allowInsecure = true
+		}
+	}
+
+	// Initialize services with database if available
+	var rulepackService *services.RulepackService
+	var policyService contracts.PolicyService
+	
+	if dbPool != nil {
+		// Use PostgreSQL repositories
+		rulepackRepo := pg.RulepackRepo(dbPool)
+		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
+		
+		// Use in-memory policy service for fast enforcement
+		// Policies are persisted in frontend and synced via API
+		policyService = initializePolicyService()
+	} else {
+		// Use in-memory implementations for high-performance enforcement
+		// Policies are persisted in frontend database and synced via API
+		
+		// Create in-memory rulepack repository
+		rulepackRepo := memory.NewRulepackRepository()
+		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
+		
+		// Use in-memory policy repository
+		policyService = initializePolicyService()
+	}
+
+	// Create scanner manager for event-driven real-time enforcement
+	scannerManager := NewScannerManager()
+	
+	return api.Options{
+		AdminToken:         adminToken,
+		AllowInsecureAdmin: allowInsecure,
+		PolicyService:      policyService,
+		RulepackService:    rulepackService,
+		ScannerManager:     scannerManager,
+	}
+}
+
+// initializePolicyService creates and configures the policy management service
+func initializePolicyService() contracts.PolicyService {
+	// Initialize policy dependencies with bootstrap
+	policyDeps := bootstrap.InitializePolicyDependencies(
+		nil, // ruleCompiler - will be nil for now, add later when integrating with scanner
+		nil, // scanEngine - will be nil for now, add later when integrating with scanner  
+		nil, // auditLogger - will be nil for now, add later when integrating with audit
+	)
+	
+	return policyDeps.Service
+}
+
+// NewMuxWithOptions constructs the HTTP handler mux with injectable API options.
+func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	r := chi.NewRouter()
+	// Initialize database pool if configured
+	var dbPool *pg.Pool
+	dbHealthy := true
+	if dsn := os.Getenv("PS_PG_DSN"); dsn != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		pool, err := pg.NewPool(ctx, dsn)
+		if err == nil {
+			pingCtx, cancelPing := context.WithTimeout(ctx, 2*time.Second)
+			if _, err := pool.Raw().Exec(pingCtx, "SELECT 1"); err != nil {
+				dbHealthy = false
+				pool.Close()
+				pool = nil
+			} else {
+				dbPool = pool
+			}
+			cancelPing()
+		} else {
+			dbHealthy = false
+		}
+		if !dbHealthy {
+			// Switch to observe mode to fail-open.
+			os.Setenv("PS_ENFORCER_MODE", "observe")
+			logger := slog.With("component","enforcer-http")
+			logger.Warn("Database unreachable at startup; entering OBSERVE fail-open mode", "dsn", dsn)
+		}
+	}
+	
+	// If API options don't have services configured, initialize them with DB
+	if apiOpt.RulepackService == nil {
+		apiOpt = getAPIOptionsWithDB(dbPool)
+	}
+
 	// Middlewares: request id, real ip, recoverer, timeout (defense in depth; keep short)
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(10 * time.Second))
+	if !fastMode() {
+		r.Use(middleware.RequestID)
+		r.Use(middleware.RealIP)
+		r.Use(middleware.Recoverer)
+		r.Use(middleware.Timeout(10 * time.Second))
+	}
+	// Global HTTP rate limiter from license entitlements; fallback to unlimited
+	// Must be registered before any routes on chi mux
+	// preloadPacks declared early for readiness probe access; initialized later.
+	var preloadPacks []rules.RulePack
+	var scannerPool = &sync.Pool{}
+	// Preload rulepacks early so readiness probe has accurate state.
+	{
+		rulepackPath := os.Getenv("PS_ENFORCER_RULEPACK")
+
+		if rulepackPath != "" {
+			if packs, e := rules.LoadPacks(rulepackPath); e == nil {
+				preloadPacks = packs
+			}
+		}
+	}
+	var maxStreamBytes int64
+	if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			maxStreamBytes = n
+		}
+	}
+	scannerPool.New = func() any {
+		sc := scanner.ScanEngineCstor(0)
+		if maxStreamBytes > 0 {
+			sc.SetMaxStreamBytes(maxStreamBytes)
+		}
+		sc.SetQuarantineOnTimeout(true)
+		sc.SetQuarantineOnError(true)
+		if len(preloadPacks) > 0 {
+			sc.LoadRulePacks(preloadPacks)
+		}
+		
+		// Initialize semantic analyzer if enabled
+		if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
+			provider := os.Getenv("PS_SEMANTIC_PROVIDER")
+			if provider == "openai" {
+				apiKey := os.Getenv("OPENAI_API_KEY")
+				if apiKey != "" {
+					analyzer := semopenai.New(semopenai.Options{
+						APIKey:         apiKey,
+						MaxConcurrency: 2,
+						CacheSize:      1000,
+						CacheTTL:       15 * time.Minute,
+						RequestsPerSecond: 10,
+						BurstSize:      20,
+					})
+					sc.SetSemanticAnalyzer(analyzer)
+					if logger := slog.With("component", "semantic"); logger != nil {
+						logger.Info("OpenAI semantic analyzer initialized")
+					}
+				}
+			}
+		}
+		
+		return sc
+	}
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	// Readiness gate: health plus rulepack/scanner ready
+	requireAtStartup := envBool("PS_REQUIRE_RULEPACK_AT_STARTUP")
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		// Basic check: require rulepack env or default pack present
-		if os.Getenv("PS_ENFORCER_RULEPACK") == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err != nil {
-				if _, err := os.Stat("rules/basic-security.yaml"); err != nil {
-					http.Error(w, "not ready", http.StatusServiceUnavailable)
-					return
-				}
-			}
+		hasActivePack := len(preloadPacks) > 0
+		ready := dbHealthy && (hasActivePack || !requireAtStartup)
+		if !ready {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
-	// Prometheus metrics endpoint
-	r.Handle("/metrics", promhttp.Handler())
 
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		// Optional bearer token check
-		reqToken := os.Getenv("PS_ENFORCER_AUTH_TOKEN")
-		if reqToken != "" {
-			if !httpAuthOK(r, reqToken) {
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte("unauthorized"))
-				enforcerRequests.WithLabelValues("/check", "401").Inc()
-				return
-			}
-		}
-        if !license.IsLicensed() {
-            w.Header().Set("X-PromptShield-License", "EVALUATION")
-            if !license.AllowEvalRequest() {
-                w.WriteHeader(http.StatusTooManyRequests)
-                _, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
-                enforcerRequests.WithLabelValues("/check", "429").Inc()
-                return
-            }
-        } else {
-            w.Header().Set("X-PromptShield-License", "LICENSED")
-        }
-		// Minimal PoC: read a small body to a temp file (or stdin), scan via existing orchestrator
-		// For safety, enforce a small max size to avoid abuse in the stub
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		start := time.Now()
-
-		tmp, err := os.CreateTemp("", "ps-check-*.txt")
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			enforcerRequests.WithLabelValues("/check", "500").Inc()
-			return
-		}
-		defer func() { _ = os.Remove(tmp.Name()) }()
-
-		// Cap read at 1MB for stub; allow override via env
-		maxBytes := int64(1 << 20)
-		if v := os.Getenv("PS_ENFORCER_MAX_BODY_BYTES"); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-				maxBytes = n
-			}
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-		if r.Body != nil {
-			defer r.Body.Close()
-			if _, err := tmp.ReadFrom(r.Body); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				enforcerRequests.WithLabelValues("/check", "400").Inc()
-				return
-			}
-		}
-		_ = tmp.Close()
-
-		sc := scanner.New(0)
-		// Load rulepack from env if set; fallback to common mount paths
-		rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-		if rulepack == "" {
-			if _, err := os.Stat("/rules/basic-security.yaml"); err == nil {
-				rulepack = "/rules/basic-security.yaml"
-			} else if _, err := os.Stat("rules/basic-security.yaml"); err == nil {
-				rulepack = "rules/basic-security.yaml"
-			}
-		}
-		if rulepack != "" {
-			if packs, e := rules.LoadPacks(rulepack); e == nil {
-				sc.LoadRulePacks(packs)
-			}
-		}
-		svc := appscan.NewService(sc)
-		res, err := svc.Scan(ctx, []string{tmp.Name()}, appscan.Options{Workers: 1, PendingWindow: 32})
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			enforcerRequests.WithLabelValues("/check", "500").Inc()
-			return
-		}
-		// Decision: allow if no violations; quarantine otherwise (stub)
-		decision := "allow"
-		reason := "no_signals"
-		total := 0
-		// Response-action aware decisioning
-		anyQuarantine := false
-		anyDeny := false
-		firstRule := ""
-		for _, r := range res {
-			total += len(r.Violations)
-			for _, v := range r.Violations {
-				if firstRule == "" {
-					firstRule = v.RuleID
-				}
-				a := v.ResponseAction
-				switch a {
-				case "deny", "block":
-					anyDeny = true
-				case "quarantine":
-					anyQuarantine = true
-				}
-			}
-		}
-		if anyDeny {
-			decision = "deny"
-			reason = firstNonEmpty(firstRule, "response_action")
-		} else if anyQuarantine || total > 0 {
-			decision = "quarantine"
-			reason = firstNonEmpty(firstRule, "signals_detected")
-		}
-		// Request correlation id
-		reqID := middleware.GetReqID(r.Context())
-		if reqID == "" {
-			reqID = generateRequestID()
-		}
-		// Map decision to HTTP status for use with Envoy ext_authz (HTTP service):
-		// allow -> 200 OK, quarantine/deny -> 403 Forbidden
-		statusCode := http.StatusOK
-		if decision != "allow" {
-			statusCode = http.StatusForbidden
-		}
-
-		// Trace correlation header
-		if span := trace.SpanFromContext(r.Context()); span != nil {
-			sc := span.SpanContext()
-			if sc.IsValid() {
-				w.Header().Set("x-ps-trace-id", sc.TraceID().String())
-			}
-		}
-		w.Header().Set("x-ps-request-id", reqID)
-		w.Header().Set("x-ps-decision", decision)
-		w.Header().Set("x-ps-reason", reason)
-		w.Header().Set("content-type", "application/json")
-		w.WriteHeader(statusCode)
-		_ = json.NewEncoder(w).Encode(map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": reqID})
-		enforcerDecisions.WithLabelValues(decision).Inc()
-		enforcerRequests.WithLabelValues("/check", strconv.Itoa(statusCode)).Inc()
-		enforcerReqDuration.WithLabelValues("/check", decision).Observe(time.Since(start).Seconds())
-		_ = discovery.ErrNoInputFiles // keep imported until multi-path support
+	// Prometheus metrics endpoint (optional)
+	if metricsEnabled() {
+		r.Handle("/metrics", promhttp.Handler())
 	}
-	// Handle all /check paths for ext_authz path_prefix behavior
-	r.Route("/check", func(checkRouter chi.Router) {
-		checkRouter.HandleFunc("/*", handler) // /check/*
-		checkRouter.HandleFunc("/", handler)  // /check
-	})
-	// Filter noisy endpoints from tracing
-	return otelhttp.NewHandler(r, "ps_enforcer_http", otelhttp.WithFilter(func(r *http.Request) bool {
-		p := r.URL.Path
-		if p == "/healthz" || p == "/metrics" {
-			return false
+
+	// Mount v1 API
+	r.Mount("/v1", api.NewMux(apiOpt))
+
+	// Prepare scanner pool and optionally preload rulepacks to reduce per-request overhead
+	{
+		var maxStreamBytes int64
+		if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				maxStreamBytes = n
+			}
 		}
-		return true
-	}))
+		scannerPool.New = func() any {
+			sc := scanner.ScanEngineCstor(0)
+			if maxStreamBytes > 0 {
+				sc.SetMaxStreamBytes(maxStreamBytes)
+			}
+			sc.SetQuarantineOnTimeout(true)
+			sc.SetQuarantineOnError(true)
+			if len(preloadPacks) > 0 {
+				sc.LoadRulePacks(preloadPacks)
+			}
+			return sc
+		}
+	}
+
+	// Filter noisy endpoints from tracing
+	if tracingEnabled() {
+		return otelhttp.NewHandler(r, "ps_enforcer_http", otelhttp.WithFilter(func(r *http.Request) bool {
+			p := r.URL.Path
+			if p == "/healthz" || p == "/metrics" {
+				return false
+			}
+			return true
+		}))
+	}
+	return r
 }
 
 // Serve starts an HTTP server on addr with sane timeouts.
 func Serve(addr string) *http.Server {
-	srv := &http.Server{
+	var srv *http.Server
+	// Initialize database pool if configured
+	var dbPool *pg.Pool
+	if dsn := os.Getenv("PS_PG_DSN"); dsn != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if pool, err := pg.NewPool(ctx, dsn); err == nil {
+			pingCtx, cancelPing := context.WithTimeout(ctx, 2*time.Second)
+			if _, err := pool.Raw().Exec(pingCtx, "SELECT 1"); err == nil {
+				dbPool = pool
+			} else {
+				pool.Close()
+			}
+			cancelPing()
+		}
+	}
+	// Inject shutdown hooks into API mux with database pool
+	options := getAPIOptionsWithDB(dbPool)
+	// Wire Redis-backed UsageStore when configured
+	if options.UsageStore == nil {
+		if addr := strings.TrimSpace(os.Getenv("PS_USAGE_REDIS_ADDR")); addr != "" {
+			// Normalize prefix: default to PS_REGION or "ps"
+			prefix := strings.TrimSpace(os.Getenv("PS_USAGE_PREFIX"))
+			if prefix == "" {
+				prefix = strings.TrimSpace(os.Getenv("PS_REGION"))
+			}
+			if prefix == "" {
+				prefix = "ps"
+			}
+			// Optional TTL in days
+			ttlDays := 35
+			if v := strings.TrimSpace(os.Getenv("PS_USAGE_TTL_DAYS")); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					ttlDays = n
+				}
+			}
+			rdb := redis.NewClient(&redis.Options{Addr: addr})
+			options.UsageStore = usage.NewRedisUsageStore(rdb, prefix, time.Duration(ttlDays)*24*time.Hour)
+		}
+	}
+	// Construct durable audit logger from environment and adapt to API interface
+	var auditClose func() error
+	if lgr, closeFn, err := audit.NewLoggerFromEnv(); err == nil && lgr != nil {
+		options.AuditLogger = auditAdapter{inner: lgr}
+		auditClose = closeFn
+	}
+	options.OnDrain = func(ctx context.Context) error { return nil }
+	options.OnShutdown = func(ctx context.Context, delay time.Duration) error {
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if auditClose != nil {
+			_ = auditClose()
+		}
+		if options.UsageStore != nil {
+			_ = options.UsageStore.Close(ctx)
+		}
+		if dbPool != nil {
+			dbPool.Close()
+		}
+		if srv != nil {
+			return srv.Shutdown(ctx)
+		}
+		return nil
+	}
+	apiMux := NewMuxWithOptions(options)
+	srv = &http.Server{
 		Addr:              addr,
-		Handler:           NewMux(),
+		Handler:           apiMux,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Optional TLS and mTLS
-	certFile := os.Getenv("PS_ENFORCER_TLS_CERT")
-	keyFile := os.Getenv("PS_ENFORCER_TLS_KEY")
+	// TLS policy: require on non-loopback unless explicitly disabled; auto-detect certs when not provided
+	mode := tlsMode()
+	certFile, keyFile, havePair := findTLSPair()
 	clientCA := os.Getenv("PS_ENFORCER_TLS_CLIENT_CA")
-	if certFile != "" && keyFile != "" {
+	nonLoop := !isLoopbackAddr(addr)
+
+	startHTTPS := func(certFile, keyFile string) {
 		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 		if clientCA != "" {
-			if caPEM, err := os.ReadFile(clientCA); err == nil {
+			logger := slog.With("component","enforcer-http")
+			if err := paths.ValidateCAFilePath(clientCA); err != nil {
+				logger.Error("invalid client CA file path", "error", err)
+			} else if caPEM, err := os.ReadFile(clientCA); err == nil {
 				pool := x509.NewCertPool()
 				if pool.AppendCertsFromPEM(caPEM) {
 					tlsCfg.ClientCAs = pool
 					tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+				} else {
+					logger.Error("failed to parse client CA certificate")
 				}
+			} else {
+				logger.Error("failed to read client CA file", "error", err)
 			}
 		}
 		srv.TLSConfig = tlsCfg
 		go func() {
 			if err := srv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-				log.Printf("enforcer https server error: %v", err)
+				logger := slog.With("component","enforcer-http")
+				logger.Error("enforcer https server error", "error", err)
 			}
 		}()
-	} else {
+	}
+
+	switch mode {
+	case "disable":
+		// Explicit insecure mode
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				log.Printf("enforcer http server error: %v", err)
+				logger := slog.With("component","enforcer-http")
+				logger.Error("enforcer http server error", "error", err)
 			}
 		}()
+		return srv
+	case "require":
+		if !havePair {
+			logger := slog.With("component","enforcer-http")
+			logger.Error("TLS required but no certificate configured", "address", addr)
+			os.Exit(1)
+		}
+		startHTTPS(certFile, keyFile)
+		return srv
+	default: // auto
+		if nonLoop {
+			if !havePair {
+				logger := slog.With("component","enforcer-http")
+				logger.Error("Refusing to listen on non-loopback address without TLS", "address", addr)
+				os.Exit(1)
+			}
+			startHTTPS(certFile, keyFile)
+			return srv
+		}
+		// loopback: prefer TLS if available, else plain HTTP
+		if havePair {
+			startHTTPS(certFile, keyFile)
+		} else {
+			go func() {
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					logger := slog.With("component","enforcer-http")
+					logger.Error("enforcer http server error", "error", err)
+				}
+			}()
+		}
 	}
 	return srv
 }
@@ -279,13 +486,29 @@ func generateRequestID() string {
 	return uuid.NewString()
 }
 
-func httpAuthOK(r *http.Request, want string) bool {
+// auditAdapter adapts internal/audit.Logger to contracts.AuditLogger
+type auditAdapter struct{ inner audit.Logger }
+
+func (a auditAdapter) LogWithContext(ctx context.Context, ev types.AuditEvent) error {
+	return a.inner.Log(audit.Event{Type: ev.Action, Data: ev.Metadata, Hash: "", PrevHash: ""})
+}
+
+func (a auditAdapter) Flush() error {
+	return nil
+}
+
+func (a auditAdapter) Close() error {
+	return nil
+}
+
+// exported for reuse in api
+func HttpAuthOK(r *http.Request, want string) bool {
 	if want == "" {
 		return true
 	}
 	// Authorization: Bearer <token>
 	if v := r.Header.Get("Authorization"); v != "" {
-		if len(v) >= 7 && (v[:7] == "Bearer " || v[:7] == "bearer ") {
+		if len(v) >= 7 && (strings.HasPrefix(v, "Bearer ") || strings.HasPrefix(v, "bearer ")) {
 			if v[7:] == want {
 				return true
 			}
@@ -309,4 +532,60 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// tlsMode returns one of: auto (default), require, disable
+func tlsMode() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_TLS_MODE")))
+	if mode == "require" || mode == "disable" {
+		return mode
+	}
+	return "auto"
+}
+
+// isLoopbackAddr returns true if the provided listen address binds only to loopback
+func isLoopbackAddr(addr string) bool {
+	host := addr
+	if strings.HasPrefix(host, ":") {
+		// :port means all interfaces
+		return false
+	}
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback()
+	}
+	// Unknown hostname: assume non-loopback to be safe
+	return false
+}
+
+// findTLSPair returns cert and key file paths if configured or found in default mounts
+func findTLSPair() (string, string, bool) {
+	certFile := strings.TrimSpace(os.Getenv("PS_ENFORCER_TLS_CERT"))
+	keyFile := strings.TrimSpace(os.Getenv("PS_ENFORCER_TLS_KEY"))
+	if certFile != "" && keyFile != "" {
+		return certFile, keyFile, true
+	}
+	// Auto-detect common mount locations
+	defaults := [][2]string{
+		{"/tls/server.crt", "/tls/server.key"},
+		{"tls/server.crt", "tls/server.key"},
+	}
+	for _, p := range defaults {
+		if _, err1 := os.Stat(p[0]); err1 == nil {
+			if _, err2 := os.Stat(p[1]); err2 == nil {
+				return p[0], p[1], true
+			}
+		}
+	}
+	return "", "", false
 }

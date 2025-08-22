@@ -16,14 +16,11 @@ type ScannerHelper struct {
 	sc *scpkg.Scanner
 }
 
-// NewScannerHelper creates a scanner with the given rules
-func NewScannerHelper(t *testing.T, testRules []rules.Rule) *ScannerHelper {
+// ScannerHelperCstor creates a scanner with the given rules
+func ScannerHelperCstor(t *testing.T, testRules []rules.Rule) *ScannerHelper {
 	t.Helper()
-	sc := scpkg.New(0)
-	// Ensure built-in keyword rules do not interfere with tests by overriding
-	// the instance via a package-level helper that we expose for tests only.
-	// Disable built-in keywords via public toggler if available
-	sc.SetBuiltinKeywordsEnabled(false)
+	sc := scpkg.ScanEngineCstor(0)
+	// Built-in keyword rules removed; nothing to disable
 	sc.LoadRulePacks([]rules.RulePack{{
 		Metadata: rules.Metadata{Name: "test"},
 		Rules:    testRules,

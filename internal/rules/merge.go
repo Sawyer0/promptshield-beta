@@ -4,6 +4,14 @@ import (
 	"sort"
 )
 
+// getPriority returns the priority for a rulepack, defaulting to 0 if not set
+func getPriority(pack RulePack) int {
+	if pack.Composition != nil {
+		return pack.Composition.Priority
+	}
+	return 0
+}
+
 // MergePacks produces a deterministic merged list of rules from the provided
 // packs, applying extends and overrides where possible. Imports are currently
 // ignored and assumed to be pre-resolved by the caller.
@@ -81,7 +89,7 @@ func MergePacks(packs []RulePack) []Rule {
 	for id := range byID {
 		// Skip disabled
 		r := byID[id]
-		if r.Enabled != nil && *r.Enabled == false {
+		if r.Enabled != nil && !*r.Enabled {
 			continue
 		}
 		ids = append(ids, id)
@@ -94,16 +102,30 @@ func MergePacks(packs []RulePack) []Rule {
 	return out
 }
 
-// MergePacksPriorityOrder merges rules preserving pack and rule order with
-// first-wins semantics. Extends are respected by processing dependencies
-// first. Later duplicates are ignored.
+// MergePacksPriorityOrder merges rules preserving priority-based pack order with
+// first-wins semantics. Packs are sorted by priority (higher values first),
+// then extends are respected by processing dependencies first.
+// Later duplicates are ignored.
 func MergePacksPriorityOrder(packs []RulePack) []Rule {
+	// Sort packs by priority (higher priority first), then by name for determinism
+	sorted := make([]RulePack, len(packs))
+	copy(sorted, packs)
+	sort.Slice(sorted, func(i, j int) bool {
+		pi := getPriority(sorted[i])
+		pj := getPriority(sorted[j])
+		if pi != pj {
+			return pi > pj // Higher priority first
+		}
+		return sorted[i].Metadata.Name < sorted[j].Metadata.Name // Deterministic fallback
+	})
+	
 	// Index packs by name
-	byName := make(map[string]RulePack, len(packs))
-	for _, p := range packs {
+	byName := make(map[string]RulePack, len(sorted))
+	for _, p := range sorted {
 		byName[p.Metadata.Name] = p
 	}
-	// Deterministic pack order: resolve extends DFS then sort remaining by name
+	
+	// Deterministic pack order: resolve extends DFS, respecting priority order
 	visited := make(map[string]bool)
 	var order []string
 	var visit func(string)
@@ -123,14 +145,9 @@ func MergePacksPriorityOrder(packs []RulePack) []Rule {
 		}
 		order = append(order, n)
 	}
-	// Start with sorted names to make traversal deterministic
-	var names []string
-	for n := range byName {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		visit(n)
+	// Start with priority-sorted names
+	for _, p := range sorted {
+		visit(p.Metadata.Name)
 	}
 
 	// First-wins: keep first encountered rule id
@@ -166,7 +183,7 @@ func MergePacksPriorityOrder(packs []RulePack) []Rule {
 	// Filter disabled
 	filtered := make([]Rule, 0, len(out))
 	for _, r := range out {
-		if r.Enabled != nil && *r.Enabled == false {
+		if r.Enabled != nil && !*r.Enabled {
 			continue
 		}
 		filtered = append(filtered, r)

@@ -1,0 +1,139 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: omni-moderation-advanced
+  version: 1.0.0
+  description: Advanced threat detection using OpenAI's omni-moderation model
+  author: PromptShield Security Team
+
+# Progressive security scanning with omni-moderation for Level 3
+rules:
+  # Level 1: Fast keyword detection (< 1ms)
+  - id: prompt-injection-keywords
+    name: Direct prompt injection attempts
+    level: 1
+    severity: CRITICAL
+    keywords:
+      - "ignore previous instructions"
+      - "ignore all previous"
+      - "disregard previous"
+      - "forget everything"
+      - "you are now"
+      - "act as"
+      - "pretend to be"
+      - "roleplay as"
+      - "DAN mode"
+      - "do anything now"
+    response:
+      action: quarantine
+      message: "Prompt injection detected via keyword match"
+
+  # Level 2: Regex patterns (< 10ms)
+  - id: api-key-patterns
+    name: API key detection
+    level: 2
+    severity: CRITICAL
+    patterns:
+      - regex: 'sk-[a-zA-Z0-9]{20,}'
+        description: "OpenAI API key pattern"
+      - regex: 'AIza[0-9A-Za-z_-]{35}'
+        description: "Google API key pattern"
+      - regex: 'ghp_[a-zA-Z0-9]{36}'
+        description: "GitHub personal access token"
+    response:
+      action: redact
+      message: "API key or secret detected and redacted"
+
+  - id: pii-patterns
+    name: PII detection patterns
+    level: 2
+    severity: HIGH
+    patterns:
+      - regex: '\b\d{3}-\d{2}-\d{4}\b'
+        description: "US Social Security Number"
+      - regex: '\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'
+        description: "Credit card number"
+      - regex: '\b[A-Z]{1,2}\d{6,7}\b'
+        description: "Passport number pattern"
+    response:
+      action: redact
+      message: "PII detected and redacted"
+
+  # Level 3: Semantic analysis with omni-moderation (< 100ms)
+  - id: omni-moderation-comprehensive
+    name: Advanced threat detection with omni-moderation
+    level: 3
+    severity: HIGH
+    semantic:
+      provider: openai
+      model: omni-moderation-latest  # FREE multimodal model!
+      confidence_threshold: 0.7
+      timeout: 100  # milliseconds
+      # Categories automatically detected:
+      # - harassment, harassment/threatening
+      # - hate, hate/threatening
+      # - illicit (instructions for wrongdoing)
+      # - illicit/violent
+      # - self-harm, self-harm/intent, self-harm/instructions
+      # - sexual, sexual/minors
+      # - violence, violence/graphic
+    # Fallback patterns if API unavailable
+    fallback_patterns:
+      - regex: '(?i)(jailbreak|bypass|override|ignore).*?(rules|safety|guidelines)'
+      - regex: '(?i)reveal.*?(prompt|instructions|system)'
+      - regex: '(?i)how\s+to\s+(hack|exploit|bypass|break)'
+    response:
+      action: enforce  # Can be: observe, redact, quarantine, enforce
+      message: "Content flagged by advanced semantic analysis"
+
+  # Level 3: Multilingual prompt injection detection
+  - id: multilingual-threats
+    name: Multilingual threat detection (40 languages)
+    level: 3
+    severity: CRITICAL
+    semantic:
+      provider: openai
+      model: omni-moderation-latest
+      confidence_threshold: 0.8
+      timeout: 150
+      # Omni-moderation supports 40 languages with 32% better detection
+      # for non-English content including:
+      # Arabic, Chinese, Hindi, Spanish, French, German, Japanese, Korean, etc.
+    response:
+      action: quarantine
+      message: "Multilingual threat detected"
+
+# Performance configuration
+performance:
+  per_rule_timeout: 200ms  # Max time per rule
+  total_timeout: 500ms     # Max total scan time
+  parallel_execution: true  # Run levels in parallel where possible
+  cache_ttl: 15m           # Cache semantic results for 15 minutes
+  buffer_bytes: 65536      # 64KB buffer for streaming
+
+# Composition strategy
+composition:
+  strategy: first_match  # Stop at first violation (fastest)
+  # Other options: all_matches, priority_order
+
+# Enforcement modes by environment
+enforcement:
+  default: enforce
+  modes:
+    development: observe  # Log only, don't block
+    staging: redact      # Redact sensitive content
+    production: enforce  # Full enforcement
+
+# Audit configuration
+audit:
+  enabled: true
+  include_context: true
+  redact_sensitive: true
+  
+# Metrics to track
+metrics:
+  - rule_hits_total
+  - semantic_api_calls_total
+  - semantic_cache_hits_total
+  - processing_time_seconds
+  - false_positive_rate

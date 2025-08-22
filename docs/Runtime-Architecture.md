@@ -1,6 +1,6 @@
 ### PromptShield Runtime Architecture (ps-enforcer)
 
-This document describes the production runtime architecture for the PromptShield enforcer service (`promptshield-enforcer`, alias `ps-enforcer`). It complements the CLI scanner and establishes a data-plane + control-plane pattern suitable for enterprise rollouts.
+This document describes the production runtime architecture for the PromptShield enforcer service (`promptshield-enforcer`, alias `ps-enforcer`). It establishes a data-plane + control-plane pattern suitable for enterprise rollouts of the Envoy‑integrated LLM API Gateway.
 
 ## High-level overview
 
@@ -78,7 +78,7 @@ Key design: fast-first prefilter; escalate to semantic adjudicator only when thr
 ## Integration with Envoy
 
 - Use `ext_authz` for header/context-only, fast ALLOW/DENY or to inject decision headers.
-- Use `ext_proc` (External Processing filter) to stream request/response bodies to `ps-enforcer` for content inspection with budgets. Response bodies may be redacted in-place via `CommonResponse.body_mutation` when rules specify `response.action: redact|mask|quarantine`.
+- Use `ext_proc` (External Processing filter) to stream request/response bodies to `ps-enforcer` for content inspection with budgets. Response bodies may be redacted in-place via `CommonResponse.body_mutation` when rules specify `response.action: redact|mask|quarantine`. Full replacement is supported by terminating the stream with `ImmediateResponse` 200 when `response.action: replace` is configured.
 
 Minimal `ext_authz` snippet (HTTP service): see `docs` examples in repo. For response body scanning, add `ext_proc` pointing to the enforcer’s gRPC server (`envoy.service.ext_proc.v3.ExternalProcessor/Process`).
 
@@ -95,11 +95,21 @@ Two integration modes:
 
 - HTTP endpoints (for CI/batch/sidecarless)
   - `GET /healthz` (liveness), `GET /readyz` (readiness gated on rulepack/policy load)
-  - `POST /check` → quick allow/deny using headers/context and optional small payload
-  - Headers set on success: `x-ps-decision: allow|quarantine|deny`, `x-ps-reason: <rule_id|rationale>`, `x-ps-request-id: <uuid>`
-  - JSON response: `{ "decision": "allow|quarantine|deny", "reason": "...", "violations": <int>, "request_id": "..." }`
-  - Budgets: request timeout and `PS_ENFORCER_MAX_BODY_BYTES` (default 1MiB)
-  - `POST /scan` → full content scan (streaming upload), returns JSON report and decision
+  - Versioned API mounted under `/v1`:
+    - `POST /v1/check` → quick allow/deny using headers/context and optional small payload
+    - `POST /v1/scan` → full content scan; supports aggregate JSON and NDJSON streaming
+    - Async jobs: `POST /v1/scan/async`, `GET /v1/jobs`, `GET /v1/jobs/{jobID}`, `DELETE /v1/jobs/{jobID}`
+    - Rulepack management: `GET/POST /v1/rulepacks*`
+    - Runtime config: `GET/PUT/POST /v1/config*`
+    - Admin: `POST /v1/admin/*`, `GET /v1/stats`, `GET /v1/usage`, `GET /v1/events`, `GET/POST /v1/license`
+    - Decision headers on success: `x-ps-decision`, `x-ps-reason`, `x-ps-request-id`
+    - JSON decision: `{ "decision": "allow|quarantine|deny", "reason": "...", "violations": <int>, "request_id": "..." }`
+  - Legacy root `/check` remains for compatibility
+  - Budgets: request timeout, `PS_ENFORCER_MAX_BODY_BYTES` (default 1MiB)
+
+Auth (HTTP):
+- User endpoints: Bearer token or `X-PS-Token` when `PS_ENFORCER_AUTH_TOKEN` is set; optional OIDC JWT validation when configured.
+- Admin endpoints: Bearer/`X-PS-Admin-Token` when `PS_ENFORCER_ADMIN_TOKEN` is set; mTLS optional.
 
 gRPC health:
 
@@ -112,7 +122,7 @@ x-ps-decision: allow|quarantine|deny
 x-ps-reason:  <rule_id or rationale>
 ```
 
-On DENY/QUARANTINE (HTTP mode), return 403 with a structured JSON body (maps to CLI output schema).
+On DENY/QUARANTINE (HTTP mode), return 403 with a structured JSON body.
 
 ## Policy model (RulePacks)
 
@@ -121,7 +131,7 @@ RulePacks control:
 - Thresholds: risk scores, similarity, confidence
 - Budgets: `timeout_ms`, `max_llm_calls`, `max_p95_ms`, `max_cost_cents`
 - Actions: `allow`, `quarantine`, `deny`, `escalate`
-  - Response mapping: `response.action` supports `redact`, `replace`, `deny`/`block`, `quarantine`, `alert` (alert/replace staged; redact/block delivered baseline)
+  - Response mapping: `response.action` supports `redact`, `replace`, `deny`/`block`, `quarantine`, `alert` (replace/redact/block delivered; alert forthcoming)
 - Context gating: `when`/`unless` over tenant/route/env keys
 - Composition: `first_match` vs `priority_order`
 
@@ -134,6 +144,8 @@ RulePacks are signed and versioned in the policy registry; `ps-enforcer` hot-pul
 3) Decision: evaluate thresholds; if borderline or policy demands, escalate.
 4) LLM guardrails (escalation): call adjudicator with strict JSON schema; enforce timeouts, concurrency, and cost budgets.
 5) Action: ALLOW, QUARANTINE, or DENY. Emit decision headers and audit/metrics.
+
+Note on regex engine: Go RE2 is used by default; an optional Hyperscan fast‑path can be enabled in Docker builds with build arg `ENABLE_HYPERSCAN=1` for higher throughput rule sets.
 
 ## Budgets and SLOs
 
