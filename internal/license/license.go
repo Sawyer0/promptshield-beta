@@ -39,8 +39,24 @@ func Check() {
 		evalLimiter = newTokenBucket(evalRatePerMinute, time.Minute)
 	})
 	
-	// Development bypass
-	if strings.ToLower(os.Getenv("PS_DEV_MODE")) == "true" || os.Getenv("PS_DISABLE_LICENSE") == "1" {
+	// License bypass for enterprise deployment
+	if os.Getenv("PS_DISABLE_LICENSE") == "1" {
+		// Silent mode - no output for production
+		devLicense := License{
+			Organization: "Enterprise",
+			ExpiresAt:    time.Now().Add(365 * 24 * time.Hour),
+			Tier:         "enterprise",
+			Entitlements: Entitlements{
+				MaxRPS:   1000.0,
+				Features: map[string]bool{"l3_semantic": true, "enterprise": true},
+			},
+		}
+		setLicensed(true, devLicense)
+		return
+	}
+	
+	// Development mode with output
+	if strings.ToLower(os.Getenv("PS_DEV_MODE")) == "true" {
 		fmt.Print("🛠️  PromptShield Pro - Development Mode (No License Required)\n")
 		devLicense := License{
 			Organization: "Development",

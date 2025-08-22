@@ -120,9 +120,7 @@ func ValidatePack(p RulePack) []error {
 			if strings.TrimSpace(r.Semantic.Model) == "" {
 				errs = append(errs, fmt.Errorf("%s: rule %s (level 3) requires semantic.model", p.Metadata.Name, r.ID))
 			}
-			if strings.TrimSpace(r.Semantic.AnalysisPrompt) == "" {
-				errs = append(errs, fmt.Errorf("%s: rule %s (level 3) requires semantic.analysis_prompt", p.Metadata.Name, r.ID))
-			}
+			// Note: analysis_prompt is not used by omni-moderation models and is optional for all models
 		default:
 			// schema already constrains 1..3, but keep friendly message if out-of-range sneaks in
 			if r.Level < 1 || r.Level > 3 {

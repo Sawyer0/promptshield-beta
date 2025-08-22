@@ -18,6 +18,7 @@ import (
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	pkg "github.com/promptshield/promptshield/pkg/types"
 )
@@ -306,6 +307,26 @@ func scanHandler(opt Options) http.HandlerFunc {
 
 func runScanLine(ctx context.Context, data []byte) map[string]any {
 	sc := scanner.ScanEngineCstor(0)
+	
+	// Initialize semantic analyzer if enabled
+	if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
+		provider := os.Getenv("PS_SEMANTIC_PROVIDER")
+		if provider == "openai" {
+			apiKey := os.Getenv("OPENAI_API_KEY")
+			if apiKey != "" {
+				analyzer := semopenai.New(semopenai.Options{
+					APIKey:         apiKey,
+					MaxConcurrency: 2,
+					CacheSize:      1000,
+					CacheTTL:       15 * time.Minute,
+					RequestsPerSecond: 10,
+					BurstSize:      20,
+				})
+				sc.SetSemanticAnalyzer(analyzer)
+			}
+		}
+	}
+	
 	rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
 	if rulepack != "" {
 		if packs, e := rules.LoadPacks(rulepack); e == nil {
