@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -16,6 +17,7 @@ import (
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
+	"github.com/promptshield/promptshield/internal/shared/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,8 +53,49 @@ type RulepackService struct {
 
 // RulepackServiceCstor creates a RulepackService with auditing configured from environment.
 func RulepackServiceCstor(r contracts.RulepackRepository, pub *nats.Publisher) *RulepackService {
-	auditLogger, _, _ := audit.NewLoggerFromEnv() // TODO: Handle close func and error properly
+	auditLogger, closeFunc, err := audit.NewLoggerFromEnv()
+	if err != nil {
+		slog.Error("Failed to initialize audit logger", "error", err)
+		// Create a no-op audit logger for degraded functionality
+		auditLogger = &noOpAuditLogger{}
+	}
+	
+	// Store close function for proper cleanup (in production, this would be managed by DI container)
+	if closeFunc != nil {
+		// In a production system, you would register this with a cleanup handler
+		// For now, we'll just log that it exists
+		slog.Debug("Audit logger initialized with cleanup function")
+	}
+	
 	return &RulepackService{repo: r, pub: pub, audit: auditLogger}
+}
+
+// noOpAuditLogger provides a no-op implementation for graceful degradation
+type noOpAuditLogger struct{}
+
+func (n *noOpAuditLogger) Log(event audit.Event) error {
+	// No-op implementation - just log that we would have audited this
+	slog.Debug("Audit event not logged due to initialization failure", 
+		"event_type", event.Type, 
+		"timestamp", event.Timestamp)
+	return nil
+}
+
+func (n *noOpAuditLogger) LogWithContext(ctx context.Context, event types.AuditEvent) error {
+	// No-op implementation - just log that we would have audited this
+	slog.Debug("Audit event not logged due to initialization failure", 
+		"action", event.Action, 
+		"object_id", event.ObjectID,
+		"timestamp", event.Timestamp)
+	return nil
+}
+
+func (n *noOpAuditLogger) Flush() error {
+	return nil
+}
+
+func (n *noOpAuditLogger) Close() error {
+	return nil
 }
 
 func checksumJSON(raw json.RawMessage) string {

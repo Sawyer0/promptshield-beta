@@ -11,7 +11,7 @@ const (
 	ErrCodeScanningTimeout             types.ErrorCode = "SCANNING_TIMEOUT"
 	ErrCodeScanningFailed              types.ErrorCode = "SCANNING_FAILED"
 	ErrCodePolicyViolationDetected     types.ErrorCode = "POLICY_VIOLATION_DETECTED"
-	ErrCodeSemanticProviderUnavailable types.ErrorCode = "SEMANTIC_PROVIDER_UNAVAILABLE"
+	ErrCodeSemanticAnalyzerUnavailable types.ErrorCode = "SEMANTIC_ANALYZER_UNAVAILABLE"
 	ErrCodeRuleCompilationFailed       types.ErrorCode = "RULE_COMPILATION_FAILED"
 	ErrCodeStreamLimitExceeded         types.ErrorCode = "STREAM_LIMIT_EXCEEDED"
 	ErrCodeSemanticAnalysisFailed      types.ErrorCode = "SEMANTIC_ANALYSIS_FAILED"
@@ -55,13 +55,12 @@ func PolicyViolationDetected(ruleID string, severity string) *types.DomainError 
 	}
 }
 
-// SemanticProviderUnavailable returns an error for unavailable semantic providers
-func SemanticProviderUnavailable(provider string) *types.DomainError {
+// SemanticAnalyzerUnavailable returns an error for unavailable semantic analyzer
+func SemanticAnalyzerUnavailable() *types.DomainError {
 	return &types.DomainError{
-		Code:       ErrCodeSemanticProviderUnavailable,
-		Message:    "semantic provider unavailable",
+		Code:       ErrCodeSemanticAnalyzerUnavailable,
+		Message:    "semantic analyzer unavailable",
 		HTTPStatus: http.StatusServiceUnavailable,
-		Details:    map[string]interface{}{"provider": provider},
 		Retryable:  true,
 	}
 }
@@ -90,28 +89,26 @@ func StreamLimitExceeded(limit int64) *types.DomainError {
 }
 
 // SemanticAnalysisFailed returns an error for semantic analysis failures
-func SemanticAnalysisFailed(provider string, reason string) *types.DomainError {
+func SemanticAnalysisFailed(reason string) *types.DomainError {
 	return &types.DomainError{
 		Code:       ErrCodeSemanticAnalysisFailed,
 		Message:    "semantic analysis failed",
 		HTTPStatus: http.StatusInternalServerError,
 		Details: map[string]interface{}{
-			"provider": provider,
-			"reason":   reason,
+			"reason": reason,
 		},
 		Retryable: true,
 	}
 }
 
 // LLMProviderError returns an error for LLM provider errors
-func LLMProviderError(provider string, message string) *types.DomainError {
+func LLMProviderError(message string) *types.DomainError {
 	return &types.DomainError{
 		Code:       ErrCodeLLMProviderError,
 		Message:    "LLM provider error",
 		HTTPStatus: http.StatusBadGateway,
 		Details: map[string]interface{}{
-			"provider": provider,
-			"message":  message,
+			"message": message,
 		},
 		Retryable: true,
 	}

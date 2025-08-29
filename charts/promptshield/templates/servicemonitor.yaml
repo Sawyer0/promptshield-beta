@@ -1,0 +1,27 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "promptshield.fullname" . }}
+  labels:
+    {{- include "promptshield.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.serviceMonitor.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "promptshield.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http
+      interval: {{ .Values.monitoring.scrapeInterval }}
+      path: /metrics
+      {{- with .Values.monitoring.serviceMonitor.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+

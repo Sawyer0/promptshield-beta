@@ -23,6 +23,7 @@
         "version": { "type": "string" },
         "description": { "type": "string" },
         "author": { "type": "string" },
+        "authors": { "type": "array", "items": { "type": "string" } },
         "license": { "type": "string" },
         "homepage": { "type": "string" },
         "repository": { "type": "string" },
@@ -55,6 +56,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string" },
+        "description": { "type": "string" },
         "level": { "type": "integer", "minimum": 1, "maximum": 3 },
         "severity": { "type": "string", "pattern": "^(|INFO|WARNING|HIGH|ERROR|CRITICAL)$" },
         "category": { "type": "string" },
@@ -154,7 +156,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "strategy": { "type": "string", "enum": ["all_matches", "first_match", "priority_order"] }
+        "strategy": { "type": "string", "enum": ["all_matches", "first_match", "priority_order"] },
+        "priority": { "type": "integer", "minimum": 0 }
       }
     },
     "performance": {

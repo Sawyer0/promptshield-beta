@@ -36,7 +36,7 @@ func main() {
 	// Initialize repositories
 	tenantRepo := pg.TenantRepo(db)
 	rulepackRepo := pg.RulepackRepo(db)
-	assignmentRepo := pg.PolicyAssignmentRepo(db)
+	assignmentRepo := pg.RulepackAssignmentRepo(db)
 	auditRepo := pg.AuditRepo(db)
 
 	// Initialize NATS publisher
@@ -98,7 +98,7 @@ func main() {
 	// Graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("Server forced to shutdown", "error", err)
 		os.Exit(1)

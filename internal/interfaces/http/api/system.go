@@ -18,7 +18,7 @@ import (
 // registerSystemHandlers registers all system management and diagnostics endpoints
 func registerSystemHandlers(r chi.Router, opt Options) {
 	// System management endpoints (admin only)
-	r.Route("/v1/admin/system", func(sr chi.Router) {
+	r.Route("/admin/system", func(sr chi.Router) {
 		sr.Use(adminAuth(opt))
 
 		sr.Get("/features", getFeaturesHandler(opt))
@@ -41,7 +41,6 @@ func registerSystemHandlers(r chi.Router, opt Options) {
 
 // SystemFeatures represents available features and their status
 type SystemFeatures struct {
-	AsyncJobs        bool `json:"async_jobs"`
 	L3Semantic       bool `json:"l3_semantic"`
 	TenantManagement bool `json:"tenant_management"`
 	AuditLogging     bool `json:"audit_logging"`
@@ -111,7 +110,6 @@ func getFeaturesHandler(opt Options) http.HandlerFunc {
 		_ = license.IsLicensed()
 
 		features := SystemFeatures{
-			AsyncJobs:        license.HasFeature("async_jobs"),
 			L3Semantic:       license.HasFeature("l3_semantic"),
 			TenantManagement: opt.TenantRepository != nil,
 			AuditLogging:     opt.AuditRepository != nil,
@@ -215,8 +213,7 @@ func getSystemInfoHandler(opt Options) http.HandlerFunc {
 				"entitlements": entitlements,
 			},
 			Features: SystemFeatures{
-				AsyncJobs:        license.HasFeature("async_jobs"),
-				L3Semantic:       license.HasFeature("l3_semantic"),
+					L3Semantic:       license.HasFeature("l3_semantic"),
 				TenantManagement: opt.TenantRepository != nil,
 				AuditLogging:     opt.AuditRepository != nil,
 				UsageTracking:    opt.UsageStore != nil,

@@ -25,5 +25,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(ExtprocStreams, ExtprocBytes, ExtprocStreamDuration, ExtprocRuleHits, ExtprocRedactions)
+	if Enabled() {
+		prometheus.MustRegister(ExtprocStreams, ExtprocBytes, ExtprocStreamDuration, ExtprocRuleHits, ExtprocRedactions)
+	}
 }

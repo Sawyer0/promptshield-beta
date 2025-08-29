@@ -2,10 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/shared/types"
 )
 
@@ -40,7 +40,12 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}, r *http.Requ
 		Meta: getMeta(r),
 	}
 	
-	_ = json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		// Log encoding error but don't fail the request since headers are already written
+		// In production, this indicates a serious serialization issue
+		logger := getLogger(r)
+		logger.Error("Failed to encode JSON response", "error", err, "correlation_id", getCorrelationID(r))
+	}
 }
 
 // writeErrorJSON writes a structured error response
@@ -64,7 +69,12 @@ func writeErrorJSON(w http.ResponseWriter, status int, code, message string, det
 		Meta: getMeta(r),
 	}
 	
-	_ = json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		// Log encoding error but don't fail the request since headers are already written
+		// In production, this indicates a serious serialization issue
+		logger := getLogger(r)
+		logger.Error("Failed to encode error response", "error", err, "correlation_id", getCorrelationID(r))
+	}
 }
 
 // getMeta returns metadata for responses
@@ -83,25 +93,7 @@ func getMeta(r *http.Request) map[string]interface{} {
 	return meta
 }
 
-// getCorrelationID retrieves correlation ID from context
-func getCorrelationID(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	
-	if id := r.Context().Value(correlationIDKey); id != nil {
-		if strID, ok := id.(string); ok {
-			return strID
-		}
-	}
-	
-	// Fallback to header
-	if id := r.Header.Get("X-PS-Correlation-ID"); id != "" {
-		return id
-	}
-	
-	return uuid.New().String()
-}
+// getCorrelationID is defined in middleware_common.go
 
 // getTenantID retrieves tenant ID from context
 func getTenantID(r *http.Request) string {
@@ -127,4 +119,16 @@ func writeDomainError(w http.ResponseWriter, err *types.DomainError, r *http.Req
 	}
 	
 	writeErrorJSON(w, err.HTTPStatus, string(err.Code), err.Message, err.Details, r)
+}
+
+// getLogger retrieves logger from request context or returns default
+func getLogger(r *http.Request) *slog.Logger {
+	if r != nil {
+		if logger := r.Context().Value("logger"); logger != nil {
+			if l, ok := logger.(*slog.Logger); ok {
+				return l
+			}
+		}
+	}
+	return slog.Default()
 }

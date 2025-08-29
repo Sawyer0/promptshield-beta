@@ -17,19 +17,20 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/audit"
+	"github.com/promptshield/promptshield/internal/bootstrap"
+	"github.com/promptshield/promptshield/internal/domain"
 	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
-	"github.com/promptshield/promptshield/internal/bootstrap"
-	"github.com/promptshield/promptshield/internal/shared/contracts"
+	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
 	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
+	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	"github.com/promptshield/promptshield/internal/usage"
 	redis "github.com/redis/go-redis/v9"
@@ -44,29 +45,10 @@ import (
 // - POST /check: enforcement decision endpoint
 
 // NewMux constructs the HTTP handler mux for the enforcer.
-var (
-	enforcerRequests = prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "ps_enforcer_requests_total", Help: "Total HTTP requests to enforcer"},
-		[]string{"path", "code"},
-	)
-	enforcerDecisions = prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "ps_enforcer_decisions_total", Help: "Total decisions made by enforcer"},
-		[]string{"decision"},
-	)
-	enforcerReqDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{Name: "ps_enforcer_request_duration_seconds", Help: "Request duration in seconds", Buckets: prometheus.DefBuckets},
-		[]string{"path", "decision"},
-	)
-	policyBypass = prometheus.NewCounterVec(
-		prometheus.CounterOpts{Name: "ps_policy_bypass_total", Help: "Total requests served in policy bypass mode"},
-		[]string{"reason"},
-	)
-)
 
 // Optional performance toggles (env-driven)
 func metricsEnabled() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_DISABLE_METRICS")))
-	return !(v == "1" || v == "true" || v == "yes")
+	return metrics.Enabled()
 }
 
 func tracingEnabled() bool {
@@ -88,11 +70,6 @@ func envBool(key string) bool {
 	default:
 		return false
 	}
-}
-
-func init() {
-	// Best-effort registration; ignore panics on duplicate in tests
-	prometheus.MustRegister(enforcerRequests, enforcerDecisions, enforcerReqDuration, policyBypass)
 }
 
 func NewMux() http.Handler { // backward-compatible wrapper
@@ -120,37 +97,61 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 	// Initialize services with database if available
 	var rulepackService *services.RulepackService
 	var policyService contracts.PolicyService
-	
+	var tenantRepo domain.TenantRepository
+	var assignmentRepo domain.RulepackAssignmentRepository
+	var auditRepo domain.AuditRepository
+
 	if dbPool != nil {
-		// Use PostgreSQL repositories
+		// Use PostgreSQL repositories for enterprise features
 		rulepackRepo := pg.RulepackRepo(dbPool)
 		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
-		
+
+		// Initialize enterprise repositories
+		tenantRepo = pg.TenantRepo(dbPool)
+		assignmentRepo = pg.RulepackAssignmentRepo(dbPool)
+		auditRepo = pg.AuditRepo(dbPool)
+
 		// Use in-memory policy service for fast enforcement
 		// Policies are persisted in frontend and synced via API
 		policyService = initializePolicyService()
 	} else {
 		// Use in-memory implementations for high-performance enforcement
 		// Policies are persisted in frontend database and synced via API
-		
+
 		// Create in-memory rulepack repository
 		rulepackRepo := memory.NewRulepackRepository()
 		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
-		
+
 		// Use in-memory policy repository
 		policyService = initializePolicyService()
+
+		// Enterprise repositories will be nil (endpoints will return NOT_IMPLEMENTED)
 	}
 
 	// Create scanner manager for event-driven real-time enforcement
-	scannerManager := NewScannerManager()
-	
-	return api.Options{
+	scannerManager := NewScannerManagerWithRulepackService(rulepackService)
+
+	// Build API options with database-backed repositories
+	options := api.Options{
 		AdminToken:         adminToken,
 		AllowInsecureAdmin: allowInsecure,
 		PolicyService:      policyService,
 		RulepackService:    rulepackService,
 		ScannerManager:     scannerManager,
 	}
+
+	// Wire enterprise repositories when database is available
+	if tenantRepo != nil {
+		options.TenantRepository = tenantRepo
+	}
+	if assignmentRepo != nil {
+		options.AssignmentRepository = assignmentRepo
+	}
+	if auditRepo != nil {
+		options.AuditRepository = auditRepo
+	}
+
+	return options
 }
 
 // initializePolicyService creates and configures the policy management service
@@ -158,10 +159,10 @@ func initializePolicyService() contracts.PolicyService {
 	// Initialize policy dependencies with bootstrap
 	policyDeps := bootstrap.InitializePolicyDependencies(
 		nil, // ruleCompiler - will be nil for now, add later when integrating with scanner
-		nil, // scanEngine - will be nil for now, add later when integrating with scanner  
+		nil, // scanEngine - will be nil for now, add later when integrating with scanner
 		nil, // auditLogger - will be nil for now, add later when integrating with audit
 	)
-	
+
 	return policyDeps.Service
 }
 
@@ -191,11 +192,11 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		if !dbHealthy {
 			// Switch to observe mode to fail-open.
 			os.Setenv("PS_ENFORCER_MODE", "observe")
-			logger := slog.With("component","enforcer-http")
+			logger := slog.With("component", "enforcer-http")
 			logger.Warn("Database unreachable at startup; entering OBSERVE fail-open mode", "dsn", dsn)
 		}
 	}
-	
+
 	// If API options don't have services configured, initialize them with DB
 	if apiOpt.RulepackService == nil {
 		apiOpt = getAPIOptionsWithDB(dbPool)
@@ -239,29 +240,26 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		if len(preloadPacks) > 0 {
 			sc.LoadRulePacks(preloadPacks)
 		}
-		
+
 		// Initialize semantic analyzer if enabled
 		if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
-			provider := os.Getenv("PS_SEMANTIC_PROVIDER")
-			if provider == "openai" {
-				apiKey := os.Getenv("OPENAI_API_KEY")
-				if apiKey != "" {
-					analyzer := semopenai.New(semopenai.Options{
-						APIKey:         apiKey,
-						MaxConcurrency: 2,
-						CacheSize:      1000,
-						CacheTTL:       15 * time.Minute,
-						RequestsPerSecond: 10,
-						BurstSize:      20,
-					})
-					sc.SetSemanticAnalyzer(analyzer)
-					if logger := slog.With("component", "semantic"); logger != nil {
-						logger.Info("OpenAI semantic analyzer initialized")
-					}
+			apiKey := os.Getenv("OPENAI_API_KEY")
+			if apiKey != "" {
+				analyzer := semopenai.New(semopenai.Options{
+					APIKey:            apiKey,
+					MaxConcurrency:    2,
+					CacheSize:         1000,
+					CacheTTL:          15 * time.Minute,
+					RequestsPerSecond: 10,
+					BurstSize:         20,
+				})
+				sc.SetSemanticAnalyzer(analyzer)
+				if logger := slog.With("component", "semantic"); logger != nil {
+					logger.Info("OpenAI semantic analyzer initialized")
 				}
 			}
 		}
-		
+
 		return sc
 	}
 
@@ -415,7 +413,7 @@ func Serve(addr string) *http.Server {
 	startHTTPS := func(certFile, keyFile string) {
 		tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
 		if clientCA != "" {
-			logger := slog.With("component","enforcer-http")
+			logger := slog.With("component", "enforcer-http")
 			if err := paths.ValidateCAFilePath(clientCA); err != nil {
 				logger.Error("invalid client CA file path", "error", err)
 			} else if caPEM, err := os.ReadFile(clientCA); err == nil {
@@ -433,7 +431,7 @@ func Serve(addr string) *http.Server {
 		srv.TLSConfig = tlsCfg
 		go func() {
 			if err := srv.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-				logger := slog.With("component","enforcer-http")
+				logger := slog.With("component", "enforcer-http")
 				logger.Error("enforcer https server error", "error", err)
 			}
 		}()
@@ -444,14 +442,14 @@ func Serve(addr string) *http.Server {
 		// Explicit insecure mode
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger := slog.With("component","enforcer-http")
+				logger := slog.With("component", "enforcer-http")
 				logger.Error("enforcer http server error", "error", err)
 			}
 		}()
 		return srv
 	case "require":
 		if !havePair {
-			logger := slog.With("component","enforcer-http")
+			logger := slog.With("component", "enforcer-http")
 			logger.Error("TLS required but no certificate configured", "address", addr)
 			os.Exit(1)
 		}
@@ -460,7 +458,7 @@ func Serve(addr string) *http.Server {
 	default: // auto
 		if nonLoop {
 			if !havePair {
-				logger := slog.With("component","enforcer-http")
+				logger := slog.With("component", "enforcer-http")
 				logger.Error("Refusing to listen on non-loopback address without TLS", "address", addr)
 				os.Exit(1)
 			}
@@ -473,7 +471,7 @@ func Serve(addr string) *http.Server {
 		} else {
 			go func() {
 				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-					logger := slog.With("component","enforcer-http")
+					logger := slog.With("component", "enforcer-http")
 					logger.Error("enforcer http server error", "error", err)
 				}
 			}()

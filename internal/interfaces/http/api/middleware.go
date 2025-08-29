@@ -2,33 +2,41 @@ package api
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 )
 
-// adminAuth enforces an admin token on protected routes when configured.
+// adminAuth enforces simple admin authentication for ops endpoints only
 func adminAuth(opt Options) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			println("DEBUG: AdminToken='", opt.AdminToken, "' AllowInsecure=", opt.AllowInsecureAdmin)
-			if opt.AdminToken == "" {
-				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin token required", nil)
+			// Simple admin token for ops endpoints (/metrics, /health, /admin/*)
+			if opt.AdminToken != "" {
+				tok := r.Header.Get("Authorization")
+				if strings.HasPrefix(strings.ToLower(tok), "bearer ") {
+					tok = tok[7:]
+				}
+				if tok == "" {
+					tok = r.Header.Get("X-PS-Admin-Token")
+				}
+				if tok == opt.AdminToken {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			
+			// Development mode (when explicitly enabled)
+			if opt.AllowInsecureAdmin {
+				slog.Warn("INSECURE: Admin endpoints accessible without authentication")
+				next.ServeHTTP(w, r)
 				return
 			}
-			tok := r.Header.Get("Authorization")
-			if strings.HasPrefix(strings.ToLower(tok), "bearer ") {
-				tok = tok[7:]
-			}
-			if tok == "" {
-				tok = r.Header.Get("X-PS-Admin-Token")
-			}
-			if tok != opt.AdminToken {
-				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "invalid admin token", nil)
-				return
-			}
-			next.ServeHTTP(w, r)
+			
+			// No valid authentication found
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin authentication required", nil)
 		})
 	}
 }

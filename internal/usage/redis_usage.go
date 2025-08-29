@@ -30,6 +30,11 @@ func NewRedisUsageStore(rdb *redis.Client, prefix string, ttl time.Duration) *Re
 	return &RedisUsageStore{rdb: rdb, prefix: prefix, ttl: ttl}
 }
 
+// floorToMinute returns the time rounded down to the nearest minute
+func floorToMinute(t time.Time) time.Time {
+	return t.Truncate(time.Minute)
+}
+
 func usageKey(prefix string, ts int64, tenant, route string) string {
 	if tenant == "" {
 		tenant = "default"

@@ -14,15 +14,15 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/services"
-	"github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/domain"
+	"github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 )
 
 type ControlPlaneHandler struct {
 	tenantRepo     domain.TenantRepository
 	rulepackRepo   postgres.RulepackRepository
-	assignmentRepo domain.PolicyAssignmentRepository
+	assignmentRepo domain.RulepackAssignmentRepository
 	auditRepo      domain.AuditRepository
 	rulepackSvc    *services.RulepackService
 	validationSvc  *services.ValidationService
@@ -32,7 +32,7 @@ type ControlPlaneHandler struct {
 func NewControlPlaneHandler(
 	tenantRepo domain.TenantRepository,
 	rulepackRepo postgres.RulepackRepository,
-	assignmentRepo domain.PolicyAssignmentRepository,
+	assignmentRepo domain.RulepackAssignmentRepository,
 	auditRepo domain.AuditRepository,
 	rulepackSvc *services.RulepackService,
 	validationSvc *services.ValidationService,
@@ -216,10 +216,10 @@ func (h *ControlPlaneHandler) CreateAssignment(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	assignment := &domain.PolicyAssignment{
+	assignment := &domain.RulepackAssignment{
 		ID:          uuid.New(),
 		TenantID:    tenantID,
-		PolicyID:    rulepackID,
+		RulepackID:  rulepackID,
 		TargetScope: req.TargetScope,
 		Priority:    req.Priority,
 		Enabled:     true,

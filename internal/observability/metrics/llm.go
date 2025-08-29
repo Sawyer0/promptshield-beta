@@ -66,5 +66,7 @@ func RecordLLMLatency(provider, model string, duration time.Duration) {
 }
 
 func init() {
-	prometheus.MustRegister(TokensTotal, LLMRequestsTotal, LLMLatency, LLMErrors, LLMRetries, LLMTimeouts, LLMRetrySuccess)
+	if Enabled() {
+		prometheus.MustRegister(TokensTotal, LLMRequestsTotal, LLMLatency, LLMErrors, LLMRetries, LLMTimeouts, LLMRetrySuccess)
+	}
 }

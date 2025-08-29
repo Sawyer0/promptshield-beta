@@ -1,0 +1,290 @@
+groups:
+  - name: promptshield.security
+    rules:
+      - alert: HighViolationRate
+        expr: rate(ps_violations_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: promptshield
+          type: security
+        annotations:
+          summary: "High security violation rate detected"
+          description: "PromptShield is detecting {{ $value }} violations per second for tenant {{ $labels.tenant_id }}"
+          runbook_url: "https://docs.promptshield.io/runbooks/high-violation-rate"
+          
+      - alert: CriticalViolationSpike
+        expr: rate(ps_violations_total{severity="CRITICAL"}[5m]) > 5
+        for: 1m
+        labels:
+          severity: critical
+          service: promptshield
+          type: security
+        annotations:
+          summary: "Critical security violations spike"
+          description: "PromptShield detected {{ $value }} critical violations per second for tenant {{ $labels.tenant_id }}"
+          
+      - alert: SuspiciousActivityPattern
+        expr: increase(ps_violations_total[1h]) > 100 AND increase(ps_violations_total[1h]) > (increase(ps_violations_total[6h]) / 6) * 3
+        for: 5m
+        labels:
+          severity: warning
+          service: promptshield
+          type: security
+        annotations:
+          summary: "Suspicious activity pattern detected"
+          description: "Abnormal spike in violations for tenant {{ $labels.tenant_id }}: {{ $value }} in the last hour"
+          
+  - name: promptshield.performance
+    rules:
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, sum(rate(ps_request_duration_seconds_bucket[5m])) by (le)) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: promptshield
+          type: performance
+        annotations:
+          summary: "High response latency detected"
+          description: "P95 latency is {{ $value }}s, exceeding SLA target of 100ms"
+          
+      - alert: VeryHighLatency
+        expr: histogram_quantile(0.95, sum(rate(ps_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 2m
+        labels:
+          severity: critical
+          service: promptshield
+          type: performance
+        annotations:
+          summary: "Very high response latency"
+          description: "P95 latency is {{ $value }}s, significantly exceeding SLA"
+          
+      - alert: HighErrorRate
+        expr: rate(ps_errors_total[5m]) / rate(ps_requests_total[5m]) > 0.01
+        for: 3m
+        labels:
+          severity: warning
+          service: promptshield
+          type: performance
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for tenant {{ $labels.tenant_id }}"
+          
+      - alert: CriticalErrorRate
+        expr: rate(ps_errors_total[5m]) / rate(ps_requests_total[5m]) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+          service: promptshield
+          type: performance
+        annotations:
+          summary: "Critical error rate"
+          description: "Error rate is {{ $value | humanizePercentage }} for tenant {{ $labels.tenant_id }}"
+          
+      - alert: LowThroughput
+        expr: rate(ps_requests_total[5m]) < 1
+        for: 10m
+        labels:
+          severity: warning
+          service: promptshield
+          type: performance
+        annotations:
+          summary: "Low request throughput"
+          description: "Request rate dropped to {{ $value }} req/sec for tenant {{ $labels.tenant_id }}"
+          
+  - name: promptshield.availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job="promptshield"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: promptshield
+          type: availability
+        annotations:
+          summary: "PromptShield service is down"
+          description: "PromptShield instance {{ $labels.instance }} has been down for more than 1 minute"
+          
+      - alert: DatabaseConnectivity
+        expr: ps_db_connections_failed_total > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: promptshield
+          type: availability
+        annotations:
+          summary: "Database connectivity issues"
+          description: "PromptShield cannot connect to database: {{ $value }} failed connections"
+          
+      - alert: HealthCheckFailing
+        expr: ps_health_check_status != 1
+        for: 2m
+        labels:
+          severity: critical
+          service: promptshield
+          type: availability
+        annotations:
+          summary: "Health check failing"
+          description: "PromptShield health check is failing on {{ $labels.instance }}"
+          
+  - name: promptshield.capacity
+    rules:
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes{job="promptshield"} / 1024 / 1024 / 1024 > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: promptshield
+          type: capacity
+        annotations:
+          summary: "High memory usage"
+          description: "PromptShield memory usage is {{ $value }}GB on {{ $labels.instance }}"
+          
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total{job="promptshield"}[5m]) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: promptshield
+          type: capacity
+        annotations:
+          summary: "High CPU usage"
+          description: "PromptShield CPU usage is {{ $value }}% on {{ $labels.instance }}"
+          
+      - alert: RateLimitApproaching
+        expr: ps_rate_limit_usage_ratio > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: promptshield
+          type: capacity
+        annotations:
+          summary: "Rate limit approaching"
+          description: "Tenant {{ $labels.tenant_id }} is at {{ $value | humanizePercentage }} of rate limit"
+          
+      - alert: RateLimitExceeded
+        expr: ps_rate_limit_exceeded_total > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: promptshield
+          type: capacity
+        annotations:
+          summary: "Rate limit exceeded"
+          description: "Tenant {{ $labels.tenant_id }} has exceeded rate limits {{ $value }} times"
+          
+  - name: promptshield.business
+    rules:
+      - alert: UsageQuotaWarning
+        expr: ps_usage_quota_ratio{metric_type="api_calls"} > 0.8
+        for: 0m
+        labels:
+          severity: warning
+          service: promptshield
+          type: business
+        annotations:
+          summary: "Usage quota warning"
+          description: "Tenant {{ $labels.tenant_id }} is at {{ $value | humanizePercentage }} of API call quota"
+          
+      - alert: UsageQuotaExceeded
+        expr: ps_usage_quota_ratio{metric_type="api_calls"} > 1
+        for: 0m
+        labels:
+          severity: critical
+          service: promptshield
+          type: business
+        annotations:
+          summary: "Usage quota exceeded"
+          description: "Tenant {{ $labels.tenant_id }} has exceeded API call quota"
+          
+      - alert: SubscriptionExpiring
+        expr: ps_subscription_days_remaining < 7
+        for: 0m
+        labels:
+          severity: warning
+          service: promptshield
+          type: business
+        annotations:
+          summary: "Subscription expiring"
+          description: "Tenant {{ $labels.tenant_id }} subscription expires in {{ $value }} days"
+          
+      - alert: NewTenantSignup
+        expr: increase(ps_tenants_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: info
+          service: promptshield
+          type: business
+        annotations:
+          summary: "New tenant signup"
+          description: "{{ $value }} new tenant(s) signed up in the last hour"
+          
+  - name: promptshield.llm
+    rules:
+      - alert: LLMProviderDown
+        expr: ps_llm_provider_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: promptshield
+          type: integration
+        annotations:
+          summary: "LLM provider unavailable"
+          description: "{{ $labels.provider }} is down or unreachable"
+          
+      - alert: LLMHighLatency
+        expr: histogram_quantile(0.95, sum(rate(ps_llm_request_duration_seconds_bucket[5m])) by (le, provider)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: promptshield
+          type: integration
+        annotations:
+          summary: "High LLM provider latency"
+          description: "{{ $labels.provider }} P95 latency is {{ $value }}s"
+          
+      - alert: LLMErrorRate
+        expr: rate(ps_llm_errors_total[5m]) / rate(ps_llm_requests_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: promptshield
+          type: integration
+        annotations:
+          summary: "High LLM error rate"
+          description: "{{ $labels.provider }} error rate is {{ $value | humanizePercentage }}"
+          
+      - alert: LLMTokenUsageSpike
+        expr: rate(ps_llm_tokens_used_total[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: promptshield
+          type: cost
+        annotations:
+          summary: "High LLM token usage"
+          description: "{{ $labels.provider }} token usage spike: {{ $value }} tokens/sec"
+          
+  - name: promptshield.cache
+    rules:
+      - alert: LowCacheHitRate
+        expr: rate(ps_cache_hits_total[5m]) / (rate(ps_cache_hits_total[5m]) + rate(ps_cache_misses_total[5m])) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          service: promptshield
+          type: performance
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} for {{ $labels.cache_type }}"
+          
+      - alert: CacheMemoryHigh
+        expr: ps_cache_memory_usage_bytes / ps_cache_memory_limit_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: promptshield
+          type: capacity
+        annotations:
+          summary: "Cache memory usage high"
+          description: "{{ $labels.cache_type }} cache is using {{ $value | humanizePercentage }} of available memory"

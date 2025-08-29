@@ -17,8 +17,6 @@ var rules = []rule{
 	{rx: regexp.MustCompile(`(?i)\b(sk-[a-z0-9]{32,})\b`)},
 	// OpenAI project-scoped keys (sk-proj- prefix)
 	{rx: regexp.MustCompile(`(?i)\b(sk-proj-[a-z0-9]{24,})\b`)},
-	// Anthropic keys
-	{rx: regexp.MustCompile(`(?i)\b(anthropic-[a-z0-9]+)\b`)},
 	// Generic 'key-' tokens (>= 32 chars)
 	{rx: regexp.MustCompile(`(?i)\b(key-[A-Za-z0-9_-]{32,})\b`)},
 	// Generic 'key=' patterns
