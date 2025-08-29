@@ -403,7 +403,9 @@ var circuitStateTransitions = prometheus.NewCounterVec(
 )
 
 func init() {
-	prometheus.MustRegister(circuitStateTransitions)
+	if metrics.Enabled() {
+		prometheus.MustRegister(circuitStateTransitions)
+	}
 }
 
 func (s *Subscriber) recoverPending() {

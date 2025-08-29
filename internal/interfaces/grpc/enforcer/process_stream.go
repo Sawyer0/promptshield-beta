@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproc "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
+	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/shared/redact"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -24,6 +28,10 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 	tracer := otel.Tracer("promptshield/enforcer")
 	ctx, span := tracer.Start(ctx, "extproc_stream")
 	defer span.End()
+
+	// Extract tenant ID from request headers when they arrive
+	var tenantID uuid.UUID
+	var tenantScReq, tenantScResp *scanner.Scanner
 
 	// Acquire global stream slot to cap concurrency
 	if s.streamSlots != nil {
@@ -75,6 +83,27 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 
 		switch x := req.Request.(type) {
 		case *extproc.ProcessingRequest_RequestHeaders:
+			// Extract tenant ID from request headers
+			if x.RequestHeaders != nil && x.RequestHeaders.Headers != nil {
+				tenantID = s.extractTenantID(x.RequestHeaders.Headers.Headers)
+				
+				// Load tenant-specific scanners
+				var err error
+				tenantScReq, tenantScResp, err = s.getTenantScanners(ctx, tenantID)
+				if err != nil {
+					slog.Error("Failed to load tenant scanners", "tenant_id", tenantID, "error", err)
+					// Fallback to global scanners
+					tenantScReq, tenantScResp = s.scReq, s.scResp
+				}
+				
+				span.SetAttributes(attribute.String("tenant_id", tenantID.String()))
+			}
+			
+			// If no tenant scanners loaded, use global as fallback
+			if tenantScReq == nil || tenantScResp == nil {
+				tenantScReq, tenantScResp = s.scReq, s.scResp
+			}
+			
 			// Pass through request headers
 			if err := stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_RequestHeaders{RequestHeaders: &extproc.HeadersResponse{Response: &extproc.CommonResponse{}}}}); err != nil {
 				span.RecordError(err)
@@ -197,7 +226,7 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 				
 				// Acquire read lock to prevent rule reloading during scan
 				s.rulesMutex.RLock()
-				res, scanErr := s.scReq.ScanReader(ctxScan, bytes.NewReader(window), "extproc:request-window")
+				res, scanErr := tenantScReq.ScanReader(ctxScan, bytes.NewReader(window), "extproc:request-window")
 				s.rulesMutex.RUnlock()
 				
 				cancel()
@@ -301,7 +330,7 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 				
 				// Acquire read lock to prevent rule reloading during scan
 				s.rulesMutex.RLock()
-				res, scanErr := s.scResp.ScanReader(ctxScan, bytes.NewReader(rwindow), "extproc:response-window")
+				res, scanErr := tenantScResp.ScanReader(ctxScan, bytes.NewReader(rwindow), "extproc:response-window")
 				s.rulesMutex.RUnlock()
 				
 				cancel()
@@ -414,4 +443,51 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 			continue // ignore unknown message types
 		}
 	}
+}
+
+// extractTenantID extracts tenant ID from HTTP headers in gRPC metadata
+func (s *Server) extractTenantID(headers []*corev3.HeaderValue) uuid.UUID {
+	for _, header := range headers {
+		if header.Key == "x-ps-tenant-id" || header.Key == "X-PS-Tenant-ID" {
+			if tenantID, err := uuid.Parse(string(header.RawValue)); err == nil {
+				return tenantID
+			}
+		}
+	}
+	return uuid.Nil // No tenant ID found
+}
+
+// getTenantScanners loads tenant-specific scanners with their rulepacks
+func (s *Server) getTenantScanners(ctx context.Context, tenantID uuid.UUID) (*scanner.Scanner, *scanner.Scanner, error) {
+	if tenantID == uuid.Nil {
+		// No tenant ID, use global scanners
+		return s.scReq, s.scResp, nil
+	}
+	
+	if s.rulepackRepo == nil {
+		// No database configured, use global scanners
+		return s.scReq, s.scResp, nil
+	}
+	
+	// Load tenant-specific rulepacks from database
+	packs, err := LoadRulesFromDatabase(ctx, s.rulepackRepo, tenantID)
+	if err != nil {
+		return nil, nil, err
+	}
+	
+	if len(packs) == 0 {
+		// No tenant-specific rules, use global scanners
+		return s.scReq, s.scResp, nil
+	}
+	
+	// Create tenant-specific scanners
+	tenantScReq := scanner.ScanEngineCstor(0)
+	tenantScResp := scanner.ScanEngineCstor(0)
+	
+	// Load tenant rulepacks into scanners
+	tenantScReq.LoadRulePacks(packs)
+	tenantScResp.LoadRulePacks(packs)
+	
+	slog.Debug("Loaded tenant-specific scanners", "tenant_id", tenantID, "rulepacks", len(packs))
+	return tenantScReq, tenantScResp, nil
 }

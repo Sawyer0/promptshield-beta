@@ -7,7 +7,7 @@ import (
 
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/domain"
-	"github.com/promptshield/promptshield/internal/jobs"
+	"github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/observability/telemetry"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
@@ -24,10 +24,11 @@ type Options struct {
 	RulepackService    *services.RulepackService
 	PolicyService      contracts.PolicyService
 	UsageStore         usage.UsageStore
+
+	// Multi-tenant support
+	DB postgres.DB // Database interface for tenant validation
 	// AuditLogger, when set, receives durable audit trail events
 	AuditLogger contracts.AuditLogger
-	// JobManager handles asynchronous job processing. When nil, a default manager is created.
-	JobManager *jobs.Manager
 	// Events provides a simple in-memory broadcaster for SSE and hooks.
 	// When nil, a default hub is created by the router.
 	Events *EventHub
@@ -44,8 +45,9 @@ type Options struct {
 
 	// Enterprise repositories for tenant management
 	TenantRepository     domain.TenantRepository
-	AssignmentRepository domain.PolicyAssignmentRepository
+	AssignmentRepository domain.RulepackAssignmentRepository // rulepack assignments
 	AuditRepository      domain.AuditRepository
+	SettingsRepository   domain.SettingsRepository
 	// Security Gateway - no provider key management needed
 	// Security Gateway - no complex quota management needed
 
@@ -61,6 +63,7 @@ type Options struct {
 	ScannerManager interface {
 		HasActivePolicies() bool
 		ScanReader(ctx context.Context, reader interface{}, inputName string) (pkg.ScanResult, error)
+		ReloadRulepacks() error
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 
 // registerAuditHandlers registers all audit trail endpoints
 func registerAuditHandlers(r chi.Router, opt Options) {
-	r.Route("/v1/admin/audits", func(ar chi.Router) {
+	r.Route("/admin/audits", func(ar chi.Router) {
 		ar.Use(adminAuth(opt))
 		
 		ar.Get("/", listAuditEventsHandler(opt))

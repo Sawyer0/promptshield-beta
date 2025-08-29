@@ -2,121 +2,123 @@ package rules
 
 // RulePack models a user-authored YAML rule pack per v2 schema in plan/.
 type RulePack struct {
-	APIVersion  string            `yaml:"apiVersion"`
-	Kind        string            `yaml:"kind"`
-	Metadata    Metadata          `yaml:"metadata"`
-	Rules       []Rule            `yaml:"rules"`
-	Extends     []string          `yaml:"extends"`
-	Imports     []string          `yaml:"imports"`
-	Composition *Composition      `yaml:"composition"`
-	Performance *Performance      `yaml:"performance"`
-	Overrides   []Override        `yaml:"overrides"`
-	Context     map[string]string `yaml:"context"`
+	APIVersion  string            `yaml:"apiVersion" json:"apiVersion"`
+	Kind        string            `yaml:"kind" json:"kind"`
+	Metadata    Metadata          `yaml:"metadata" json:"metadata"`
+	Rules       []Rule            `yaml:"rules" json:"rules"`
+	Extends     []string          `yaml:"extends" json:"extends,omitempty"`
+	Imports     []string          `yaml:"imports" json:"imports,omitempty"`
+	Composition *Composition      `yaml:"composition" json:"composition,omitempty"`
+	Performance *Performance      `yaml:"performance" json:"performance,omitempty"`
+	Overrides   []Override        `yaml:"overrides" json:"overrides,omitempty"`
+	Context     map[string]string `yaml:"context" json:"context,omitempty"`
 	// SourcePath is the filesystem path the pack was loaded from (not serialized).
-	SourcePath string `yaml:"-"`
+	SourcePath string `yaml:"-" json:"-"`
 }
 
 type Metadata struct {
-	Name        string   `yaml:"name"`
-	Version     string   `yaml:"version"`
-	Description string   `yaml:"description"`
-	Author      string   `yaml:"author"`
-	License     string   `yaml:"license"`
-	Homepage    string   `yaml:"homepage"`
-	Repository  string   `yaml:"repository"`
-	Tags        []string `yaml:"tags"`
+	Name        string   `yaml:"name" json:"name"`
+	Version     string   `yaml:"version" json:"version,omitempty"`
+	Description string   `yaml:"description" json:"description,omitempty"`
+	Author      string   `yaml:"author" json:"author,omitempty"`
+	Authors     []string `yaml:"authors" json:"authors,omitempty"`
+	License     string   `yaml:"license" json:"license,omitempty"`
+	Homepage    string   `yaml:"homepage" json:"homepage,omitempty"`
+	Repository  string   `yaml:"repository" json:"repository,omitempty"`
+	Tags        []string `yaml:"tags" json:"tags,omitempty"`
 }
 
 type Rule struct {
-	ID       string `yaml:"id"`
-	Name     string `yaml:"name"`
-	Level    int    `yaml:"level"`    // 1=keyword, 2=regex, 3=semantic
-	Severity string `yaml:"severity"` // INFO|WARNING|ERROR|CRITICAL
-	Category string `yaml:"category"`
-	Enabled  *bool  `yaml:"enabled"`
-	Verifier string `yaml:"verifier"`
+	ID          string `yaml:"id" json:"id"`
+	Name        string `yaml:"name" json:"name,omitempty"`
+	Description string `yaml:"description" json:"description,omitempty"`
+	Level       int    `yaml:"level" json:"level"`    // 1=keyword, 2=regex, 3=semantic
+	Severity    string `yaml:"severity" json:"severity,omitempty"` // INFO|WARNING|ERROR|CRITICAL
+	Category    string `yaml:"category" json:"category,omitempty"`
+	Enabled     *bool  `yaml:"enabled" json:"enabled,omitempty"`
+	Verifier    string `yaml:"verifier" json:"verifier,omitempty"`
 
-	Keywords []string  `yaml:"keywords"`
-	Patterns []Pattern `yaml:"patterns"`
-	Semantic *Semantic `yaml:"semantic"`
-	Fallback *Fallback `yaml:"fallback"`
+	Keywords []string  `yaml:"keywords" json:"keywords,omitempty"`
+	Patterns []Pattern `yaml:"patterns" json:"patterns,omitempty"`
+	Semantic *Semantic `yaml:"semantic" json:"semantic,omitempty"`
+	Fallback *Fallback `yaml:"fallback" json:"fallback,omitempty"`
 
-	Logic    string    `yaml:"logic"` // any|all|custom
-	Options  Options   `yaml:"options"`
-	Response *Response `yaml:"response"`
-	Cache    *Cache    `yaml:"cache"`
+	Logic    string    `yaml:"logic" json:"logic,omitempty"` // any|all|custom
+	Options  Options   `yaml:"options" json:"options,omitempty"`
+	Response *Response `yaml:"response" json:"response,omitempty"`
+	Cache    *Cache    `yaml:"cache" json:"cache,omitempty"`
 
 	// Context gating (optional)
-	When   *Condition `yaml:"when"`
-	Unless *Condition `yaml:"unless"`
+	When   *Condition `yaml:"when" json:"when,omitempty"`
+	Unless *Condition `yaml:"unless" json:"unless,omitempty"`
 
 	// Optional per-rule timeout (e.g., "50ms")
-	Timeout string `yaml:"timeout"`
+	Timeout string `yaml:"timeout" json:"timeout,omitempty"`
 }
 
 type Options struct {
-	CaseSensitive bool `yaml:"case_sensitive"`
-	WholeWord     bool `yaml:"whole_word"`
+	CaseSensitive bool `yaml:"case_sensitive" json:"case_sensitive,omitempty"`
+	WholeWord     bool `yaml:"whole_word" json:"whole_word,omitempty"`
 }
 
 type Pattern struct {
-	Name     string   `yaml:"name"`
-	Regex    string   `yaml:"regex"`
-	Flags    []string `yaml:"flags"`
-	Verifier string   `yaml:"verifier"`
+	Name     string   `yaml:"name" json:"name,omitempty"`
+	Regex    string   `yaml:"regex" json:"regex"`
+	Flags    []string `yaml:"flags" json:"flags,omitempty"`
+	Verifier string   `yaml:"verifier" json:"verifier,omitempty"`
 }
 
 // Condition gates rule execution using merged context (pack defaults overridden by CLI context).
 // A rule matches the condition if for every key in Match, the runtime context
 // contains at least one of the listed values (OR within a key, AND across keys).
 type Condition struct {
-	Match map[string][]string `yaml:"match"`
+	Match map[string][]string `yaml:"match" json:"match"`
 }
 
 type Semantic struct {
-	Model               string  `yaml:"model"`
-	Temperature         float64 `yaml:"temperature"`
-	MaxTokens           int     `yaml:"max_tokens"`
-	AnalysisPrompt      string  `yaml:"analysis_prompt"`
-	ConfidenceThreshold float64 `yaml:"confidence_threshold"`
-	FallbackOnError     bool    `yaml:"fallback_on_error"`
+	Model               string  `yaml:"model" json:"model"`
+	Temperature         float64 `yaml:"temperature" json:"temperature,omitempty"`
+	MaxTokens           int     `yaml:"max_tokens" json:"max_tokens,omitempty"`
+	AnalysisPrompt      string  `yaml:"analysis_prompt" json:"analysis_prompt"`
+	ConfidenceThreshold float64 `yaml:"confidence_threshold" json:"confidence_threshold,omitempty"`
+	FallbackOnError     bool    `yaml:"fallback_on_error" json:"fallback_on_error,omitempty"`
 }
 
 type Fallback struct {
-	Patterns []Pattern `yaml:"patterns"`
-	Action   string    `yaml:"action"`
+	Patterns []Pattern `yaml:"patterns" json:"patterns,omitempty"`
+	Action   string    `yaml:"action" json:"action,omitempty"`
 }
 
 type Response struct {
-	Action      string `yaml:"action"`
-	Message     string `yaml:"message"`
-	Replacement string `yaml:"replacement"`
+	Action      string `yaml:"action" json:"action,omitempty"`
+	Message     string `yaml:"message" json:"message,omitempty"`
+	Replacement string `yaml:"replacement" json:"replacement,omitempty"`
 }
 
 type Cache struct {
-	Enabled    bool   `yaml:"enabled"`
-	TTL        string `yaml:"ttl"`
-	MaxEntries int    `yaml:"max_entries"`
+	Enabled    bool   `yaml:"enabled" json:"enabled,omitempty"`
+	TTL        string `yaml:"ttl" json:"ttl,omitempty"`
+	MaxEntries int    `yaml:"max_entries" json:"max_entries,omitempty"`
 }
 
 type Composition struct {
-	Strategy string `yaml:"strategy"`
-	Priority int    `yaml:"priority,omitempty"` // Higher values = higher priority (processed first)
+	Strategy string `yaml:"strategy" json:"strategy,omitempty"`
+	Priority int    `yaml:"priority,omitempty" json:"priority,omitempty"` // Higher values = higher priority (processed first)
 }
 
 type Performance struct {
-	MaxLength        int    `yaml:"max_length"`
-	Timeout          string `yaml:"timeout"`
-	PerRuleTimeout   string `yaml:"per_rule_timeout"`
-	TotalScanTimeout string `yaml:"total_scan_timeout"`
+	MaxLength        int    `yaml:"max_length" json:"max_length,omitempty"`
+	Timeout          string `yaml:"timeout" json:"timeout,omitempty"`
+	PerRuleTimeout   string `yaml:"per_rule_timeout" json:"per_rule_timeout,omitempty"`
+	TotalScanTimeout string `yaml:"total_scan_timeout" json:"total_scan_timeout,omitempty"`
 	Gate             struct {
-		Enabled     bool `yaml:"enabled"`
-		MinTokenLen int  `yaml:"min_token_len"`
-	} `yaml:"gate"`
+		Enabled     bool `yaml:"enabled" json:"enabled,omitempty"`
+		MinTokenLen int  `yaml:"min_token_len" json:"min_token_len,omitempty"`
+	} `yaml:"gate" json:"gate,omitempty"`
 }
 
 type Override struct {
-	RuleID   string `yaml:"rule_id"`
-	Severity string `yaml:"severity"`
-	Enabled  *bool  `yaml:"enabled"`
+	RuleID   string `yaml:"rule_id" json:"rule_id"`
+	Severity string `yaml:"severity" json:"severity,omitempty"`
+	Enabled  *bool  `yaml:"enabled" json:"enabled,omitempty"`
 }

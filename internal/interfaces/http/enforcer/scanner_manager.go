@@ -8,24 +8,29 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
-	"github.com/promptshield/promptshield/internal/shared/events"
-	"github.com/promptshield/promptshield/internal/shared/types"
 	pkg "github.com/promptshield/promptshield/pkg/types"
 )
 
 // ScannerManager manages a scanner instance for real-time enforcement
-// It subscribes to policy events and updates the scanner accordingly
+// It loads rulepacks from the database and manages scanner state
 type ScannerManager struct {
-	mu             sync.RWMutex
-	scanner        *scanner.Scanner
-	activePolicies map[uuid.UUID]*types.Policy
-	logger         *slog.Logger
+	mu              sync.RWMutex
+	scanner         *scanner.Scanner
+	loadedRulepacks int // Track number of loaded rulepacks
+	rulepackService *services.RulepackService
+	logger          *slog.Logger
 }
 
-// NewScannerManager creates a new scanner manager and subscribes to policy events
+// NewScannerManager creates a new scanner manager with database-backed rulepacks
 func NewScannerManager() *ScannerManager {
+	return NewScannerManagerWithRulepackService(nil)
+}
+
+// NewScannerManagerWithRulepackService creates a new scanner manager with rulepack service
+func NewScannerManagerWithRulepackService(rulepackService *services.RulepackService) *ScannerManager {
 	sc := scanner.ScanEngineCstor(0)
 	// Configure scanner for production use
 	sc.SetQuarantineOnTimeout(true)
@@ -33,16 +38,15 @@ func NewScannerManager() *ScannerManager {
 	sc.SetMaxStreamBytes(10 * 1024 * 1024) // 10MB max
 	
 	manager := &ScannerManager{
-		scanner:        sc,
-		activePolicies: make(map[uuid.UUID]*types.Policy),
-		logger:         slog.With("component", "scanner-manager"),
+		scanner:         sc,
+		rulepackService: rulepackService,
+		logger:          slog.With("component", "scanner-manager"),
 	}
 	
-	// Subscribe to policy activation/deactivation events
-	events.GlobalEventBus().Subscribe(events.EventTypePolicyActivated, manager.handlePolicyActivated)
-	events.GlobalEventBus().Subscribe(events.EventTypePolicyDeactivated, manager.handlePolicyDeactivated)
+	// Load any active rulepacks from database at startup
+	manager.loadActiveRulepacksFromDatabase()
 	
-	manager.logger.Info("Scanner manager initialized and subscribed to policy events")
+	manager.logger.Info("Scanner manager initialized with database-backed rulepacks")
 	
 	return manager
 }
@@ -54,169 +58,25 @@ func (sm *ScannerManager) GetScanner() *scanner.Scanner {
 	return sm.scanner
 }
 
-// HasActivePolicies returns true if any policies are currently active
+// HasActivePolicies returns true if any rulepacks are currently loaded
 func (sm *ScannerManager) HasActivePolicies() bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return len(sm.activePolicies) > 0
+	return sm.loadedRulepacks > 0
 }
 
-// GetActivePolicyCount returns the number of active policies
-func (sm *ScannerManager) GetActivePolicyCount() int {
+// GetActiveRulepackCount returns the number of loaded rulepacks
+func (sm *ScannerManager) GetActiveRulepackCount() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return len(sm.activePolicies)
+	return sm.loadedRulepacks
 }
 
-// handlePolicyActivated processes policy activation events
-func (sm *ScannerManager) handlePolicyActivated(ctx context.Context, event events.Event) error {
-	activatedEvent, ok := event.(*events.PolicyActivated)
-	if !ok {
-		return fmt.Errorf("invalid event type for policy activation")
-	}
-	
-	sm.logger.Info("Processing policy activation event", 
-		"policy_id", activatedEvent.PolicyID, 
-		"policy_name", activatedEvent.PolicyData.Name)
-	
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	
-	// Add policy to active set
-	sm.activePolicies[activatedEvent.PolicyID] = &activatedEvent.PolicyData
-	
-	// Reload scanner with all active policies
-	if err := sm.reloadScannerLocked(); err != nil {
-		sm.logger.Error("Failed to reload scanner after policy activation", "error", err)
-		return err
-	}
-	
-	sm.logger.Info("Policy activated in enforcement scanner", 
-		"policy_id", activatedEvent.PolicyID,
-		"total_active", len(sm.activePolicies))
-	
+// ReloadRulepacks forces a reload of rulepacks from the database
+// This can be called after rulepacks are uploaded via API
+func (sm *ScannerManager) ReloadRulepacks() error {
+	sm.loadActiveRulepacksFromDatabase()
 	return nil
-}
-
-// handlePolicyDeactivated processes policy deactivation events
-func (sm *ScannerManager) handlePolicyDeactivated(ctx context.Context, event events.Event) error {
-	deactivatedEvent, ok := event.(*events.PolicyDeactivated)
-	if !ok {
-		return fmt.Errorf("invalid event type for policy deactivation")
-	}
-	
-	sm.logger.Info("Processing policy deactivation event", 
-		"policy_id", deactivatedEvent.PolicyID, 
-		"policy_name", deactivatedEvent.PolicyData.Name)
-	
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	
-	// Remove policy from active set
-	delete(sm.activePolicies, deactivatedEvent.PolicyID)
-	
-	// Reload scanner with remaining active policies
-	if err := sm.reloadScannerLocked(); err != nil {
-		sm.logger.Error("Failed to reload scanner after policy deactivation", "error", err)
-		return err
-	}
-	
-	sm.logger.Info("Policy deactivated in enforcement scanner", 
-		"policy_id", deactivatedEvent.PolicyID,
-		"total_active", len(sm.activePolicies))
-	
-	return nil
-}
-
-// reloadScannerLocked rebuilds and reloads the scanner (must be called with lock held)
-func (sm *ScannerManager) reloadScannerLocked() error {
-	var rulePacks []rules.RulePack
-	
-	for policyID, policy := range sm.activePolicies {
-		rulepack, err := sm.convertPolicyToRulePack(policy)
-		if err != nil {
-			sm.logger.Error("Failed to convert policy to rulepack", "policy_id", policyID, "error", err)
-			continue
-		}
-		sm.logger.Debug("Converted policy to rulepack", "policy_id", policyID, "rulepack_name", rulepack.Metadata.Name, "rules_count", len(rulepack.Rules))
-		for i, rule := range rulepack.Rules {
-			sm.logger.Debug("Rule details", "rule_index", i, "rule_id", rule.ID, "rule_level", rule.Level, "keywords", rule.Keywords)
-		}
-		rulePacks = append(rulePacks, *rulepack)
-	}
-	
-	sm.logger.Info("Reloading scanner", "rulepack_count", len(rulePacks))
-	
-	// Reload scanner with new RulePacks
-	sm.scanner.LoadRulePacks(rulePacks)
-	return nil
-}
-
-// convertPolicyToRulePack converts a Policy to a RulePack
-// This is a copy of the logic from PolicyScannerService to avoid dependencies
-func (sm *ScannerManager) convertPolicyToRulePack(policy *types.Policy) (*rules.RulePack, error) {
-	// Try to parse the policy content as YAML first
-	var rulepack rules.RulePack
-	if err := yaml.Unmarshal([]byte(policy.Content), &rulepack); err == nil {
-		// Successfully parsed as RulePack YAML
-		if rulepack.Metadata.Name == "" {
-			rulepack.Metadata.Name = policy.Name
-		}
-		if rulepack.APIVersion == "" {
-			rulepack.APIVersion = "promptshield.io/v1"
-		}
-		if rulepack.Kind == "" {
-			rulepack.Kind = "RulePack"
-		}
-		return &rulepack, nil
-	}
-	
-	// If not valid RulePack YAML, try to parse as simple rules structure
-	var simpleRules struct {
-		Rules []rules.Rule `yaml:"rules" json:"rules"`
-	}
-	
-	if err := yaml.Unmarshal([]byte(policy.Content), &simpleRules); err == nil && len(simpleRules.Rules) > 0 {
-		// Create RulePack from simple rules
-		rulepack = rules.RulePack{
-			APIVersion: "promptshield.io/v1",
-			Kind:       "RulePack",
-			Metadata: rules.Metadata{
-				Name:        policy.Name,
-				Description: fmt.Sprintf("Policy %s", policy.Name),
-				Version:     fmt.Sprintf("v%d", policy.Version),
-			},
-			Rules: simpleRules.Rules,
-		}
-		return &rulepack, nil
-	}
-	
-	// If neither format works, create a simple keyword-based rule
-	// This handles cases where policy content is just text or simple format
-	rulepack = rules.RulePack{
-		APIVersion: "promptshield.io/v1",
-		Kind:       "RulePack",
-		Metadata: rules.Metadata{
-			Name:        policy.Name,
-			Description: fmt.Sprintf("Policy %s", policy.Name),
-			Version:     fmt.Sprintf("v%d", policy.Version),
-		},
-		Rules: []rules.Rule{
-			{
-				ID:       fmt.Sprintf("policy-%s", policy.ID.String()[:8]),
-				Name:     policy.Name,
-				Level:    1, // keyword level
-				Severity: "MEDIUM",
-				Keywords: []string{"inject", "ignore", "override"}, // default security keywords
-				Response: &rules.Response{
-					Action:  "warn",
-					Message: "Policy violation detected",
-				},
-			},
-		},
-	}
-	
-	return &rulepack, nil
 }
 
 // ScanReader provides a wrapper around the scanner's ScanReader method
@@ -224,10 +84,10 @@ func (sm *ScannerManager) convertPolicyToRulePack(policy *types.Policy) (*rules.
 func (sm *ScannerManager) ScanReader(ctx context.Context, reader interface{}, inputName string) (pkg.ScanResult, error) {
 	sm.mu.RLock()
 	scanner := sm.scanner
-	policyCount := len(sm.activePolicies)
+	rulepackCount := sm.loadedRulepacks
 	sm.mu.RUnlock()
 	
-	sm.logger.Debug("Scanning with event-driven scanner", "active_policies", policyCount, "input_name", inputName)
+	sm.logger.Debug("Scanning with database-loaded rulepacks", "loaded_rulepacks", rulepackCount, "input_name", inputName)
 	
 	// Convert reader to the expected type and call scanner
 	// The scanner expects an io.Reader
@@ -238,4 +98,52 @@ func (sm *ScannerManager) ScanReader(ctx context.Context, reader interface{}, in
 	}
 	
 	return pkg.ScanResult{}, fmt.Errorf("invalid reader type")
+}
+
+// loadActiveRulepacksFromDatabase loads any active rulepacks from the database
+// This is the only source of rulepacks - no file fallback
+func (sm *ScannerManager) loadActiveRulepacksFromDatabase() {
+	if sm.rulepackService == nil {
+		sm.logger.Info("No rulepack service available - scanner will be empty until rulepacks are loaded via API")
+		return
+	}
+
+	ctx := context.Background()
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001") // Default tenant
+	
+	rulepacks, err := sm.rulepackService.List(ctx, tenantID)
+	if err != nil {
+		sm.logger.Warn("Failed to load rulepacks from database", "error", err)
+		return
+	}
+
+	var activePacks []rules.RulePack
+	for _, rp := range rulepacks {
+		if rp.Active {
+			// Get the active version DSL
+			if dsl, _, err := sm.rulepackService.GetActive(ctx, rp.ID); err == nil {
+				var pack rules.RulePack
+				if err := yaml.Unmarshal(dsl, &pack); err == nil {
+					activePacks = append(activePacks, pack)
+					sm.logger.Info("Loaded active rulepack from database", 
+						"rulepack_id", rp.ID, "name", rp.Name, "version", rp.Version, "rules_count", len(pack.Rules))
+				} else {
+					sm.logger.Warn("Failed to parse rulepack DSL", "rulepack_id", rp.ID, "error", err)
+				}
+			} else {
+				sm.logger.Warn("Failed to get active rulepack DSL", "rulepack_id", rp.ID, "error", err)
+			}
+		}
+	}
+	
+	sm.mu.Lock()
+	if len(activePacks) > 0 {
+		sm.scanner.LoadRulePacks(activePacks)
+		sm.loadedRulepacks = len(activePacks)
+		sm.logger.Info("Successfully loaded rulepacks from database", "count", len(activePacks))
+	} else {
+		sm.loadedRulepacks = 0
+		sm.logger.Info("No active rulepacks found in database")
+	}
+	sm.mu.Unlock()
 }

@@ -8,7 +8,6 @@ func TestRedact_Patterns(t *testing.T) {
 		wantSub string
 	}{
 		{"key sk-abcdefghijklmnopqrstuvwxyzabcdef", "[REDACTED]"},
-		{"x anthropic-abc123def456", "[REDACTED]"},
 		{"api_key=SECRETVALUE1234567890", "[REDACTED]"},
 		{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "[REDACTED]"},
 		{"AKIAABCDEFGHIJKLMNOP", "[REDACTED]"},

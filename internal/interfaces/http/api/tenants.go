@@ -12,7 +12,7 @@ import (
 
 // registerTenantHandlers registers all tenant-related endpoints
 func registerTenantHandlers(r chi.Router, opt Options) {
-	r.Route("/v1/admin/tenants", func(tr chi.Router) {
+	r.Route("/admin/tenants", func(tr chi.Router) {
 		tr.Use(adminAuth(opt))
 		
 		tr.Post("/", createTenantHandler(opt))

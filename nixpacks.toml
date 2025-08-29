@@ -1,0 +1,14 @@
+[phases.build]
+cmds = [
+  "make build"
+]
+
+[phases.start]
+cmd = "./bin/ps-gateway"
+
+[variables]
+PORT = "8080"
+PS_ENFORCER_ADDR = "0.0.0.0:8080"
+PS_ENFORCER_GRPC_ADDR = "0.0.0.0:9091"
+PS_ENFORCER_ENFORCEMENT_MODE = "enforce"
+PS_ENFORCER_RULEPACK = "rules/prompt-injection.yaml"

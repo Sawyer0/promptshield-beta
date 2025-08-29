@@ -9,9 +9,12 @@ import (
 
 // Event represents a server-sent or internal event.
 type Event struct {
-	Type string         `json:"type"`
-	Data map[string]any `json:"data"`
-	Time time.Time      `json:"time"`
+	Type      string         `json:"type"`
+	Data      map[string]any `json:"data"`
+	Time      time.Time      `json:"time"`
+	TenantID  string         `json:"tenant_id,omitempty"`
+	ServiceID string         `json:"service_id,omitempty"`
+	Timestamp time.Time      `json:"timestamp,omitempty"` // Alias for Time for backward compatibility
 }
 
 // SSE formats the event for Server-Sent Events transport.

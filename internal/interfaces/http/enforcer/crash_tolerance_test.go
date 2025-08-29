@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/promptshield/promptshield/internal/observability/metrics"
 )
 
 // TestFailOpenWhenNoRulepack ensures that when the active rulepack is missing
@@ -33,7 +34,7 @@ func TestFailOpenWhenNoRulepack(t *testing.T) {
 		t.Fatalf("expected decision=allow, got %s", d)
 	}
 	// Metric should be incremented for no_rules bypass
-	if v := testutil.ToFloat64(policyBypass.WithLabelValues("no_rules")); v < 1 {
+	if v := testutil.ToFloat64(metrics.PolicyBypass.WithLabelValues("no_rules")); v < 1 {
 		t.Fatalf("expected policyBypass no_rules counter >=1, got %f", v)
 	}
 }

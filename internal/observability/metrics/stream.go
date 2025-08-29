@@ -27,5 +27,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(StreamLagSeconds, PendingCount, ConsumerRestartsTotal)
+	if Enabled() {
+		prometheus.MustRegister(StreamLagSeconds, PendingCount, ConsumerRestartsTotal)
+	}
 }

@@ -1,9 +1,7 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -12,13 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
-	"github.com/promptshield/promptshield/internal/jobs"
-	"github.com/promptshield/promptshield/internal/jobs/processors"
-	q "github.com/promptshield/promptshield/internal/jobs/queue"
 	"github.com/promptshield/promptshield/internal/license"
-	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/usage"
 	"github.com/promptshield/promptshield/internal/version"
 )
@@ -30,6 +22,8 @@ func NewMux(opt Options) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Timeout(10 * time.Second))
 	r.Use(versionHeader("1"))
+	// CORS middleware for frontend access
+	r.Use(corsMiddleware)
 	// Error recovery and structured error handling
 	r.Use(errorRecoveryMiddleware)
 	// Distributed tracing and header propagation
@@ -42,6 +36,12 @@ func NewMux(opt Options) http.Handler {
 	r.Use(requestLoggerMiddleware)
 	// bytes in/out accounting
 	r.Use(captureBytesMiddleware)
+
+	// Multi-tenant validation (tenant routing only - auth handled by frontend)
+	if opt.DB != nil {
+		r.Use(tenantValidationMiddleware(opt.DB))
+	}
+	// Note: User authentication handled by frontend - backend only validates tenants
 
 	// Ensure defaults for optional dependencies
 	if opt.ConfigStore == nil {
@@ -72,47 +72,6 @@ func NewMux(opt Options) http.Handler {
 			}
 			opt.QuotaStore = usage.NewInMemoryQuota(rps, burst)
 		}
-	}
-	if opt.JobManager == nil {
-		// Create default job manager with 2 workers
-		opt.JobManager = jobs.NewManager(2)
-
-		// Create and register scan processor with basic scanner
-		sc := scanner.ScanEngineCstor(0)
-		scanProcessor := processors.NewScanProcessor(sc)
-		opt.JobManager.RegisterProcessor(scanProcessor)
-
-		// Optional durable queue via Redis
-		if strings.EqualFold(os.Getenv("PS_ASYNC_QUEUE"), "redis") {
-			addr := os.Getenv("PS_REDIS_ADDR")
-			if addr == "" {
-				addr = "127.0.0.1:6379"
-			}
-			stream := os.Getenv("PS_REDIS_STREAM")
-			if stream == "" {
-				stream = "ps.jobs"
-			}
-			group := os.Getenv("PS_REDIS_GROUP")
-			if group == "" {
-				group = "ps.workers"
-			}
-			consumer := os.Getenv("PS_REDIS_CONSUMER")
-			if consumer == "" {
-				consumer = "ps-enforcer"
-			}
-			vis := 30 * time.Second
-			if v := os.Getenv("PS_REDIS_VISIBILITY_TTL"); v != "" {
-				if d, err := time.ParseDuration(v); err == nil {
-					vis = d
-				}
-			}
-			if rq, err := q.NewRedisQueue(addr, os.Getenv("PS_REDIS_PASSWORD"), 0, stream, group, consumer, vis); err == nil {
-				opt.JobManager = opt.JobManager.WithDurable(rq)
-			}
-		}
-
-		// Start the job manager
-		go opt.JobManager.Start(context.Background())
 	}
 
 	// Health & info
@@ -148,6 +107,9 @@ func NewMux(opt Options) http.Handler {
 	registerAuditHandlers(r, opt)
 	registerPolicyHandlers(r, opt)
 	registerSystemHandlers(r, opt)
+	registerServiceControlHandlers(r, opt)
+	registerSettingsHandlers(r, opt)
+	registerBusinessMetricsHandlers(r, opt)
 
 	// Security Gateway - no complex usage/quota management needed
 
@@ -207,161 +169,20 @@ func NewMux(opt Options) http.Handler {
 		})
 	})
 
-	// Security Gateway decision endpoints (simple token auth + basic rate limiting)
+	// Security Gateway decision endpoints (tenant-based + rate limiting)
 	r.Group(func(g chi.Router) {
-		// Simple token-based user auth
-		g.Use(userAuth(opt))
-		// Basic per-tenant rate limiting
+		// Tenant-based rate limiting (auth handled by frontend)
 		if opt.QuotaStore != nil {
 			g.Use(tenantQuota(opt))
 		}
 		g.Post("/check", checkHandlerVersioned(opt))
 		g.Post("/scan", scanHandler(opt))
 	})
-	r.Post("/scan/async", func(w http.ResponseWriter, r *http.Request) {
-		// Ensure license state is loaded before feature check
-		_ = license.IsLicensed()
-		if !license.HasFeature("async_jobs") {
-			writeError(w, http.StatusForbidden, "UNAUTHORIZED", "feature not available: async_jobs", nil)
-			return
-		}
-
-		// Read request body
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "failed to read request body", nil)
-			return
-		}
-
-		// Parse metadata from headers and query params
-		metadata := map[string]interface{}{
-			"output_format": r.URL.Query().Get("format"),
-			"fail_on":       r.URL.Query().Get("fail_on"),
-			"input_name":    r.URL.Query().Get("input_name"),
-		}
-
-		// Set defaults
-		if metadata["output_format"] == "" {
-			metadata["output_format"] = "json"
-		}
-		if metadata["input_name"] == "" {
-			metadata["input_name"] = "http-request"
-		}
-
-		// Submit the job
-		jobID, err := opt.JobManager.Submit("scan", body, metadata)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "JOB_SUBMISSION_FAILED", err.Error(), nil)
-			return
-		}
-
-		// Return job ID
-		w.Header().Set("content-type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"job_id": jobID,
-			"status": "pending",
-		})
-	})
-
-	// Alias to support legacy colon-style path
-	r.Post("/scan:async", func(w http.ResponseWriter, req *http.Request) {
-		// Forward to /scan/async handler by rewriting path
-		req.URL.Path = "/scan/async"
-		req.RequestURI = ""
-		// Re-serve the request through the current router (not a new one)
-		r.ServeHTTP(w, req)
-	})
-
-	// Job management endpoints
-	r.Get("/jobs", func(w http.ResponseWriter, r *http.Request) {
-		status := r.URL.Query().Get("status")
-		jobs := opt.JobManager.List(jobs.JobStatus(status))
-		w.Header().Set("content-type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"jobs": jobs,
-		})
-	})
-
-	r.Get("/jobs/{jobID}", func(w http.ResponseWriter, r *http.Request) {
-		jobID := chi.URLParam(r, "jobID")
-		job, err := opt.JobManager.Get(jobID)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "JOB_NOT_FOUND", err.Error(), nil)
-			return
-		}
-		w.Header().Set("content-type", "application/json")
-		_ = json.NewEncoder(w).Encode(job)
-	})
-
-	r.Delete("/jobs/{jobID}", func(w http.ResponseWriter, r *http.Request) {
-		jobID := chi.URLParam(r, "jobID")
-		err := opt.JobManager.Cancel(jobID)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "JOB_NOT_FOUND", err.Error(), nil)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
 
 	// Observability endpoints (admin-protected)
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
-		a.Get("/stats", func(w http.ResponseWriter, r *http.Request) {
-			// Summarize limited stats from Prometheus default gatherer
-			mf, _ := prometheus.DefaultGatherer.Gather()
-			stats := map[string]any{
-				"decisions_total": map[string]int64{},
-				"p95_latency_ms":  0.0,
-			}
-			// decisions
-			for _, m := range mf {
-				if m.GetName() == "ps_enforcer_decisions_total" {
-					for _, mm := range m.Metric {
-						var decision string
-						for _, lp := range mm.Label {
-							if lp.GetName() == "decision" {
-								decision = lp.GetValue()
-								break
-							}
-						}
-						if decision != "" && mm.GetCounter() != nil {
-							dt := stats["decisions_total"].(map[string]int64)
-							dt[decision] += int64(mm.GetCounter().GetValue())
-						}
-					}
-				}
-				if m.GetName() == "ps_enforcer_request_duration_seconds" && m.GetType() == dto.MetricType_HISTOGRAM {
-					// crude p95 from buckets
-					for _, mm := range m.Metric {
-						if mm.GetHistogram() != nil {
-							var total uint64
-							for _, b := range mm.GetHistogram().Bucket {
-								total += b.GetCumulativeCount()
-							}
-							if total == 0 {
-								continue
-							}
-							var threshold = float64(total) * 0.95
-							var cum uint64
-							var p95 float64
-							for _, b := range mm.GetHistogram().Bucket {
-								cum += b.GetCumulativeCount()
-								if float64(cum) >= threshold {
-									p95 = b.GetUpperBound() * 1000.0 // seconds -> ms
-									break
-								}
-							}
-							if p95 > 0 {
-								stats["p95_latency_ms"] = p95
-								break
-							}
-						}
-					}
-				}
-			}
-			_ = json.NewEncoder(w).Encode(stats)
-		})
+
 		a.Get("/events", func(w http.ResponseWriter, r *http.Request) {
 			var flusher http.Flusher
 			if f, ok := w.(http.Flusher); ok {
@@ -408,34 +229,7 @@ func NewMux(opt Options) http.Handler {
 				}
 			}
 		})
-		a.Get("/usage", func(w http.ResponseWriter, r *http.Request) {
-			now := time.Now().UTC()
-			windowStart := now.Add(-1 * time.Hour)
-			// Best-effort usage summary; computing precise usage should be offloaded to metrics pipeline
-			mf, _ := prometheus.DefaultGatherer.Gather()
-			var decisions int64
-			var bytes int64
-			for _, m := range mf {
-				if m.GetName() == "ps_enforcer_decisions_total" {
-					for _, mm := range m.Metric {
-						if mm.GetCounter() != nil {
-							decisions += int64(mm.GetCounter().GetValue())
-						}
-					}
-				}
-				if m.GetName() == "ps_extproc_bytes_total" {
-					if len(m.Metric) > 0 && m.Metric[0].GetCounter() != nil {
-						bytes += int64(m.Metric[0].GetCounter().GetValue())
-					}
-				}
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"window_start": windowStart.Format(time.RFC3339),
-				"window_end":   now.Format(time.RFC3339),
-				"counts":       decisions,
-				"bytes":        bytes,
-			})
-		})
+
 	})
 
 	// Expose usage store via context for handlers that may record usage
@@ -456,11 +250,30 @@ func registerPolicyHandlers(r chi.Router, opt Options) {
 		println("WARNING: PolicyService is nil, skipping policy endpoint registration")
 		return
 	}
-	
+
 	// Create policy handlers with the policy service
 	handlers := NewPolicyHandlers(opt.PolicyService)
-	
+
 	// Register routes
 	handlers.RegisterRoutes(r, opt)
 	println("INFO: Policy endpoints registered at /admin/policies")
+}
+
+// registerServiceControlHandlers registers service control endpoints
+func registerServiceControlHandlers(r chi.Router, opt Options) {
+	if opt.DB == nil {
+		// Service control requires database connection
+		println("WARNING: Service control disabled - no database connection")
+		return
+	}
+
+	// Create mock service manager for now (replace with real implementation)
+	serviceManager := NewMockServiceManager()
+
+	// Create service control handlers
+	handlers := NewServiceControlHandlers(opt.DB, serviceManager, opt.Events)
+
+	// Register routes
+	handlers.RegisterServiceRoutes(r, opt)
+	println("INFO: Service control endpoints registered at /api/v1/services")
 }

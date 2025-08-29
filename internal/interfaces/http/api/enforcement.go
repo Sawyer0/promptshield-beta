@@ -62,32 +62,21 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		var res pkg.ScanResult
 		var err error
 		
-		// Use event-driven scanner manager if available for real-time enforcement
+		// Use scanner manager for all enforcement - no fallback
 		if opt.ScannerManager != nil && opt.ScannerManager.HasActivePolicies() {
-			logger.Info("Using event-driven policy scanner for real-time enforcement")
-			res, err = opt.ScannerManager.ScanReader(ctx, r.Body, "http:v1:check:event-driven")
+			logger.Info("Using database-loaded rulepack scanner")
+			res, err = opt.ScannerManager.ScanReader(ctx, r.Body, "http:v1:check:database")
 		} else {
-			// Fallback to static file-based scanner
-			logger.Info("Using static file-based scanner fallback")
-			sc := scanner.ScanEngineCstor(0)
-			// Align scanner limits with runtime config defaults (env-backed for now)
-			if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
-				if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-					sc.SetMaxStreamBytes(n)
-				}
+			logger.Info("No active rulepacks - allowing request (fail-open)")
+			res = pkg.ScanResult{
+				Violations: []pkg.Violation{},
+				ScanInfo: pkg.ScanInfo{
+					ShouldBlock:     false,
+					BlockReason:     "no_rulepacks_loaded",
+					TotalViolations: 0,
+					ScanStatus:      "success",
+				},
 			}
-			// Quarantine behavior consistent with runtime defaults
-			sc.SetQuarantineOnTimeout(true)
-			sc.SetQuarantineOnError(true)
-			// Async scan gating is handled at handler level; L3 gating occurs in scanner via license entitlements
-			rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-			if rulepack != "" {
-				if packs, e := rules.LoadPacks(rulepack); e == nil {
-					sc.LoadRulePacks(packs)
-				}
-			}
-			// Stream scan directly from the request body
-			res, err = sc.ScanReader(ctx, r.Body, "http:v1:check:static")
 		}
 		if err != nil {
 			// Map body-size errors to 400; otherwise 500
@@ -310,20 +299,17 @@ func runScanLine(ctx context.Context, data []byte) map[string]any {
 	
 	// Initialize semantic analyzer if enabled
 	if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
-		provider := os.Getenv("PS_SEMANTIC_PROVIDER")
-		if provider == "openai" {
-			apiKey := os.Getenv("OPENAI_API_KEY")
-			if apiKey != "" {
-				analyzer := semopenai.New(semopenai.Options{
-					APIKey:         apiKey,
-					MaxConcurrency: 2,
-					CacheSize:      1000,
-					CacheTTL:       15 * time.Minute,
-					RequestsPerSecond: 10,
-					BurstSize:      20,
-				})
-				sc.SetSemanticAnalyzer(analyzer)
-			}
+		apiKey := os.Getenv("OPENAI_API_KEY")
+		if apiKey != "" {
+			analyzer := semopenai.New(semopenai.Options{
+				APIKey:         apiKey,
+				MaxConcurrency: 2,
+				CacheSize:      1000,
+				CacheTTL:       15 * time.Minute,
+				RequestsPerSecond: 10,
+				BurstSize:      20,
+			})
+			sc.SetSemanticAnalyzer(analyzer)
 		}
 	}
 	

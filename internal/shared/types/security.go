@@ -2,6 +2,8 @@ package types
 
 import (
 	"time"
+	
+	"github.com/google/uuid"
 )
 
 // SecurityContext represents a security context for a request
@@ -185,16 +187,19 @@ type Role struct {
 
 // AuditFilter represents a filter for audit events
 type AuditFilter struct {
-	UserID    string                 `json:"user_id,omitempty"`
-	TenantID  string                 `json:"tenant_id,omitempty"`
-	Resource  string                 `json:"resource,omitempty"`
-	Action    string                 `json:"action,omitempty"`
-	EventType string                 `json:"event_type,omitempty"`
-	StartTime *time.Time             `json:"start_time,omitempty"`
-	EndTime   *time.Time             `json:"end_time,omitempty"`
-	Limit     int                    `json:"limit,omitempty"`
-	Offset    int                    `json:"offset,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	UserID     string                 `json:"user_id,omitempty"`
+	TenantID   string                 `json:"tenant_id,omitempty"`
+	ActorID    string                 `json:"actor_id,omitempty"`
+	Resource   string                 `json:"resource,omitempty"`
+	Action     string                 `json:"action,omitempty"`
+	EventType  string                 `json:"event_type,omitempty"`
+	ObjectID   *uuid.UUID             `json:"object_id,omitempty"`
+	ObjectType string                 `json:"object_type,omitempty"`
+	StartTime  *time.Time             `json:"start_time,omitempty"`
+	EndTime    *time.Time             `json:"end_time,omitempty"`
+	Limit      int                    `json:"limit,omitempty"`
+	Offset     int                    `json:"offset,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Secret represents a secret

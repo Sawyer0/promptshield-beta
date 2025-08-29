@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -54,7 +55,9 @@ func mountRulepacks(r chi.Router, opt Options) {
 				})
 			}
 
-			_ = json.NewEncoder(w).Encode(result)
+			if err := json.NewEncoder(w).Encode(result); err != nil {
+				slog.Error("Failed to encode rulepacks list response", "error", err)
+			}
 		})
 		rr.Get("/active", func(w http.ResponseWriter, r *http.Request) {
 			// Find the active rulepack from the list
@@ -73,21 +76,31 @@ func mountRulepacks(r chi.Router, opt Options) {
 						Source:  "",
 						Active:  true,
 					}
-					_ = json.NewEncoder(w).Encode(result)
+					if err := json.NewEncoder(w).Encode(result); err != nil {
+						slog.Error("Failed to encode active rulepack response", "error", err, "rulepack_id", result.ID)
+					}
 					return
 				}
 			}
 
 			// No active rulepack found
-			_ = json.NewEncoder(w).Encode(RulepackMeta{})
+			if err := json.NewEncoder(w).Encode(RulepackMeta{}); err != nil {
+				slog.Error("Failed to encode empty rulepack response", "error", err)
+			}
 		})
 		rr.Group(func(a chi.Router) {
 			a.Use(adminAuth(opt))
 			a.Post("/validate", func(w http.ResponseWriter, r *http.Request) {
-				body, _ := io.ReadAll(r.Body)
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to read request body", map[string]any{"error": err.Error()})
+					return
+				}
 				defer r.Body.Close()
 				valid, warnings, errors := opt.RulepackService.ValidateDSL(body)
-				_ = json.NewEncoder(w).Encode(map[string]any{"valid": valid, "warnings": warnings, "errors": errors})
+				if err := json.NewEncoder(w).Encode(map[string]any{"valid": valid, "warnings": warnings, "errors": errors}); err != nil {
+					slog.Error("Failed to encode validation response", "error", err)
+				}
 			})
 			a.Post("/", func(w http.ResponseWriter, r *http.Request) {
 				// Idempotency handling: if the caller supplied an Idempotency-Key
@@ -120,10 +133,18 @@ func mountRulepacks(r chi.Router, opt Options) {
 						return
 					}
 					defer f.Close()
-					data, _ = io.ReadAll(f)
+					data, err = io.ReadAll(f)
+					if err != nil {
+						writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read file", map[string]any{"error": err.Error()})
+						return
+					}
 				} else {
 					// raw body (application/x-yaml)
-					body, _ := io.ReadAll(r.Body)
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read request body", map[string]any{"error": err.Error()})
+						return
+					}
 					defer r.Body.Close()
 					data = body
 				}
@@ -164,8 +185,18 @@ func mountRulepacks(r chi.Router, opt Options) {
 					idempotencyStore.Store(idemKey, meta)
 				}
 
+				// Trigger scanner reload to pick up the new rulepack
+				if activate && opt.ScannerManager != nil {
+					if err := opt.ScannerManager.ReloadRulepacks(); err != nil {
+						// Log reload error but don't fail the request since rulepack was created successfully
+						slog.Error("Failed to reload scanner after rulepack upload", "error", err, "rulepack_id", meta.ID)
+					}
+				}
+
 				w.WriteHeader(http.StatusCreated)
-				_ = json.NewEncoder(w).Encode(meta)
+				if err := json.NewEncoder(w).Encode(meta); err != nil {
+					slog.Error("Failed to encode rulepack response", "error", err, "rulepack_id", meta.ID)
+				}
 			})
 			a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 				path := r.URL.Query().Get("path")
@@ -215,7 +246,17 @@ func mountRulepacks(r chi.Router, opt Options) {
 					Active:  true,
 				}
 
-				_ = json.NewEncoder(w).Encode(meta)
+				// Trigger scanner reload to pick up the new rulepack
+				if opt.ScannerManager != nil {
+					if err := opt.ScannerManager.ReloadRulepacks(); err != nil {
+						// Log reload error but don't fail the request since rulepack was created successfully
+						slog.Error("Failed to reload scanner after rulepack reload", "error", err, "rulepack_id", meta.ID, "path", path)
+					}
+				}
+
+				if err := json.NewEncoder(w).Encode(meta); err != nil {
+					slog.Error("Failed to encode rulepack reload response", "error", err, "rulepack_id", meta.ID, "path", path)
+				}
 			})
 			a.Put("/active", func(w http.ResponseWriter, r *http.Request) {
 				// Optimistic locking via If-Match / ETag. Require the caller to

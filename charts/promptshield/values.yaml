@@ -31,3 +31,13 @@ tolerations: []
 egress:
   policy: allow # allow | deny
   cidrBlock: 0.0.0.0/0
+
+monitoring:
+  scrapeInterval: 15s
+  serviceMonitor:
+    enabled: false
+    additionalLabels: {}
+    relabelings: []
+  prometheusRule:
+    enabled: false
+    additionalLabels: {}
