@@ -63,10 +63,14 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		var err error
 		
 		// Use scanner manager for all enforcement - no fallback
-		if opt.ScannerManager != nil && opt.ScannerManager.HasActivePolicies() {
-			logger.Info("Using database-loaded rulepack scanner")
-			res, err = opt.ScannerManager.ScanReader(ctx, r.Body, "http:v1:check:database")
-		} else {
+        if opt.ScannerManager != nil && opt.ScannerManager.HasActivePolicies() {
+            logger.Info("Using database-loaded rulepack scanner")
+            // attach tenant id into context for BYOK resolver
+            if t := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")); t != "" {
+                ctx = context.WithValue(ctx, interface{}("tenant.id"), t)
+            }
+            res, err = opt.ScannerManager.ScanReader(ctx, r.Body, "http:v1:check:database")
+        } else {
 			logger.Info("No active rulepacks - allowing request (fail-open)")
 			res = pkg.ScanResult{
 				Violations: []pkg.Violation{},
@@ -206,7 +210,12 @@ func scanHandler(opt Options) http.HandlerFunc {
 			s.Buffer(buf, 10*1024*1024)
 			for s.Scan() {
 				line := s.Bytes()
-				ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutMs)*time.Millisecond)
+        // attach tenant id into context for BYOK
+        base := r.Context()
+        if t := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")); t != "" {
+            base = context.WithValue(base, interface{}("tenant.id"), t)
+        }
+        ctx, cancel := context.WithTimeout(base, time.Duration(timeoutMs)*time.Millisecond)
 				res := runScanLine(ctx, line)
 				cancel()
 				b, _ := json.Marshal(res)
@@ -295,30 +304,25 @@ func scanHandler(opt Options) http.HandlerFunc {
 }
 
 func runScanLine(ctx context.Context, data []byte) map[string]any {
-	sc := scanner.ScanEngineCstor(0)
-	
-	// Initialize semantic analyzer if enabled
-	if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		if apiKey != "" {
-			analyzer := semopenai.New(semopenai.Options{
-				APIKey:         apiKey,
-				MaxConcurrency: 2,
-				CacheSize:      1000,
-				CacheTTL:       15 * time.Minute,
-				RequestsPerSecond: 10,
-				BurstSize:      20,
-			})
-			sc.SetSemanticAnalyzer(analyzer)
-		}
-	}
-	
-	rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-	if rulepack != "" {
-		if packs, e := rules.LoadPacks(rulepack); e == nil {
-			sc.LoadRulePacks(packs)
-		}
-	}
+    sc := scanner.ScanEngineCstor(0)
+    sc.SetBaseContext(ctx)
+    // Initialize semantic analyzer (omni only for /scan path)
+    if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
+        if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+            analyzer := semopenai.New(semopenai.Options{
+                APIKey:            apiKey,
+                MaxConcurrency:    2,
+                CacheSize:         1000,
+                CacheTTL:          15 * time.Minute,
+                RequestsPerSecond: 10,
+                BurstSize:         20,
+            })
+            sc.SetSemanticAnalyzer(analyzer)
+        }
+    }
+    if rp := os.Getenv("PS_ENFORCER_RULEPACK"); rp != "" {
+        if packs, e := rules.LoadPacks(rp); e == nil { sc.LoadRulePacks(packs) }
+    }
 	res, err := sc.ScanReader(ctx, bytes.NewReader(data), "http:v1:scan-line")
 	decision := "allow"
 	reason := "no_signals"

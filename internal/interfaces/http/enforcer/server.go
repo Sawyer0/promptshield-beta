@@ -129,7 +129,7 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 	}
 
 	// Create scanner manager for event-driven real-time enforcement
-	scannerManager := NewScannerManagerWithRulepackService(rulepackService)
+    scannerManager := NewScannerManagerWithRulepackService(rulepackService, dbPool)
 
 	// Build API options with database-backed repositories
 	options := api.Options{
@@ -230,8 +230,8 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 			maxStreamBytes = n
 		}
 	}
-	scannerPool.New = func() any {
-		sc := scanner.ScanEngineCstor(0)
+scannerPool.New = func() any {
+        sc := scanner.ScanEngineCstor(0)
 		if maxStreamBytes > 0 {
 			sc.SetMaxStreamBytes(maxStreamBytes)
 		}

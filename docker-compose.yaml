@@ -10,7 +10,7 @@ x-promptshield-common: &promptshield-common
     - .env.production
   environment:
     # Database configuration (Supabase Session Pooler)
-    PS_PG_DSN: "postgresql://postgres.jsrlqqtfhjfiawxkmoqe:Mm9PZGpVNOWyka6K@aws-1-us-west-1.pooler.supabase.com:5432/postgres"
+    PS_PG_DSN: ${PS_PG_DSN}
     PS_TENANT_ID: "6f4d338d-f0c0-4091-b54e-f71752c8f568"
     
     # Enforcer configuration
@@ -43,6 +43,10 @@ x-promptshield-common: &promptshield-common
     # License
     PS_DISABLE_LICENSE: "1"
     PROMPTSHIELD_LICENSE_KEY: ${PROMPTSHIELD_LICENSE_KEY:-}
+    # BFF JWT validation (public key)
+    PS_BFF_JWT_PUBLIC_KEY: ${PS_BFF_JWT_PUBLIC_KEY}
+    PS_BFF_JWT_ISSUER: ${PS_BFF_JWT_ISSUER:-promptshield-bff}
+    PS_BFF_JWT_AUDIENCE: ${PS_BFF_JWT_AUDIENCE:-promptshield-gateway}
   healthcheck:
     test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/healthz"]
     interval: 30s
@@ -72,20 +76,48 @@ x-envoy-common: &envoy-common
       max-file: "3"
 
 services:
-  # Frontend (React application)
-  frontend:
+  # Frontend BFF (React + Express API server)
+  frontend-bff:
     build:
       context: ./frontend/RulepackManager
-      dockerfile: Dockerfile
-    ports:
-      - "3001:80"
+      dockerfile: Dockerfile.bff
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY}
     environment:
       - NODE_ENV=production
+      - PORT=8096
+      # Use the same Postgres for app storage and sessions
+      - DATABASE_URL=${PS_PG_DSN}
+      - PS_PG_DSN=${PS_PG_DSN}
+      - PS_TENANT_ID=${PS_TENANT_ID}
+      # Sessions: prefer Redis in compose
+      - SESSION_STORE=redis
+      - REDIS_URL=redis://redis:6379
+      - SESSION_COOKIE_SECURE=false
+      - PGSSLMODE=require
+      # Session + minimal OIDC placeholders to satisfy code paths
+      - SESSION_SECRET=${SESSION_SECRET:-change-me-long-random-string-for-production}
+      - REPLIT_DOMAINS=localhost
+      - REPL_ID=local
+      - ISSUER_URL=https://replit.com/oidc
+      # BFF -> Go API via internal DNS
+      - PS_GATEWAY_URL=http://nginx:80
+      # BFF JWT signing (RS256) and claims
+      - PS_BFF_JWT_PRIVATE_KEY=${PS_BFF_JWT_PRIVATE_KEY}
+      - PS_BFF_JWT_ISSUER=${PS_BFF_JWT_ISSUER:-promptshield-bff}
+      - PS_BFF_JWT_AUDIENCE=${PS_BFF_JWT_AUDIENCE:-promptshield-gateway}
+      # Clerk Auth
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
     depends_on:
-      - nginx
+      - promptshield-1
+    expose:
+      - "8096"
     restart: unless-stopped
     networks:
-      - promptshield-net
+      promptshield-net:
+        aliases:
+          - frontend-bff
     logging:
       driver: "json-file"
       options:
@@ -98,10 +130,10 @@ services:
     ports:
       - "80:80"      # API endpoint
       - "8080:8080"  # Enforcement proxy
-      - "8098:8098"  # Frontend API port
+      - "3000:3000"  # Frontend BFF port
       - "443:443"    # HTTPS (optional)
     volumes:
-      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./deploy/ssl:/etc/nginx/ssl:ro  # SSL certificates
     depends_on:
       - promptshield-1
@@ -109,6 +141,7 @@ services:
       - promptshield-3
       - envoy-1
       - envoy-2
+      - frontend-bff
     restart: unless-stopped
     networks:
       - promptshield-net
@@ -216,7 +249,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_INSTALL_PLUGINS=redis-datasource
     ports:
-      - "3000:3000"  # Grafana UI
+      - "3100:3000"  # Grafana UI (moved off 3000)
     restart: unless-stopped
     networks:
       - promptshield-net
