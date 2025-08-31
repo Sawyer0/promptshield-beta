@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -56,6 +57,9 @@ type Scanner struct {
 	// Global resource ceilings
 	maxResidentMemoryBytes uint64 // 0 disables check
 	totalScanBudget        time.Duration
+
+	// Base request context (tenant, tracing) for semantic analyzers
+	baseCtx context.Context
 }
 
 func ScanEngineCstor(maxTokenBytes int) *Scanner {
@@ -79,6 +83,9 @@ func ScanEngineCstor(maxTokenBytes int) *Scanner {
 
 // HasSemanticAnalyzer reports whether a semantic analyzer has been configured.
 func (s *Scanner) HasSemanticAnalyzer() bool { return s.semantic != nil }
+
+// SetBaseContext sets the base request context used for semantic evaluation timeouts.
+func (s *Scanner) SetBaseContext(ctx context.Context) { s.baseCtx = ctx }
 
 // SetTracer configures an OpenTelemetry tracer for emitting spans. Passing nil resets to default.
 func (s *Scanner) SetTracer(t trace.Tracer) {

@@ -11,22 +11,36 @@ import (
 
 // adminAuth enforces simple admin authentication for ops endpoints only
 func adminAuth(opt Options) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Simple admin token for ops endpoints (/metrics, /health, /admin/*)
-			if opt.AdminToken != "" {
-				tok := r.Header.Get("Authorization")
-				if strings.HasPrefix(strings.ToLower(tok), "bearer ") {
-					tok = tok[7:]
-				}
-				if tok == "" {
-					tok = r.Header.Get("X-PS-Admin-Token")
-				}
-				if tok == opt.AdminToken {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // Prefer JWT-based admin via roles injected by jwtAuthMiddleware
+            if roles := r.Header.Get("X-PS-User-Roles"); roles != "" {
+                for _, part := range strings.Split(roles, ",") {
+                    if strings.TrimSpace(strings.ToLower(part)) == "admin" {
+                        next.ServeHTTP(w, r)
+                        return
+                    }
+                }
+            }
+            if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-PS-User-Admin")), "true") {
+                next.ServeHTTP(w, r)
+                return
+            }
+
+            // Fallback: static admin token for ops endpoints
+            if opt.AdminToken != "" {
+                tok := r.Header.Get("Authorization")
+                if strings.HasPrefix(strings.ToLower(tok), "bearer ") {
+                    tok = tok[7:]
+                }
+                if tok == "" {
+                    tok = r.Header.Get("X-PS-Admin-Token")
+                }
+                if tok == opt.AdminToken {
+                    next.ServeHTTP(w, r)
+                    return
+                }
+            }
 			
 			// Development mode (when explicitly enabled)
 			if opt.AllowInsecureAdmin {
@@ -36,9 +50,9 @@ func adminAuth(opt Options) func(http.Handler) http.Handler {
 			}
 			
 			// No valid authentication found
-			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin authentication required", nil)
-		})
-	}
+            writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin authentication required", nil)
+        })
+    }
 }
 
 // bytesCounter wraps ResponseWriter to capture bytes written.

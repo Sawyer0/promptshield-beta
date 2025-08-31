@@ -18,24 +18,26 @@ import (
 // Router
 
 func NewMux(opt Options) http.Handler {
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.Timeout(10 * time.Second))
-	r.Use(versionHeader("1"))
-	// CORS middleware for frontend access
-	r.Use(corsMiddleware)
-	// Error recovery and structured error handling
-	r.Use(errorRecoveryMiddleware)
-	// Distributed tracing and header propagation
-	if opt.Telemetry != nil {
-		r.Use(tracingMiddleware)
-	}
-	// Request logging and correlation
-	r.Use(correlationIDMiddleware)
-	r.Use(tenantContextMiddleware)
-	r.Use(requestLoggerMiddleware)
-	// bytes in/out accounting
-	r.Use(captureBytesMiddleware)
+    r := chi.NewRouter()
+    r.Use(middleware.RequestID)
+    r.Use(middleware.Timeout(10 * time.Second))
+    r.Use(versionHeader("1"))
+    // CORS middleware for frontend access
+    r.Use(corsMiddleware)
+    // Error recovery and structured error handling
+    r.Use(errorRecoveryMiddleware)
+    // Distributed tracing and header propagation
+    if opt.Telemetry != nil {
+        r.Use(tracingMiddleware)
+    }
+    // Request logging and correlation
+    r.Use(correlationIDMiddleware)
+    // BFF JWT auth: trusts only tokens minted by the frontend service
+    r.Use(jwtAuthMiddleware)
+    r.Use(tenantContextMiddleware)
+    r.Use(requestLoggerMiddleware)
+    // bytes in/out accounting
+    r.Use(captureBytesMiddleware)
 
 	// Multi-tenant validation (tenant routing only - auth handled by frontend)
 	if opt.DB != nil {
@@ -110,6 +112,8 @@ func NewMux(opt Options) http.Handler {
 	registerServiceControlHandlers(r, opt)
 	registerSettingsHandlers(r, opt)
 	registerBusinessMetricsHandlers(r, opt)
+    registerUserHandlers(r, opt)
+    registerProviderProfileHandlers(r, opt)
 
 	// Security Gateway - no complex usage/quota management needed
 

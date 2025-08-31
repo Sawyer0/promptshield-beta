@@ -32,7 +32,7 @@ type Rule struct {
 	ID          string `yaml:"id" json:"id"`
 	Name        string `yaml:"name" json:"name,omitempty"`
 	Description string `yaml:"description" json:"description,omitempty"`
-	Level       int    `yaml:"level" json:"level"`    // 1=keyword, 2=regex, 3=semantic
+	Level       int    `yaml:"level" json:"level"`                 // 1=keyword, 2=regex, 3=semantic
 	Severity    string `yaml:"severity" json:"severity,omitempty"` // INFO|WARNING|ERROR|CRITICAL
 	Category    string `yaml:"category" json:"category,omitempty"`
 	Enabled     *bool  `yaml:"enabled" json:"enabled,omitempty"`
@@ -76,12 +76,28 @@ type Condition struct {
 }
 
 type Semantic struct {
-	Model               string  `yaml:"model" json:"model"`
-	Temperature         float64 `yaml:"temperature" json:"temperature,omitempty"`
-	MaxTokens           int     `yaml:"max_tokens" json:"max_tokens,omitempty"`
-	AnalysisPrompt      string  `yaml:"analysis_prompt" json:"analysis_prompt"`
-	ConfidenceThreshold float64 `yaml:"confidence_threshold" json:"confidence_threshold,omitempty"`
-	FallbackOnError     bool    `yaml:"fallback_on_error" json:"fallback_on_error,omitempty"`
+    // Engine selects the L3 engine: "omni" | "custom" | "custom+omni" (default "omni" if unset)
+    Engine              string  `yaml:"engine" json:"engine,omitempty"`
+    // Custom/Omni shared
+    Model               string  `yaml:"model" json:"model,omitempty"`
+    Temperature         float64 `yaml:"temperature" json:"temperature,omitempty"`
+    MaxTokens           int     `yaml:"max_tokens" json:"max_tokens,omitempty"`
+    AnalysisPrompt      string  `yaml:"analysis_prompt" json:"analysis_prompt,omitempty"`
+    ConfidenceThreshold float64 `yaml:"confidence_threshold" json:"confidence_threshold,omitempty"`
+    FallbackOnError     bool    `yaml:"fallback_on_error" json:"fallback_on_error,omitempty"`
+    // AllowedCategories restricts evaluation to these moderation categories.
+	// Examples: "violence", "violence/graphic", "self-harm/instructions", "illicit".
+	// When empty, all categories returned by the provider are considered.
+	AllowedCategories []string `yaml:"categories" json:"categories,omitempty"`
+    // Inputs specifies which inputs are expected by the rule: "text", "image".
+    // This is advisory for UIs; the backend relies on provider behavior.
+    Inputs []string `yaml:"inputs" json:"inputs,omitempty"`
+    // Provider profile id for BYOK custom engines
+    ProviderProfile string `yaml:"provider_profile" json:"provider_profile,omitempty"`
+    // Combine semantics for custom+omni
+    CombineMode   string   `yaml:"combine_mode" json:"combine_mode,omitempty"` // or|and|weighted (default or)
+    WeightOmni    float64  `yaml:"weight_omni" json:"weight_omni,omitempty"`
+    WeightCustom  float64  `yaml:"weight_custom" json:"weight_custom,omitempty"`
 }
 
 type Fallback struct {

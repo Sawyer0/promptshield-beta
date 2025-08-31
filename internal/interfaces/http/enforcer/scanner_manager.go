@@ -4,14 +4,21 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"sync"
 
-	"gopkg.in/yaml.v3"
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	enc "github.com/promptshield/promptshield/internal/security/crypto"
+	semcomp "github.com/promptshield/promptshield/internal/semantic/composite"
+	semcustom "github.com/promptshield/promptshield/internal/semantic/custom"
+	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
 	pkg "github.com/promptshield/promptshield/pkg/types"
+	"gopkg.in/yaml.v3"
 )
 
 // ScannerManager manages a scanner instance for real-time enforcement
@@ -22,34 +29,97 @@ type ScannerManager struct {
 	loadedRulepacks int // Track number of loaded rulepacks
 	rulepackService *services.RulepackService
 	logger          *slog.Logger
+	db              *postgres.Pool
 }
 
 // NewScannerManager creates a new scanner manager with database-backed rulepacks
 func NewScannerManager() *ScannerManager {
-	return NewScannerManagerWithRulepackService(nil)
+	return NewScannerManagerWithRulepackService(nil, nil)
 }
 
 // NewScannerManagerWithRulepackService creates a new scanner manager with rulepack service
-func NewScannerManagerWithRulepackService(rulepackService *services.RulepackService) *ScannerManager {
+func NewScannerManagerWithRulepackService(rulepackService *services.RulepackService, db *postgres.Pool) *ScannerManager {
 	sc := scanner.ScanEngineCstor(0)
 	// Configure scanner for production use
 	sc.SetQuarantineOnTimeout(true)
 	sc.SetQuarantineOnError(true)
 	sc.SetMaxStreamBytes(10 * 1024 * 1024) // 10MB max
-	
+
 	manager := &ScannerManager{
 		scanner:         sc,
 		rulepackService: rulepackService,
 		logger:          slog.With("component", "scanner-manager"),
+		db:              db,
 	}
-	
+
 	// Load any active rulepacks from database at startup
 	manager.loadActiveRulepacksFromDatabase()
-	
+
 	manager.logger.Info("Scanner manager initialized with database-backed rulepacks")
-	
+
+	// Initialize semantic analyzers (omni + optional custom composite)
+	var omni scanner.SemanticAnalyzer
+	if apiKey := getenv("OPENAI_API_KEY"); apiKey != "" {
+		omni = semopenai.New(semopenai.Options{APIKey: apiKey})
+	}
+
+	var custom scanner.SemanticAnalyzer
+	if db != nil {
+		resolver := func(ctx context.Context, cfg rules.Semantic) (string, string, error) {
+			// tenant id from context (set by middleware)
+			var tenant string
+			if v := ctx.Value("tenant.id"); v != nil {
+				if s, ok := v.(string); ok {
+					tenant = s
+				}
+			}
+			if tenant == "" {
+				if v := ctx.Value("tenant_id"); v != nil {
+					if s, ok := v.(string); ok {
+						tenant = s
+					}
+				}
+			}
+			if tenant == "" {
+				return "", "", fmt.Errorf("missing tenant in context")
+			}
+			if strings.TrimSpace(cfg.ProviderProfile) == "" {
+				return "", "", fmt.Errorf("missing provider_profile")
+			}
+			// Query provider_profiles
+			row := db.Raw().QueryRow(ctx, `SELECT api_key_encrypted, COALESCE(base_url,'') FROM provider_profiles WHERE tenant_id=$1 AND id=$2`, tenant, cfg.ProviderProfile)
+			var encKey, baseURL string
+			if err := row.Scan(&encKey, &baseURL); err != nil {
+				return "", "", err
+			}
+			key, err := enc.DecryptString(encKey)
+			if err != nil {
+				return "", "", err
+			}
+			return key, baseURL, nil
+		}
+		custom = semcustom.New(resolver)
+	}
+
+	if omni != nil || custom != nil {
+		var analyzer scanner.SemanticAnalyzer
+		if omni != nil && custom != nil {
+			analyzer = semcomp.New(omni, custom)
+		} else if custom != nil {
+			analyzer = custom
+		} else {
+			analyzer = omni
+		}
+		manager.scanner.SetSemanticAnalyzer(analyzer)
+	}
+
 	return manager
 }
+
+func getenv(k string) string { return strings.TrimSpace(sysgetenv(k)) }
+
+// sysgetenv isolated for testing/mocking
+func sysgetenv(k string) string { return os.Getenv(k) }
 
 // GetScanner returns the scanner instance for use by enforcement handlers
 func (sm *ScannerManager) GetScanner() *scanner.Scanner {
@@ -86,9 +156,12 @@ func (sm *ScannerManager) ScanReader(ctx context.Context, reader interface{}, in
 	scanner := sm.scanner
 	rulepackCount := sm.loadedRulepacks
 	sm.mu.RUnlock()
-	
+
 	sm.logger.Debug("Scanning with database-loaded rulepacks", "loaded_rulepacks", rulepackCount, "input_name", inputName)
-	
+
+	// Ensure base context (tenant/tracing) is available to semantic analyzers
+	scanner.SetBaseContext(ctx)
+
 	// Convert reader to the expected type and call scanner
 	// The scanner expects an io.Reader
 	if r, ok := reader.(interface{ Read([]byte) (int, error) }); ok {
@@ -96,7 +169,7 @@ func (sm *ScannerManager) ScanReader(ctx context.Context, reader interface{}, in
 		sm.logger.Debug("Scanner result", "violations", len(result.Violations), "error", err)
 		return result, err
 	}
-	
+
 	return pkg.ScanResult{}, fmt.Errorf("invalid reader type")
 }
 
@@ -110,7 +183,7 @@ func (sm *ScannerManager) loadActiveRulepacksFromDatabase() {
 
 	ctx := context.Background()
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001") // Default tenant
-	
+
 	rulepacks, err := sm.rulepackService.List(ctx, tenantID)
 	if err != nil {
 		sm.logger.Warn("Failed to load rulepacks from database", "error", err)
@@ -125,7 +198,7 @@ func (sm *ScannerManager) loadActiveRulepacksFromDatabase() {
 				var pack rules.RulePack
 				if err := yaml.Unmarshal(dsl, &pack); err == nil {
 					activePacks = append(activePacks, pack)
-					sm.logger.Info("Loaded active rulepack from database", 
+					sm.logger.Info("Loaded active rulepack from database",
 						"rulepack_id", rp.ID, "name", rp.Name, "version", rp.Version, "rules_count", len(pack.Rules))
 				} else {
 					sm.logger.Warn("Failed to parse rulepack DSL", "rulepack_id", rp.ID, "error", err)
@@ -135,7 +208,7 @@ func (sm *ScannerManager) loadActiveRulepacksFromDatabase() {
 			}
 		}
 	}
-	
+
 	sm.mu.Lock()
 	if len(activePacks) > 0 {
 		sm.scanner.LoadRulePacks(activePacks)

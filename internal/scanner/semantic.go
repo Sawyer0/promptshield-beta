@@ -1,11 +1,11 @@
 package scanner
 
 import (
-	"context"
-	"time"
+    "context"
+    "time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-	"github.com/promptshield/promptshield/internal/rules"
+    lru "github.com/hashicorp/golang-lru/v2"
+    "github.com/promptshield/promptshield/internal/rules"
 )
 
 // SemanticAnalyzer defines the minimal interface for level-3 rule evaluation.
@@ -28,8 +28,11 @@ func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) 
 	}
 	// License/feature gating is enforced at runtime layers (gateway/CLI).
 	// The core scanner remains feature-agnostic to preserve testability and OSS usability.
-	// Derive timeout
-	var timeout time.Duration
+    // Parent context for request-scoped values (tenant, tracing)
+    parent := context.Background()
+    if s.baseCtx != nil { parent = s.baseCtx }
+    // Derive timeout
+    var timeout time.Duration
 	if cr.timeoutMs > 0 {
 		timeout = time.Duration(cr.timeoutMs) * time.Millisecond
 	} else if s.fileTimeout > 0 {
@@ -61,8 +64,8 @@ func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) 
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	ok, conf, err := s.semantic.Analyze(ctx, line, *cr.semantic)
+    ctx, cancel := context.WithTimeout(parent, timeout)
+    ok, conf, err := s.semantic.Analyze(ctx, line, *cr.semantic)
 	cancel()
 	if err == nil && ok {
 		// Populate cache if enabled

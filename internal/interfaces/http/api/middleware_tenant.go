@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -32,31 +33,36 @@ type TenantInfo struct {
 func tenantValidationMiddleware(db postgres.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Dev bypass: skip tenant validation entirely
+			if strings.EqualFold(strings.TrimSpace(os.Getenv("PS_DEV_BYPASS_AUTH")), "true") {
+				next.ServeHTTP(w, r)
+				return
+			}
 			// Extract tenant ID from header
 			tenantIDStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
 			if tenantIDStr == "" {
 				// Check alternative header for compatibility
 				tenantIDStr = strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
 			}
-			
+
 			// For public endpoints, allow no tenant
 			if isPublicEndpoint(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			
+
 			if tenantIDStr == "" {
 				writeError(w, http.StatusBadRequest, "MISSING_TENANT", "X-PS-Tenant-ID header is required", nil)
 				return
 			}
-			
+
 			// Validate UUID format
 			tenantID, err := uuid.Parse(tenantIDStr)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "INVALID_TENANT", "Invalid tenant ID format", map[string]any{"tenant_id": tenantIDStr})
 				return
 			}
-			
+
 			// Validate tenant exists and is active
 			tenant, err := validateTenant(db, tenantID)
 			if err != nil {
@@ -68,7 +74,7 @@ func tenantValidationMiddleware(db postgres.DB) func(http.Handler) http.Handler 
 				}
 				return
 			}
-			
+
 			// Check if tenant is active
 			if tenant.Status != "active" && tenant.Status != "trial" {
 				writeError(w, http.StatusForbidden, "TENANT_INACTIVE", "Tenant is not active", map[string]any{
@@ -77,15 +83,16 @@ func tenantValidationMiddleware(db postgres.DB) func(http.Handler) http.Handler 
 				})
 				return
 			}
-			
+
 			// Add tenant info to context
 			ctx := r.Context()
+			type dbCtxKey string
 			ctx = context.WithValue(ctx, tenantIDKey, tenantID.String())
 			ctx = context.WithValue(ctx, tenantNameKey, tenant.Name)
-			
+
 			// Set database context for RLS - CRITICAL for multi-tenant security
-			ctx = context.WithValue(ctx, "db.tenant_id", tenantID.String())
-			
+			ctx = context.WithValue(ctx, dbCtxKey("db.tenant_id"), tenantID.String())
+
 			// Set tenant context in the database for RLS policies
 			if err := setTenantContextInDB(db, tenantID); err != nil {
 				slog.Error("Failed to set tenant context for RLS", "tenant_id", tenantID, "error", err)
@@ -93,16 +100,16 @@ func tenantValidationMiddleware(db postgres.DB) func(http.Handler) http.Handler 
 				writeError(w, http.StatusInternalServerError, "TENANT_CONTEXT_ERROR", "Failed to set tenant security context", nil)
 				return
 			}
-			
+
 			// Update metrics if available
 			// Note: HTTPRequestsTotal metric should be defined in metrics package
 			// For now, log the tenant access
-			slog.Debug("Tenant request", 
+			slog.Debug("Tenant request",
 				"tenant_id", tenantID.String(),
 				"method", r.Method,
 				"path", r.URL.Path,
 			)
-			
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -138,10 +145,10 @@ func validateTenant(db postgres.DB, tenantID uuid.UUID) (*TenantInfo, error) {
 		LEFT JOIN subscription_plans sp ON s.plan_id = sp.id
 		WHERE t.id = $1 AND t.deleted_at IS NULL
 	`
-	
+
 	var tenant TenantInfo
 	var limits sql.NullString
-	
+
 	err := db.QueryRowContext(context.Background(), query, tenantID).Scan(
 		&tenant.ID,
 		&tenant.Name,
@@ -150,18 +157,18 @@ func validateTenant(db postgres.DB, tenantID uuid.UUID) (*TenantInfo, error) {
 		&tenant.PlanName,
 		&limits,
 	)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Parse limits from JSON
 	if limits.Valid {
 		// Parse JSON limits to get api_calls_monthly
 		// For now, default to 10000
 		tenant.APICallLimit = 10000
 	}
-	
+
 	return &tenant, nil
 }
 
@@ -184,11 +191,11 @@ func validateTenantAccessInDB(db postgres.DB, tenantID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if !hasAccess {
 		return fmt.Errorf("tenant access denied by RLS policy")
 	}
-	
+
 	return nil
 }
 
