@@ -77,11 +77,8 @@ func main() {
 	// Initialize services
 	rulepackSvc := services.RulepackServiceCstor(rulepackRepo, publisher)
 
-	// Create a simple policy service - we'll use rulepack service for now
-	// TODO: Implement proper PolicyService if needed
-
 	// Initialize scanner for enforcement
-	scannerEngine := scanner.ScanEngineCstor(0)
+	scanEngine := scanner.ScanEngineCstor(0)
 
 	// Configure unified API server options
 	apiOptions := api.Options{
@@ -94,7 +91,7 @@ func main() {
 		AssignmentRepository: assignmentRepo,
 		AuditRepository:      auditRepo,
 		SettingsRepository:   settingsRepo,
-		Scanner:              scannerEngine,
+		Scanner:              scanEngine,
 	}
 
 	// Create unified API mux (includes both enforcement and management endpoints)

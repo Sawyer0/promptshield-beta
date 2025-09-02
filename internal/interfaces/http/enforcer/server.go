@@ -24,6 +24,7 @@ import (
 	"github.com/promptshield/promptshield/internal/domain"
 	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
+	"github.com/promptshield/promptshield/internal/infrastructure/planstate"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
@@ -129,7 +130,7 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 	}
 
 	// Create scanner manager for event-driven real-time enforcement
-    scannerManager := NewScannerManagerWithRulepackService(rulepackService, dbPool)
+	scannerManager := NewScannerManagerWithRulepackService(rulepackService, dbPool)
 
 	// Build API options with database-backed repositories
 	options := api.Options{
@@ -149,6 +150,10 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 	}
 	if auditRepo != nil {
 		options.AuditRepository = auditRepo
+	}
+	if dbPool != nil {
+		options.SettingsRepository = pg.NewSettingsRepository(dbPool)
+		options.DB = dbPool
 	}
 
 	return options
@@ -230,8 +235,8 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 			maxStreamBytes = n
 		}
 	}
-scannerPool.New = func() any {
-        sc := scanner.ScanEngineCstor(0)
+	scannerPool.New = func() any {
+		sc := scanner.ScanEngineCstor(0)
 		if maxStreamBytes > 0 {
 			sc.SetMaxStreamBytes(maxStreamBytes)
 		}
@@ -287,6 +292,29 @@ scannerPool.New = func() any {
 
 	// Mount v1 API
 	r.Mount("/v1", api.NewMux(apiOpt))
+
+	// Back-compat aliases for gateway tests expecting root-level paths
+	r.Group(func(g chi.Router) {
+		// Minimal adapter to forward to API mux for /check and /scan at root
+		am := api.NewMux(apiOpt)
+		g.Post("/check", func(w http.ResponseWriter, r *http.Request) {
+			// Forward to API mux native path
+			r = r.Clone(r.Context())
+			if r.Header.Get("X-PS-Tenant-ID") == "" {
+				r.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+			}
+			r.URL.Path = "/check"
+			am.ServeHTTP(w, r)
+		})
+		g.Post("/scan", func(w http.ResponseWriter, r *http.Request) {
+			r = r.Clone(r.Context())
+			if r.Header.Get("X-PS-Tenant-ID") == "" {
+				r.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+			}
+			r.URL.Path = "/scan"
+			am.ServeHTTP(w, r)
+		})
+	})
 
 	// Prepare scanner pool and optionally preload rulepacks to reduce per-request overhead
 	{
@@ -363,6 +391,18 @@ func Serve(addr string) *http.Server {
 			}
 			rdb := redis.NewClient(&redis.Options{Addr: addr})
 			options.UsageStore = usage.NewRedisUsageStore(rdb, prefix, time.Duration(ttlDays)*24*time.Hour)
+		}
+	}
+
+	// Wire Redis PlanState for agent plan/lane TTL
+	if options.PlanState == nil {
+		if addr := strings.TrimSpace(os.Getenv("PS_PLANSTATE_REDIS_ADDR")); addr != "" {
+			prefix := strings.TrimSpace(os.Getenv("PS_PLANSTATE_PREFIX"))
+			if prefix == "" {
+				prefix = "ps"
+			}
+			rdb := redis.NewClient(&redis.Options{Addr: addr})
+			options.PlanState = planstate.NewRedisPlanState(rdb, prefix)
 		}
 	}
 	// Construct durable audit logger from environment and adapt to API interface

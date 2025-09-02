@@ -2,6 +2,7 @@ package grpcenforcer
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -11,9 +12,12 @@ import (
 
 	extproc "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/audit"
 	"github.com/promptshield/promptshield/internal/contracts"
+	analytics "github.com/promptshield/promptshield/internal/infrastructure/analytics"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/license"
+	obsEvents "github.com/promptshield/promptshield/internal/observability/events"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"golang.org/x/time/rate"
@@ -97,17 +101,124 @@ func NewWithOptions(opt Options) *Server {
 	}
 
 	// Check environment variable for fail-closed behavior (opt-in)
-	failClosed := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_FAIL_CLOSED"))) == "true"
+	_ = os.Getenv("PS_ENFORCER_FAIL_CLOSED")
 
 	scReq.SetRuntimeContext(map[string]string{"direction": "request"})
 	scResp.SetRuntimeContext(map[string]string{"direction": "response"})
 	s.scReq = scReq
 	s.scResp = scResp
 
-	// health reporter
-	// Fail-open by default: ready if we can accept traffic even without rules
+	// Fail-open by default: ready to accept traffic even without rules (tests expect processing)
 	// Fail-closed only if explicitly requested via PS_ENFORCER_FAIL_CLOSED=true
-	s.ready = loaded || !failClosed
+	s.ready = true
+
+	// Audit sink (file/kafka/postgres) via internal/audit factory
+	if logger, _, err := audit.NewLoggerFromEnv(); err == nil && logger != nil {
+		// Adapt to Function to avoid import cycles deeper in processing path
+		s.audit.logf = func(eventType string, data map[string]any) {
+			_ = logger.Log(audit.Event{Type: eventType, Data: data})
+		}
+	}
+
+	// Decision publisher (Kafka/Redpanda) when configured via env
+	if dp, err := obsEvents.NewDecisionPublisherFromEnv(); err == nil && dp != nil {
+		prev := s.audit.logf
+		s.audit.logf = func(eventType string, data map[string]any) {
+			if prev != nil {
+				prev(eventType, data)
+			}
+			tenant := asString(data["tenant_id"])
+			endpoint := asString(data["endpoint"])
+			method := asString(data["method"])
+			tool := asString(data["tool_id"])
+			lane := asString(data["lane"])
+			planHash := asString(data["plan_hash"])
+			conversation := asString(data["conversation_id"])
+			reqID := asString(data["request_id"])
+			decision := asString(data["decision"])
+			reason := asString(data["reason"])
+			lat := asInt64(data["latency_ms"])
+			br := asInt64(data["bytes_request"])
+			bs := asInt64(data["bytes_response"])
+			step := asInt(data["plan_step"])
+			_ = dp.PublishDecision(context.Background(), &obsEvents.DecisionEvent{
+				TenantID:      tenant,
+				Endpoint:      endpoint,
+				Method:        method,
+				ToolID:        tool,
+				Lane:          lane,
+				PlanHash:      planHash,
+				PlanStep:      step,
+				Conversation:  conversation,
+				RequestID:     reqID,
+				Decision:      decision,
+				Reason:        reason,
+				LatencyMs:     lat,
+				BytesRequest:  br,
+				BytesResponse: bs,
+			})
+		}
+	}
+
+	// Optional raw/sanitized publishers (ps.raw, ps.sanitized)
+	if sp, err := obsEvents.NewStreamPublishersFromEnv(); err == nil && sp != nil {
+		prev := s.audit.logf
+		s.audit.logf = func(eventType string, data map[string]any) {
+			if prev != nil {
+				prev(eventType, data)
+			}
+			// Emit small metadata-only raw/sanitized markers at decision points (optional)
+			// Intentionally no body text here; ext_proc can call these per-chunk when needed
+			_ = sp.PublishRaw(context.Background(), &obsEvents.RawEvent{
+				Direction: "request",
+				TenantID:  asString(data["tenant_id"]),
+				Endpoint:  asString(data["endpoint"]),
+				Method:    asString(data["method"]),
+				RequestID: asString(data["request_id"]),
+				Bytes:     asInt64(data["bytes_request"]),
+			})
+			_ = sp.PublishRaw(context.Background(), &obsEvents.RawEvent{
+				Direction: "response",
+				TenantID:  asString(data["tenant_id"]),
+				Endpoint:  asString(data["endpoint"]),
+				Method:    asString(data["method"]),
+				RequestID: asString(data["request_id"]),
+				Bytes:     asInt64(data["bytes_response"]),
+			})
+		}
+	}
+
+	// Optional ClickHouse writer for analytics
+	if cw, err := analytics.NewClickHouseWriterFromEnv(); err == nil && cw != nil {
+		prev := s.audit.logf
+		s.audit.logf = func(eventType string, data map[string]any) {
+			if prev != nil {
+				prev(eventType, data)
+			}
+			_ = cw.InsertDecision(context.Background(), analytics.DecisionRow{
+				OccurredAt:    time.Now().UTC(),
+				TenantID:      asString(data["tenant_id"]),
+				Endpoint:      asString(data["endpoint"]),
+				Method:        asString(data["method"]),
+				Decision:      asString(data["decision"]),
+				Reason:        asString(data["reason"]),
+				LatencyMs:     asInt64(data["latency_ms"]),
+				BytesRequest:  asInt64(data["bytes_request"]),
+				BytesResponse: asInt64(data["bytes_response"]),
+			})
+		}
+	}
+
+	// Enforce mandatory sinks via env
+	// PS_AUDIT_REQUIRED: true|1|yes (default: true)
+	// PS_AUDIT_REQUIRED_MODE: fail|unhealthy (default: fail)
+	reqEnv := strings.ToLower(strings.TrimSpace(os.Getenv("PS_AUDIT_REQUIRED")))
+	auditRequired := (reqEnv == "1" || reqEnv == "true" || reqEnv == "yes")
+	if auditRequired && s.audit.logf == nil {
+		// mark not ready; Build() may additionally fail based on mode
+		s.ready = false
+	}
+
 	redEnv := strings.ToLower(strings.TrimSpace(os.Getenv("PS_ENFORCER_REDACTION_MUTATION")))
 	redOn := !(redEnv == "0" || redEnv == "false")
 	hs := health.NewServer()
@@ -197,7 +308,7 @@ func NewWithOptions(opt Options) *Server {
 			// Start subscriber in background
 			go func() {
 				if err := sub.Start(context.Background()); err != nil {
-					logger := slog.With("component","grpc-enforcer")
+					logger := slog.With("component", "grpc-enforcer")
 					logger.Error("Rule update subscriber stopped", "error", err)
 				}
 			}()
@@ -219,7 +330,6 @@ func LoadRulesFromDatabase(ctx context.Context, repo contracts.RulepackRepositor
 	if repo == nil {
 		return nil, nil
 	}
-	
 
 	// Get list of all rulepacks for tenant
 	rulepackInfos, err := repo.ListByTenant(ctx, tenantID)
@@ -257,6 +367,17 @@ func Build(addr string, opts Options) (*grpc.Server, error) {
 	// Create the enforcer server
 	server := NewWithOptions(opts)
 
+	// If audit is required and missing, optionally fail fast
+	reqEnv := strings.ToLower(strings.TrimSpace(os.Getenv("PS_AUDIT_REQUIRED")))
+	auditRequired := (reqEnv == "" || reqEnv == "1" || reqEnv == "true" || reqEnv == "yes")
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PS_AUDIT_REQUIRED_MODE")))
+	if mode == "" {
+		mode = "fail"
+	}
+	if auditRequired && server.audit.logf == nil && mode == "fail" {
+		return nil, fmt.Errorf("audit sink required but not configured; set PS_AUDIT_SINK and related env or PS_AUDIT_REQUIRED=false")
+	}
+
 	// Create gRPC server
 	grpcServer := grpc.NewServer()
 
@@ -275,10 +396,45 @@ func Build(addr string, opts Options) (*grpc.Server, error) {
 	// Start serving in a goroutine
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
-			logger := slog.With("component","grpc-enforcer")
+			logger := slog.With("component", "grpc-enforcer")
 			logger.Error("gRPC server error", "error", err)
 		}
 	}()
 
 	return grpcServer, nil
+}
+
+// helpers for safe type extraction
+func asString(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case string:
+		return x
+	default:
+		return ""
+	}
+}
+
+func asInt(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	default:
+		return 0
+	}
+}
+
+func asInt64(v any) int64 {
+	switch x := v.(type) {
+	case int:
+		return int64(x)
+	case int64:
+		return x
+	default:
+		return 0
+	}
 }

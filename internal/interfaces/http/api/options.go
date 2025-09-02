@@ -65,6 +65,9 @@ type Options struct {
 		ScanReader(ctx context.Context, reader interface{}, inputName string) (pkg.ScanResult, error)
 		ReloadRulepacks() error
 	}
+
+	// PlanState for Plan-Then-Execute and Dual-LLM lane tokens
+	PlanState contracts.PlanState
 }
 
 // Deprecated: Use writeErrorJSON instead

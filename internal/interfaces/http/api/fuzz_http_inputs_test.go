@@ -132,8 +132,8 @@ func FuzzHTTPRulepackEndpoints(f *testing.F) {
 
 		// Unicode/encoding attacks
 		[]byte(`{"metadata": {"name": "test\u0000null"}, "rules": []}`),
-		[]byte(`{"metadata": {"name": "test\u202e"}, "rules": []}`),  // RTL override
-		[]byte(`{"metadata": {"name": "test\uFEFF"}, "rules": []}`),  // BOM
+		[]byte(`{"metadata": {"name": "test\u202e"}, "rules": []}`), // RTL override
+		[]byte(`{"metadata": {"name": "test\uFEFF"}, "rules": []}`), // BOM
 
 		// Content-Type confusion
 		[]byte("metadata:\n  name: test\nrules: []"), // YAML content
@@ -173,6 +173,7 @@ func FuzzHTTPRulepackEndpoints(f *testing.F) {
 			req.Header.Set("Authorization", "Bearer test-admin-token")
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", uuid.New().String())
+			req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 
 			client := &http.Client{}
 			resp, err := client.Do(req)
@@ -223,6 +224,7 @@ func FuzzHTTPRulepackEndpoints(f *testing.F) {
 
 			req.Header.Set("Authorization", "Bearer test-admin-token")
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 
 			client := &http.Client{}
 			resp, err := client.Do(req)
@@ -318,6 +320,7 @@ func FuzzHTTPMultipartUpload(f *testing.F) {
 		req.Header.Set("Authorization", "Bearer test-admin-token")
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 		req.Header.Set("Idempotency-Key", uuid.New().String())
+		req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 
 		client := &http.Client{}
 		resp, err := client.Do(req)
@@ -433,6 +436,7 @@ func FuzzHTTPHeaders(f *testing.F) {
 			req.Header.Set("Authorization", "Bearer test-admin-token")
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", uuid.New().String())
+			req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 
 			// Override with fuzzed header
 			if isValidHeaderValue(headerVal) {
@@ -478,6 +482,7 @@ func TestProperty_HTTPSecurity(t *testing.T) {
 		// Requests without auth should be rejected
 		req, _ := http.NewRequest("POST", server.URL+"/rulepacks", strings.NewReader("{}"))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 
 		resp, err := http.DefaultClient.Do(req)
 		assert.NoError(t, err)
@@ -490,6 +495,7 @@ func TestProperty_HTTPSecurity(t *testing.T) {
 		req, _ := http.NewRequest("POST", server.URL+"/rulepacks", strings.NewReader("test"))
 		req.Header.Set("Authorization", "Bearer test-admin-token")
 		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 
 		resp, err := http.DefaultClient.Do(req)
 		assert.NoError(t, err)
@@ -506,6 +512,7 @@ func TestProperty_HTTPSecurity(t *testing.T) {
 		req1, _ := http.NewRequest("POST", server.URL+"/rulepacks", strings.NewReader(payload))
 		req1.Header.Set("Authorization", "Bearer test-admin-token")
 		req1.Header.Set("Content-Type", "application/json")
+		req1.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 		req1.Header.Set("Idempotency-Key", idempotencyKey)
 
 		resp1, err := http.DefaultClient.Do(req1)
@@ -516,6 +523,7 @@ func TestProperty_HTTPSecurity(t *testing.T) {
 		req2, _ := http.NewRequest("POST", server.URL+"/rulepacks", strings.NewReader(payload))
 		req2.Header.Set("Authorization", "Bearer test-admin-token")
 		req2.Header.Set("Content-Type", "application/json")
+		req2.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 		req2.Header.Set("Idempotency-Key", idempotencyKey)
 
 		resp2, err := http.DefaultClient.Do(req2)
@@ -534,6 +542,7 @@ func TestProperty_HTTPSecurity(t *testing.T) {
 		req, _ := http.NewRequest("POST", server.URL+"/rulepacks", strings.NewReader(largePayload))
 		req.Header.Set("Authorization", "Bearer test-admin-token")
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 
 		resp, err := http.DefaultClient.Do(req)
 		assert.NoError(t, err)

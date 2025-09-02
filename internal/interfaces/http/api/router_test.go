@@ -87,7 +87,9 @@ func TestRulepacksListEmpty(t *testing.T) {
 
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/rulepacks/")
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rulepacks/", nil)
+	req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +139,9 @@ func TestCheckAllow(t *testing.T) {
 	svc := services.RulepackServiceCstor(mockRepo, nil)
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
-	resp, err := http.Post(srv.URL+"/check", "text/plain", bytes.NewBufferString("hello"))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/check", bytes.NewBufferString("hello"))
+	req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

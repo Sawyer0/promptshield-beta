@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/services"
@@ -17,19 +18,28 @@ import (
 	semcomp "github.com/promptshield/promptshield/internal/semantic/composite"
 	semcustom "github.com/promptshield/promptshield/internal/semantic/custom"
 	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
+	ckeys "github.com/promptshield/promptshield/internal/shared/contextkeys"
 	pkg "github.com/promptshield/promptshield/pkg/types"
 	"gopkg.in/yaml.v3"
 )
 
-// ScannerManager manages a scanner instance for real-time enforcement
+// ScannerManager manages scanners for real-time enforcement per tenant.
 // It loads rulepacks from the database and manages scanner state
+// for each tenant independently.
 type ScannerManager struct {
 	mu              sync.RWMutex
-	scanner         *scanner.Scanner
-	loadedRulepacks int // Track number of loaded rulepacks
-	rulepackService *services.RulepackService
 	logger          *slog.Logger
+	rulepackService *services.RulepackService
 	db              *postgres.Pool
+
+	// Global semantic analyzer (omni/custom/composite)
+	analyzer scanner.SemanticAnalyzer
+
+	// Per-tenant scanners cache
+	tenantScanners map[uuid.UUID]*scanner.Scanner
+	// Optional simple TTL per tenant to refresh packs periodically
+	lastLoaded map[uuid.UUID]time.Time
+	cacheTTL   time.Duration
 }
 
 // NewScannerManager creates a new scanner manager with database-backed rulepacks
@@ -39,23 +49,14 @@ func NewScannerManager() *ScannerManager {
 
 // NewScannerManagerWithRulepackService creates a new scanner manager with rulepack service
 func NewScannerManagerWithRulepackService(rulepackService *services.RulepackService, db *postgres.Pool) *ScannerManager {
-	sc := scanner.ScanEngineCstor(0)
-	// Configure scanner for production use
-	sc.SetQuarantineOnTimeout(true)
-	sc.SetQuarantineOnError(true)
-	sc.SetMaxStreamBytes(10 * 1024 * 1024) // 10MB max
-
 	manager := &ScannerManager{
-		scanner:         sc,
 		rulepackService: rulepackService,
 		logger:          slog.With("component", "scanner-manager"),
 		db:              db,
+		tenantScanners:  make(map[uuid.UUID]*scanner.Scanner),
+		lastLoaded:      make(map[uuid.UUID]time.Time),
+		cacheTTL:        60 * time.Second,
 	}
-
-	// Load any active rulepacks from database at startup
-	manager.loadActiveRulepacksFromDatabase()
-
-	manager.logger.Info("Scanner manager initialized with database-backed rulepacks")
 
 	// Initialize semantic analyzers (omni + optional custom composite)
 	var omni scanner.SemanticAnalyzer
@@ -68,7 +69,7 @@ func NewScannerManagerWithRulepackService(rulepackService *services.RulepackServ
 		resolver := func(ctx context.Context, cfg rules.Semantic) (string, string, error) {
 			// tenant id from context (set by middleware)
 			var tenant string
-			if v := ctx.Value("tenant.id"); v != nil {
+			if v := ctx.Value(ckeys.TenantID); v != nil {
 				if s, ok := v.(string); ok {
 					tenant = s
 				}
@@ -102,17 +103,16 @@ func NewScannerManagerWithRulepackService(rulepackService *services.RulepackServ
 	}
 
 	if omni != nil || custom != nil {
-		var analyzer scanner.SemanticAnalyzer
 		if omni != nil && custom != nil {
-			analyzer = semcomp.New(omni, custom)
+			manager.analyzer = semcomp.New(omni, custom)
 		} else if custom != nil {
-			analyzer = custom
+			manager.analyzer = custom
 		} else {
-			analyzer = omni
+			manager.analyzer = omni
 		}
-		manager.scanner.SetSemanticAnalyzer(analyzer)
 	}
 
+	manager.logger.Info("Scanner manager initialized (tenant-aware)")
 	return manager
 }
 
@@ -121,102 +121,152 @@ func getenv(k string) string { return strings.TrimSpace(sysgetenv(k)) }
 // sysgetenv isolated for testing/mocking
 func sysgetenv(k string) string { return os.Getenv(k) }
 
-// GetScanner returns the scanner instance for use by enforcement handlers
+// GetScanner returns a default scanner (not tenant-scoped).
+// Prefer ScanReader which is tenant-aware.
 func (sm *ScannerManager) GetScanner() *scanner.Scanner {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return sm.scanner
+	// Provide a fresh minimal scanner for non-tenant paths
+	sc := scanner.ScanEngineCstor(0)
+	if sm.analyzer != nil {
+		sc.SetSemanticAnalyzer(sm.analyzer)
+	}
+	return sc
 }
 
-// HasActivePolicies returns true if any rulepacks are currently loaded
+// HasActivePolicies returns true when manager can serve scans (service present).
 func (sm *ScannerManager) HasActivePolicies() bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return sm.loadedRulepacks > 0
+	return sm.rulepackService != nil
 }
 
-// GetActiveRulepackCount returns the number of loaded rulepacks
-func (sm *ScannerManager) GetActiveRulepackCount() int {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.loadedRulepacks
-}
+// GetActiveRulepackCount is not meaningful in tenant mode; return 0 (unused).
+func (sm *ScannerManager) GetActiveRulepackCount() int { return 0 }
 
-// ReloadRulepacks forces a reload of rulepacks from the database
-// This can be called after rulepacks are uploaded via API
+// ReloadRulepacks clears tenant scanner cache so next scan reloads fresh packs.
 func (sm *ScannerManager) ReloadRulepacks() error {
-	sm.loadActiveRulepacksFromDatabase()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.tenantScanners = make(map[uuid.UUID]*scanner.Scanner)
+	sm.lastLoaded = make(map[uuid.UUID]time.Time)
 	return nil
 }
 
-// ScanReader provides a wrapper around the scanner's ScanReader method
-// This allows the enforcement handler to use the manager's scanner directly
+// ScanReader uses a tenant-specific scanner based on tenant id in context.
 func (sm *ScannerManager) ScanReader(ctx context.Context, reader interface{}, inputName string) (pkg.ScanResult, error) {
-	sm.mu.RLock()
-	scanner := sm.scanner
-	rulepackCount := sm.loadedRulepacks
-	sm.mu.RUnlock()
-
-	sm.logger.Debug("Scanning with database-loaded rulepacks", "loaded_rulepacks", rulepackCount, "input_name", inputName)
-
-	// Ensure base context (tenant/tracing) is available to semantic analyzers
-	scanner.SetBaseContext(ctx)
-
-	// Convert reader to the expected type and call scanner
-	// The scanner expects an io.Reader
-	if r, ok := reader.(interface{ Read([]byte) (int, error) }); ok {
-		result, err := scanner.ScanReader(ctx, r, inputName)
-		sm.logger.Debug("Scanner result", "violations", len(result.Violations), "error", err)
-		return result, err
+	// Determine tenant id from context
+	var tenantID uuid.UUID
+	if v := ctx.Value(ckeys.TenantID); v != nil {
+		if s, ok := v.(string); ok {
+			if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+				tenantID = id
+			}
+		}
 	}
-
-	return pkg.ScanResult{}, fmt.Errorf("invalid reader type")
-}
-
-// loadActiveRulepacksFromDatabase loads any active rulepacks from the database
-// This is the only source of rulepacks - no file fallback
-func (sm *ScannerManager) loadActiveRulepacksFromDatabase() {
-	if sm.rulepackService == nil {
-		sm.logger.Info("No rulepack service available - scanner will be empty until rulepacks are loaded via API")
-		return
-	}
-
-	ctx := context.Background()
-	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001") // Default tenant
-
-	rulepacks, err := sm.rulepackService.List(ctx, tenantID)
-	if err != nil {
-		sm.logger.Warn("Failed to load rulepacks from database", "error", err)
-		return
-	}
-
-	var activePacks []rules.RulePack
-	for _, rp := range rulepacks {
-		if rp.Active {
-			// Get the active version DSL
-			if dsl, _, err := sm.rulepackService.GetActive(ctx, rp.ID); err == nil {
-				var pack rules.RulePack
-				if err := yaml.Unmarshal(dsl, &pack); err == nil {
-					activePacks = append(activePacks, pack)
-					sm.logger.Info("Loaded active rulepack from database",
-						"rulepack_id", rp.ID, "name", rp.Name, "version", rp.Version, "rules_count", len(pack.Rules))
-				} else {
-					sm.logger.Warn("Failed to parse rulepack DSL", "rulepack_id", rp.ID, "error", err)
+	if tenantID == uuid.Nil {
+		if v := ctx.Value("tenant_id"); v != nil {
+			if s, ok := v.(string); ok {
+				if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+					tenantID = id
 				}
-			} else {
-				sm.logger.Warn("Failed to get active rulepack DSL", "rulepack_id", rp.ID, "error", err)
 			}
 		}
 	}
 
-	sm.mu.Lock()
-	if len(activePacks) > 0 {
-		sm.scanner.LoadRulePacks(activePacks)
-		sm.loadedRulepacks = len(activePacks)
-		sm.logger.Info("Successfully loaded rulepacks from database", "count", len(activePacks))
+	sm.mu.RLock()
+	an := sm.analyzer
+	sm.mu.RUnlock()
+
+	// Choose scanner: tenant-specific when tenantID present; else default
+	var sc *scanner.Scanner
+	if tenantID != uuid.Nil {
+		var err error
+		sc, err = sm.getOrLoadTenantScanner(ctx, tenantID)
+		if err != nil {
+			return pkg.ScanResult{}, err
+		}
 	} else {
-		sm.loadedRulepacks = 0
-		sm.logger.Info("No active rulepacks found in database")
+		sc = scanner.ScanEngineCstor(0)
+		if an != nil {
+			sc.SetSemanticAnalyzer(an)
+		}
 	}
+
+	// Ensure base context (tenant/tracing) is available to semantic analyzers
+	sc.SetBaseContext(ctx)
+
+	// io.Reader check
+	if r, ok := reader.(interface{ Read([]byte) (int, error) }); ok {
+		result, err := sc.ScanReader(ctx, r, inputName)
+		return result, err
+	}
+	return pkg.ScanResult{}, fmt.Errorf("invalid reader type")
+}
+
+// getOrLoadTenantScanner returns a cached scanner for tenant or loads rulepacks.
+func (sm *ScannerManager) getOrLoadTenantScanner(ctx context.Context, tenantID uuid.UUID) (*scanner.Scanner, error) {
+	sm.mu.RLock()
+	if sc, ok := sm.tenantScanners[tenantID]; ok {
+		// Simple TTL refresh
+		if time.Since(sm.lastLoaded[tenantID]) < sm.cacheTTL {
+			sm.mu.RUnlock()
+			return sc, nil
+		}
+	}
+	sm.mu.RUnlock()
+
+	if sm.rulepackService == nil {
+		// No service; return empty scanner
+		sc := scanner.ScanEngineCstor(0)
+		if sm.analyzer != nil {
+			sc.SetSemanticAnalyzer(sm.analyzer)
+		}
+		return sc, nil
+	}
+
+	// Load active rulepacks for tenant
+	packs, err := sm.loadTenantPacks(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	sc := scanner.ScanEngineCstor(0)
+	if sm.analyzer != nil {
+		sc.SetSemanticAnalyzer(sm.analyzer)
+	}
+	if len(packs) > 0 {
+		sc.LoadRulePacks(packs)
+	}
+
+	sm.mu.Lock()
+	sm.tenantScanners[tenantID] = sc
+	sm.lastLoaded[tenantID] = time.Now()
 	sm.mu.Unlock()
+	return sc, nil
+}
+
+func (sm *ScannerManager) loadTenantPacks(ctx context.Context, tenantID uuid.UUID) ([]rules.RulePack, error) {
+	infos, err := sm.rulepackService.List(ctx, tenantID)
+	if err != nil {
+		sm.logger.Warn("Failed to list rulepacks", "tenant_id", tenantID, "error", err)
+		return nil, err
+	}
+	var activePacks []rules.RulePack
+	for _, rp := range infos {
+		if !rp.Active {
+			continue
+		}
+		dsl, _, err := sm.rulepackService.GetActive(ctx, rp.ID)
+		if err != nil {
+			sm.logger.Warn("Failed to get active rulepack DSL", "rulepack_id", rp.ID, "error", err)
+			continue
+		}
+		var pack rules.RulePack
+		if err := yaml.Unmarshal(dsl, &pack); err != nil {
+			sm.logger.Warn("Failed to parse rulepack DSL", "rulepack_id", rp.ID, "error", err)
+			continue
+		}
+		activePacks = append(activePacks, pack)
+	}
+	return activePacks, nil
 }
