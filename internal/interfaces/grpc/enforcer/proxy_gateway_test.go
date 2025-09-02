@@ -2,9 +2,10 @@ package grpcenforcer_test
 
 import (
 	"context"
+	"io"
+	"net"
 	"testing"
 	"time"
-	"net"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproc "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
+	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/testutil/fixtures"
 )
 
@@ -29,9 +31,14 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         500 * time.Millisecond,
 		MaxStreamBytes:  1024 * 1024,
-		FailOn:          "HIGH",
+		FailOn:          "LOW",
 		EnforcementMode: "enforce",
 	})
+	// Load minimal rules for prompt injection detection
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "test-pack", Version: "1.0.0"},
+		Rules:    []rules.Rule{{ID: "test-prompt-injection", Level: 1, Severity: "HIGH", Keywords: []string{"ignore previous instructions", "reveal your system prompt"}}},
+	}})
 
 	// Set up in-memory gRPC server
 	lis := bufconn.Listen(1024 * 1024)
@@ -46,7 +53,7 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 	defer s.Stop()
 
 	// Create client connection
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
+	conn, err := grpc.NewClient("bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -100,20 +107,27 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Expect blocking response
-		resp, err := stream.Recv()
-		require.NoError(t, err)
+		// Send request trailers to flush processing
+		_ = stream.Send(&extproc.ProcessingRequest{Request: &extproc.ProcessingRequest_RequestTrailers{RequestTrailers: &extproc.HttpTrailers{}}})
+
+		// Try a few times to receive the immediate response
+		var resp *extproc.ProcessingResponse
+		var recvErr error
+		for i := 0; i < 3; i++ {
+			resp, recvErr = stream.Recv()
+			if recvErr == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		require.NoError(t, recvErr)
 
 		// Should receive immediate response (blocked)
 		if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
 			assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
-
-			// Check for detailed blocking response
 			body := string(immediateResp.Body)
 			assert.Contains(t, body, "blocked")
 			assert.Contains(t, body, "PromptShield")
-
-			// Check headers
 			headers := immediateResp.Headers.GetSetHeaders()
 			var hasDecisionHeader bool
 			for _, header := range headers {
@@ -194,8 +208,18 @@ func TestIntegration_ResponseScanning(t *testing.T) {
 
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         500 * time.Millisecond,
+		FailOn:          "LOW",
 		EnforcementMode: "enforce",
 	})
+	// Load rule to redact API keys in responses
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "resp-pack", Version: "1.0.0"},
+		Rules: []rules.Rule{{
+			ID: "leak-api-key", Level: 2, Severity: "HIGH",
+			Patterns: []rules.Pattern{{Regex: "sk-proj-[A-Za-z0-9]+", Flags: []string{"ignorecase"}}},
+			Response: &rules.Response{Action: "redact", Message: "API key redacted"},
+		}},
+	}})
 
 	lis := bufconn.Listen(1024 * 1024)
 	s := grpc.NewServer()
@@ -206,7 +230,7 @@ func TestIntegration_ResponseScanning(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
+	conn, err := grpc.NewClient("bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -284,8 +308,14 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:        2 * time.Second,
+		FailOn:         "LOW",
 		MaxStreamBytes: 64 * 1024, // 64KB limit
 	})
+	// Load minimal rules for prompt injection detection
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "test-pack", Version: "1.0.0"},
+		Rules:    []rules.Rule{{ID: "test-prompt-injection", Level: 1, Severity: "HIGH", Keywords: []string{"ignore previous instructions", "reveal your system prompt"}}},
+	}})
 
 	lis := bufconn.Listen(1024 * 1024)
 	s := grpc.NewServer()
@@ -296,7 +326,7 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
+	conn, err := grpc.NewClient("bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -393,8 +423,14 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         1 * time.Second,
+		FailOn:          "LOW",
 		EnforcementMode: "enforce",
 	})
+	// Load minimal rules for prompt injection detection
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "test-pack", Version: "1.0.0"},
+		Rules:    []rules.Rule{{ID: "test-prompt-injection", Level: 1, Severity: "HIGH", Keywords: []string{"ignore previous instructions", "reveal your system prompt"}}},
+	}})
 
 	lis := bufconn.Listen(1024 * 1024)
 	s := grpc.NewServer()
@@ -473,21 +509,28 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 				return
 			}
 
-			// Receive response
-			resp, err := stream.Recv()
-			if err != nil {
-				results <- false
-				return
+			// Send trailers to flush
+			_ = stream.Send(&extproc.ProcessingRequest{Request: &extproc.ProcessingRequest_RequestTrailers{RequestTrailers: &extproc.HttpTrailers{}}})
+			// Read until EOF or ImmediateResponse
+			blocked := false
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					results <- false
+					return
+				}
+				if immediate := resp.GetImmediateResponse(); immediate != nil {
+					blocked = (immediate.Status.Code == typev3.StatusCode_Forbidden)
+					break
+				}
 			}
-
-			// Validate response based on content
 			if streamID%2 == 0 {
-				// Should be blocked
-				immediateResp := resp.GetImmediateResponse()
-				results <- immediateResp != nil && immediateResp.Status.Code == typev3.StatusCode_Forbidden
+				results <- blocked
 			} else {
-				// Should be allowed
-				results <- resp.GetImmediateResponse() == nil
+				results <- !blocked
 			}
 		}(i)
 	}

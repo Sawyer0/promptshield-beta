@@ -19,9 +19,17 @@ import (
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
+	ckeys "github.com/promptshield/promptshield/internal/shared/contextkeys"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	pkg "github.com/promptshield/promptshield/pkg/types"
 )
+
+type decisionResponse struct {
+	Decision   string `json:"decision"`
+	Reason     string `json:"reason"`
+	Violations int    `json:"violations"`
+	RequestID  string `json:"request_id"`
+}
 
 func checkHandlerVersioned(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +40,16 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 				_, _ = w.Write([]byte("unauthorized"))
 				return
 			}
+		}
+		// Require tenant id header for isolation
+		tenantID := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
+		if tenantID == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing tenant id", map[string]any{"hint": "pass X-PS-Tenant-ID"})
+			return
+		}
+		if _, err := uuid.Parse(tenantID); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tenant id", nil)
+			return
 		}
 		if !license.IsLicensed() {
 			w.Header().Set("X-PromptShield-License", "EVALUATION")
@@ -45,7 +63,8 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		// Stream request body directly; avoid temp files
+		// Inject tenant into context for scanner manager and BYOK
+		ctx = context.WithValue(ctx, ckeys.TenantID, tenantID)
 
 		maxBytes := int64(1 << 20)
 		if v := os.Getenv("PS_ENFORCER_MAX_BODY_BYTES"); v != "" {
@@ -61,16 +80,12 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		logger := slog.With("component", "api-check")
 		var res pkg.ScanResult
 		var err error
-		
+
 		// Use scanner manager for all enforcement - no fallback
-        if opt.ScannerManager != nil && opt.ScannerManager.HasActivePolicies() {
-            logger.Info("Using database-loaded rulepack scanner")
-            // attach tenant id into context for BYOK resolver
-            if t := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")); t != "" {
-                ctx = context.WithValue(ctx, interface{}("tenant.id"), t)
-            }
-            res, err = opt.ScannerManager.ScanReader(ctx, r.Body, "http:v1:check:database")
-        } else {
+		if opt.ScannerManager != nil && opt.ScannerManager.HasActivePolicies() {
+			logger.Info("Using database-loaded rulepack scanner")
+			res, err = opt.ScannerManager.ScanReader(ctx, r.Body, "http:v1:check:database")
+		} else {
 			logger.Info("No active rulepacks - allowing request (fail-open)")
 			res = pkg.ScanResult{
 				Violations: []pkg.Violation{},
@@ -133,12 +148,13 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			statusCode = http.StatusForbidden
 		}
 		w.WriteHeader(statusCode)
-		resp := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": r.Header.Get("X-Request-ID")}
-		_ = json.NewEncoder(w).Encode(resp)
+		respObj := decisionResponse{Decision: decision, Reason: reason, Violations: total, RequestID: r.Header.Get("X-Request-ID")}
+		_ = json.NewEncoder(w).Encode(respObj)
+		respMap := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": r.Header.Get("X-Request-ID")}
 
 		// Publish decision event
 		if opt.Events != nil {
-			opt.Events.Publish(Event{Type: "decision", Data: resp})
+			opt.Events.Publish(Event{Type: "decision", Data: respMap})
 		}
 		// Audit durable trail (best-effort)
 		if opt.AuditLogger != nil {
@@ -210,12 +226,12 @@ func scanHandler(opt Options) http.HandlerFunc {
 			s.Buffer(buf, 10*1024*1024)
 			for s.Scan() {
 				line := s.Bytes()
-        // attach tenant id into context for BYOK
-        base := r.Context()
-        if t := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")); t != "" {
-            base = context.WithValue(base, interface{}("tenant.id"), t)
-        }
-        ctx, cancel := context.WithTimeout(base, time.Duration(timeoutMs)*time.Millisecond)
+				// attach tenant id into context for BYOK
+				base := r.Context()
+				if t := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")); t != "" {
+					base = context.WithValue(base, ckeys.TenantID, t)
+				}
+				ctx, cancel := context.WithTimeout(base, time.Duration(timeoutMs)*time.Millisecond)
 				res := runScanLine(ctx, line)
 				cancel()
 				b, _ := json.Marshal(res)
@@ -304,25 +320,27 @@ func scanHandler(opt Options) http.HandlerFunc {
 }
 
 func runScanLine(ctx context.Context, data []byte) map[string]any {
-    sc := scanner.ScanEngineCstor(0)
-    sc.SetBaseContext(ctx)
-    // Initialize semantic analyzer (omni only for /scan path)
-    if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
-        if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-            analyzer := semopenai.New(semopenai.Options{
-                APIKey:            apiKey,
-                MaxConcurrency:    2,
-                CacheSize:         1000,
-                CacheTTL:          15 * time.Minute,
-                RequestsPerSecond: 10,
-                BurstSize:         20,
-            })
-            sc.SetSemanticAnalyzer(analyzer)
-        }
-    }
-    if rp := os.Getenv("PS_ENFORCER_RULEPACK"); rp != "" {
-        if packs, e := rules.LoadPacks(rp); e == nil { sc.LoadRulePacks(packs) }
-    }
+	sc := scanner.ScanEngineCstor(0)
+	sc.SetBaseContext(ctx)
+	// Initialize semantic analyzer (omni only for /scan path)
+	if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
+		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+			analyzer := semopenai.New(semopenai.Options{
+				APIKey:            apiKey,
+				MaxConcurrency:    2,
+				CacheSize:         1000,
+				CacheTTL:          15 * time.Minute,
+				RequestsPerSecond: 10,
+				BurstSize:         20,
+			})
+			sc.SetSemanticAnalyzer(analyzer)
+		}
+	}
+	if rp := os.Getenv("PS_ENFORCER_RULEPACK"); rp != "" {
+		if packs, e := rules.LoadPacks(rp); e == nil {
+			sc.LoadRulePacks(packs)
+		}
+	}
 	res, err := sc.ScanReader(ctx, bytes.NewReader(data), "http:v1:scan-line")
 	decision := "allow"
 	reason := "no_signals"

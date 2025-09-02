@@ -680,15 +680,23 @@ func hashAuditEvent(event *types.AuditEvent) string {
 }
 
 func getPrevHash(ctx context.Context, event *types.AuditEvent, db *Pool) string {
-	// Get the most recent event before this one
+	// Get the most recent event before this one, scoped to tenant if provided
+	var prevHash string
+	if event.TenantID != nil {
+		query := `
+			SELECT hash FROM audits
+			WHERE created_at <= $1 AND tenant_id = $2
+			ORDER BY created_at DESC, id DESC
+			LIMIT 1`
+		_ = db.Raw().QueryRow(ctx, query, event.Timestamp, *event.TenantID).Scan(&prevHash)
+		return prevHash
+	}
 	query := `
 		SELECT hash FROM audits
 		WHERE created_at <= $1
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1`
-
-	var prevHash string
-	db.Raw().QueryRow(ctx, query, event.Timestamp).Scan(&prevHash)
+	_ = db.Raw().QueryRow(ctx, query, event.Timestamp).Scan(&prevHash)
 	return prevHash
 }
 

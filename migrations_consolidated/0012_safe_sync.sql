@@ -1,6 +1,10 @@
 -- Idempotent sync for existing databases already containing core tables.
 -- Creates only missing tables/columns/indexes needed by the current backend.
 
+-- 0) Ensure required extensions (idempotent)
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- 1) Ensure rulepack_assignments exists (canonical mapping of rulepacks to scopes)
 CREATE TABLE IF NOT EXISTS rulepack_assignments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,6 +71,44 @@ DO $$ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='rulepack_assignments') THEN
     EXECUTE 'ALTER TABLE rulepack_assignments ENABLE ROW LEVEL SECURITY';
+  END IF;
+END$$;
+
+-- 5) Ensure audits table has required columns for current backend (idempotent)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='audits') THEN
+    -- Add missing columns used by audit services
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema='public' AND table_name='audits' AND column_name='actor_type'
+    ) THEN
+      EXECUTE 'ALTER TABLE audits ADD COLUMN actor_type TEXT';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema='public' AND table_name='audits' AND column_name='before_data'
+    ) THEN
+      EXECUTE 'ALTER TABLE audits ADD COLUMN before_data JSONB';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema='public' AND table_name='audits' AND column_name='after_data'
+    ) THEN
+      EXECUTE 'ALTER TABLE audits ADD COLUMN after_data JSONB';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema='public' AND table_name='audits' AND column_name='hash'
+    ) THEN
+      EXECUTE 'ALTER TABLE audits ADD COLUMN hash TEXT';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_schema='public' AND table_name='audits' AND column_name='prev_hash'
+    ) THEN
+      EXECUTE 'ALTER TABLE audits ADD COLUMN prev_hash TEXT';
+    END IF;
   END IF;
 END$$;
 

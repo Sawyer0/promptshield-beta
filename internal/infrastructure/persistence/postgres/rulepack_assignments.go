@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,13 @@ func RulepackAssignmentRepo(db *Pool) domain.RulepackAssignmentRepository {
 }
 
 func (r *pgRulepackAssignmentRepo) Create(ctx context.Context, assignment *domain.RulepackAssignment) error {
+	// Validation
+	if strings.TrimSpace(assignment.TargetScope) == "" {
+		return fmt.Errorf("target scope cannot be empty")
+	}
+	if assignment.Priority <= 0 {
+		return fmt.Errorf("priority must be positive")
+	}
 	if assignment.ID == uuid.Nil {
 		assignment.ID = uuid.New()
 	}
@@ -134,6 +142,13 @@ func (r *pgRulepackAssignmentRepo) ListByScope(ctx context.Context, tenantID uui
 }
 
 func (r *pgRulepackAssignmentRepo) Update(ctx context.Context, assignment *domain.RulepackAssignment) error {
+	// Validation
+	if strings.TrimSpace(assignment.TargetScope) == "" {
+		return fmt.Errorf("target scope cannot be empty")
+	}
+	if assignment.Priority <= 0 {
+		return fmt.Errorf("priority must be positive")
+	}
 	assignment.UpdatedAt = time.Now()
 
 	q := `UPDATE rulepack_assignments SET 

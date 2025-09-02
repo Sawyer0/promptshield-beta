@@ -196,6 +196,7 @@ db-apply-provider-profiles:
 	@if [ -z "$$PS_PG_DSN" ]; then echo "PS_PG_DSN is not set"; exit 1; fi
 	@echo "Applying provider_profiles (idempotent)"
 	@psql "$$PS_PG_DSN" -v ON_ERROR_STOP=1 -f migrations_consolidated/0019_provider_profiles.sql
+	@psql "$$PS_PG_DSN" -v ON_ERROR_STOP=1 -f migrations_consolidated/0020_tools_registry.sql
 
 .PHONY: enc-key enc-write-dev
 enc-key:
@@ -304,5 +305,74 @@ dev-ui:
 
 direct-deny:
 	@curl -s -D - -o /dev/null -X POST http://localhost:9090/check -H 'content-type: text/plain' --data '123-45-6789' | grep -i x-ps- || true
+
+# Testing
+.PHONY: test test-frontend test-backend test-backend-win test-coverage
+
+# Run all tests
+test: test-backend test-frontend
+
+# Run backend tests (Unix/macOS)
+test-backend:
+	@echo "Running backend tests..."
+	@if [ "$(OS)" = "Windows_NT" ]; then \
+		echo "Detected Windows. Use 'make test-backend-win' to run without -race"; \
+		exit 1; \
+	fi
+	@cd gateway && CGO_ENABLED=1 go test -v -race ./...
+	@cd internal && CGO_ENABLED=1 go test -v -race ./...
+
+# Run backend tests (Windows-friendly, no -race)
+test-backend-win:
+	@echo "Running backend tests (Windows, no -race)..."
+	@cd gateway && go test -v ./...
+	@cd internal && go test -v ./...
+
+# Run frontend tests
+test-frontend:
+	@echo "Running frontend tests..."
+	@cd frontend/RulepackManager && npm run test
+
+# Run frontend tests with coverage
+test-frontend-coverage:
+	@echo "Running frontend tests with coverage..."
+	@cd frontend/RulepackManager && npm run test:coverage
+
+# Run backend tests with database (requires PS_TEST_PG_DSN)
+test-backend-db:
+	@echo "Running backend database tests..."
+	@if [ -z "$(PS_TEST_PG_DSN)" ]; then \
+		echo "PS_TEST_PG_DSN not set, skipping database tests"; \
+		exit 0; \
+	fi
+	@cd internal/infrastructure/persistence/postgres && go test -v ./...
+
+# Run all tests with database
+test-all: test-backend-db test-frontend
+
+# Linting and formatting
+.PHONY: lint lint-frontend lint-backend format
+
+# Run all linting
+lint: lint-backend lint-frontend
+
+# Lint backend code
+lint-backend:
+	@echo "Linting backend code..."
+	@cd gateway && go vet ./...
+	@cd internal && go vet ./...
+
+# Lint frontend code
+lint-frontend:
+	@echo "Linting frontend code..."
+	@cd frontend/RulepackManager && npm run check
+
+# Format code
+format:
+	@echo "Formatting backend code..."
+	@cd gateway && go fmt ./...
+	@cd internal && go fmt ./...
+	@echo "Formatting frontend code..."
+	@cd frontend/RulepackManager && npm run format
 
 

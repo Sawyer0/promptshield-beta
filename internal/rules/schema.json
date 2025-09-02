@@ -46,6 +46,76 @@
     "context": {
       "type": "object",
       "additionalProperties": { "type": "string" }
+    },
+    "patterns": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action_selector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "mode": { "type": "string", "enum": ["monitor", "enforce"], "default": "enforce" },
+            "allowed_tool_query": { "type": "string" },
+            "per_action_timeout_ms": { "type": "integer", "minimum": 1, "maximum": 60000 },
+            "per_action_rate_limit": { "type": "integer", "minimum": 1, "maximum": 100000 }
+          }
+        },
+        "context_minimization": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "strip_point": { "type": "string", "enum": ["after_plan", "after_tool_selection", "step"], "default": "after_tool_selection" },
+            "step": { "type": "integer", "minimum": 0 },
+            "mask_token": { "type": "string", "default": "<USER_TEXT>" },
+            "retain": { "type": "array", "items": { "type": "string", "enum": ["system_prompt", "tool_schemas", "plan"] } }
+          }
+        },
+        "plan_then_execute": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "max_steps": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "drift_policy": { "type": "string", "enum": ["block", "quarantine", "require_approval"], "default": "block" },
+            "plan_hash_header": { "type": "string" },
+            "signature": { "type": "object", "additionalProperties": false, "properties": { "type": { "type": "string", "enum": ["hmac", "public_key"] }, "key_ref": { "type": "string" } } }
+          }
+        },
+        "map_reduce": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "map_unit": { "type": "string", "enum": ["document", "url", "record"] },
+            "map_output": { "type": "string", "enum": ["boolean", "score", "enum", "text"], "default": "score" },
+            "text_max_tokens": { "type": "integer", "minimum": 1, "maximum": 4096 },
+            "reduce_type": { "type": "string", "enum": ["non_llm", "constrained_llm"], "default": "non_llm" }
+          }
+        },
+        "dual_llm": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "quarantined_tools_disabled": { "type": "boolean", "default": true },
+            "bridge_handles_only": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preset_id": { "type": "string" },
+        "mode": { "type": "string", "enum": ["monitor", "enforce"], "default": "enforce" },
+        "arg_contracts": { "type": "array", "items": { "type": "string" } },
+        "risk_rules": { "type": "object" },
+        "overrides": { "type": "object" }
+      }
     }
   },
   "$defs": {

@@ -190,6 +190,16 @@ func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationIn
 		if err != nil {
 			return nil, err
 		}
+		// Cache and log for multimodal path to keep behavior consistent
+		a.putCache(cacheKey, mmResult.Flagged, mmResult.Confidence)
+		if a.logger != nil {
+			a.logger.Info("moderation analysis complete",
+				"flagged", mmResult.Flagged,
+				"confidence", mmResult.Confidence,
+				"category", mmResult.Reason,
+				"multimodal", true,
+			)
+		}
 		return mmResult, nil
 	}
 

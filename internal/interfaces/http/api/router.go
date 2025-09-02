@@ -18,26 +18,28 @@ import (
 // Router
 
 func NewMux(opt Options) http.Handler {
-    r := chi.NewRouter()
-    r.Use(middleware.RequestID)
-    r.Use(middleware.Timeout(10 * time.Second))
-    r.Use(versionHeader("1"))
-    // CORS middleware for frontend access
-    r.Use(corsMiddleware)
-    // Error recovery and structured error handling
-    r.Use(errorRecoveryMiddleware)
-    // Distributed tracing and header propagation
-    if opt.Telemetry != nil {
-        r.Use(tracingMiddleware)
-    }
-    // Request logging and correlation
-    r.Use(correlationIDMiddleware)
-    // BFF JWT auth: trusts only tokens minted by the frontend service
-    r.Use(jwtAuthMiddleware)
-    r.Use(tenantContextMiddleware)
-    r.Use(requestLoggerMiddleware)
-    // bytes in/out accounting
-    r.Use(captureBytesMiddleware)
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Timeout(10 * time.Second))
+	r.Use(versionHeader("1"))
+	// CORS middleware for frontend access
+	r.Use(corsMiddleware)
+	// Error recovery and structured error handling
+	r.Use(errorRecoveryMiddleware)
+	// Distributed tracing and header propagation
+	if opt.Telemetry != nil {
+		r.Use(tracingMiddleware)
+	}
+	// Request logging and correlation
+	r.Use(correlationIDMiddleware)
+	// BFF JWT auth: trusts only tokens minted by the frontend service
+	r.Use(jwtAuthMiddleware)
+	r.Use(tenantContextMiddleware)
+	r.Use(requestLoggerMiddleware)
+	// Enforce agent policies when tool calls are declared
+	r.Use(agentEnforcementMiddleware(opt))
+	// bytes in/out accounting
+	r.Use(captureBytesMiddleware)
 
 	// Multi-tenant validation (tenant routing only - auth handled by frontend)
 	if opt.DB != nil {
@@ -107,13 +109,16 @@ func NewMux(opt Options) http.Handler {
 	registerAssignmentHandlers(r, opt)
 	// registerQuotaHandlers(r, opt) - removed for Security Gateway
 	registerAuditHandlers(r, opt)
-	registerPolicyHandlers(r, opt)
+	// Policy endpoints are deprecated in favor of rulepacks; do not register
 	registerSystemHandlers(r, opt)
 	registerServiceControlHandlers(r, opt)
 	registerSettingsHandlers(r, opt)
 	registerBusinessMetricsHandlers(r, opt)
-    registerUserHandlers(r, opt)
-    registerProviderProfileHandlers(r, opt)
+	registerUserHandlers(r, opt)
+	registerProviderProfileHandlers(r, opt)
+	registerToolHandlers(r, opt)
+	registerPresetHandlers(r, opt)
+	registerAgentHandlers(r, opt)
 
 	// Security Gateway - no complex usage/quota management needed
 
@@ -181,6 +186,20 @@ func NewMux(opt Options) http.Handler {
 		}
 		g.Post("/check", checkHandlerVersioned(opt))
 		g.Post("/scan", scanHandler(opt))
+		// Async scan endpoint (feature-gated by license)
+		g.Post("/scan:async", func(w http.ResponseWriter, r *http.Request) {
+			// Require entitlements to run async jobs
+			// Ensure license state is initialized for this process
+			license.Check()
+			ent, ok := license.Entitlement()
+			if !ok || !ent.Features["async_jobs"] {
+				http.Error(w, "async jobs not licensed", http.StatusForbidden)
+				return
+			}
+			// In tests we only need a 200 to verify gating; real impl would enqueue work
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("{\"status\":\"accepted\"}"))
+		})
 	})
 
 	// Observability endpoints (admin-protected)

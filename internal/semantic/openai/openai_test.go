@@ -18,10 +18,11 @@ type rtFunc func(*http.Request) (*http.Response, error)
 func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestAnalyzer_LogsAndCacheHit(t *testing.T) {
-	// Fake transport always returns a VIOLATION label
+	// Fake transport returns a Moderations API response with flagged=true
 	tr := rtFunc(func(r *http.Request) (*http.Response, error) {
-		body := `{"choices":[{"message":{"content":"VIOLATION"}}]}`
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewBufferString(body))}, nil
+		// Simulate POST /v1/moderations
+		respBody := `{"results":[{"flagged":true,"categories":{},"category_scores":{"illicit":0.92}}]}`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewBufferString(respBody))}, nil
 	})
 	httpClient := &http.Client{Transport: tr}
 
@@ -36,24 +37,25 @@ func TestAnalyzer_LogsAndCacheHit(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-
-	ok, _, err := a.Analyze(ctx, "sensitive", rules.Semantic{Model: "gpt-4", AnalysisPrompt: "decide {input}", MaxTokens: 1})
+	// Use multimodal path so we control the raw HTTP response
+	input := ModerationInput{Text: "sensitive", ImageURL: "http://example.com/img.png"}
+	res, err := a.AnalyzeWithModeration(ctx, input, rules.Semantic{Model: "gpt-4", AnalysisPrompt: "decide {input}", MaxTokens: 1})
 	if err != nil {
 		// Allow error in transport edge case; still check logs and cache behavior
 	}
-	if !ok {
+	if res == nil || !res.Flagged {
 		t.Fatalf("expected violation true")
 	}
 	// Second call should hit cache
-	ok, _, err = a.Analyze(ctx, "sensitive", rules.Semantic{Model: "gpt-4", AnalysisPrompt: "decide {input}", MaxTokens: 1})
-	if err != nil || !ok {
-		t.Fatalf("cache Analyze got err=%v ok=%v", err, ok)
+	res, err = a.AnalyzeWithModeration(ctx, input, rules.Semantic{Model: "gpt-4", AnalysisPrompt: "decide {input}", MaxTokens: 1})
+	if err != nil || res == nil || !res.Flagged {
+		t.Fatalf("cache AnalyzeWithModeration got err=%v flagged=%v", err, res != nil && res.Flagged)
 	}
 	logs := buf.String()
-	if !strings.Contains(logs, "semantic request") || !strings.Contains(logs, "semantic response") {
-		t.Errorf("expected semantic request/response logs, got: %s", logs)
+	if !strings.Contains(logs, "moderation analysis complete") {
+		t.Errorf("expected moderation analysis complete log, got: %s", logs)
 	}
-	if !strings.Contains(logs, "semantic cache hit") {
-		t.Errorf("expected cache hit log on second call, got: %s", logs)
+	if !strings.Contains(logs, "moderation cache hit") {
+		t.Errorf("expected moderation cache hit log on second call, got: %s", logs)
 	}
 }
