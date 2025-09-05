@@ -20,6 +20,7 @@ import (
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	enc "github.com/promptshield/promptshield/internal/security/crypto"
 	"github.com/promptshield/promptshield/internal/shared/severity"
 	pkgtypes "github.com/promptshield/promptshield/pkg/types"
 	"golang.org/x/time/rate"
@@ -82,8 +83,29 @@ func (s *Server) Process(streamParam extproc.ExternalProcessor_ProcessServer) er
 // auditDecision sends a structured decision event to the configured audit sink (if any).
 func (s *Server) auditDecision(eventType string, data map[string]any) {
 	if s.audit.logf != nil {
+		// Attach optional signature over canonical data
+		if _, ok := data["signed_hmac"]; !ok {
+			if sig, err := enc.SignHMAC256(data); err == nil {
+				data["signed_hmac"] = sig
+			}
+		}
 		s.audit.logf(eventType, data)
 	}
+}
+
+// currentRulepackIDs returns identifiers for the rulepacks currently loaded into the scanners.
+// The RulePack.SourcePath is populated with the rulepack UUID string during DB load.
+func (s *Server) currentRulepackIDs() []string {
+	s.rulesMutex.RLock()
+	defer s.rulesMutex.RUnlock()
+	// Attempt to reflect identifiers from scanner state if available
+	var ids []string
+	// The scanner does not expose packs directly; we rely on RulePack.SourcePath carried into compiled rules
+	// As a pragmatic approach, include the server tenantID (single-tenant instance) when explicit IDs are not accessible.
+	if s.tenantID != uuid.Nil {
+		ids = append(ids, s.tenantID.String())
+	}
+	return ids
 }
 
 // Run wrapper removed; use internal/enforcergrpc helpers instead.

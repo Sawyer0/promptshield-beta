@@ -16,12 +16,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/audit"
 	"github.com/promptshield/promptshield/internal/bootstrap"
 	"github.com/promptshield/promptshield/internal/domain"
+	natsPub "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/infrastructure/planstate"
@@ -31,6 +31,7 @@ import (
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
 	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
+	"github.com/promptshield/promptshield/internal/toolrunner"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	"github.com/promptshield/promptshield/internal/usage"
@@ -102,10 +103,18 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 	var assignmentRepo domain.RulepackAssignmentRepository
 	var auditRepo domain.AuditRepository
 
+	// Optional Redis publisher
+	var publisher *natsPub.Publisher
+	if addr := os.Getenv("PS_REDIS_ADDR"); strings.TrimSpace(addr) != "" {
+		if pub, err := natsPub.NewPublisher(addr); err == nil {
+			publisher = pub
+		}
+	}
+
 	if dbPool != nil {
 		// Use PostgreSQL repositories for enterprise features
 		rulepackRepo := pg.RulepackRepo(dbPool)
-		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
+		rulepackService = services.RulepackServiceCstor(rulepackRepo, publisher)
 
 		// Initialize enterprise repositories
 		tenantRepo = pg.TenantRepo(dbPool)
@@ -121,7 +130,7 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 
 		// Create in-memory rulepack repository
 		rulepackRepo := memory.NewRulepackRepository()
-		rulepackService = services.RulepackServiceCstor(rulepackRepo, nil)
+		rulepackService = services.RulepackServiceCstor(rulepackRepo, publisher)
 
 		// Use in-memory policy repository
 		policyService = initializePolicyService()
@@ -130,7 +139,7 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 	}
 
 	// Create scanner manager for event-driven real-time enforcement
-	scannerManager := NewScannerManagerWithRulepackService(rulepackService, dbPool)
+    scannerManager := NewScannerManagerWithRulepackService(rulepackService, dbPool)
 
 	// Build API options with database-backed repositories
 	options := api.Options{
@@ -139,6 +148,7 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 		PolicyService:      policyService,
 		RulepackService:    rulepackService,
 		ScannerManager:     scannerManager,
+		ToolRunner:         toolrunner.New(),
 	}
 
 	// Wire enterprise repositories when database is available
@@ -520,10 +530,6 @@ func Serve(addr string) *http.Server {
 	return srv
 }
 
-func generateRequestID() string {
-	return uuid.NewString()
-}
-
 // auditAdapter adapts internal/audit.Logger to contracts.AuditLogger
 type auditAdapter struct{ inner audit.Logger }
 
@@ -561,15 +567,6 @@ func HttpAuthOK(r *http.Request, want string) bool {
 		}
 	}
 	return false
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // tlsMode returns one of: auto (default), require, disable

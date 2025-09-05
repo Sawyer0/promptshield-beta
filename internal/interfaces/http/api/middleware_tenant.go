@@ -31,13 +31,13 @@ type TenantInfo struct {
 
 // tenantValidationMiddleware validates and injects tenant context
 func tenantValidationMiddleware(db postgres.DB) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Dev bypass: skip tenant validation entirely
-			if strings.EqualFold(strings.TrimSpace(os.Getenv("PS_DEV_BYPASS_AUTH")), "true") {
-				next.ServeHTTP(w, r)
-				return
-			}
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // Dev bypass: skip tenant validation entirely
+            if strings.EqualFold(strings.TrimSpace(os.Getenv("PS_DEV_BYPASS_AUTH")), "true") {
+                next.ServeHTTP(w, r)
+                return
+            }
 			// Extract tenant ID from header
 			tenantIDStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
 			if tenantIDStr == "" {
@@ -84,35 +84,56 @@ func tenantValidationMiddleware(db postgres.DB) func(http.Handler) http.Handler 
 				return
 			}
 
-			// Add tenant info to context
-			ctx := r.Context()
-			type dbCtxKey string
-			ctx = context.WithValue(ctx, tenantIDKey, tenantID.String())
-			ctx = context.WithValue(ctx, tenantNameKey, tenant.Name)
+            // Add tenant info to context
+            ctx := r.Context()
+            type dbCtxKey string
+            ctx = context.WithValue(ctx, tenantIDKey, tenantID.String())
+            ctx = context.WithValue(ctx, tenantNameKey, tenant.Name)
 
 			// Set database context for RLS - CRITICAL for multi-tenant security
 			ctx = context.WithValue(ctx, dbCtxKey("db.tenant_id"), tenantID.String())
 
-			// Set tenant context in the database for RLS policies
-			if err := setTenantContextInDB(db, tenantID); err != nil {
-				slog.Error("Failed to set tenant context for RLS", "tenant_id", tenantID, "error", err)
-				// This is critical - if RLS context fails, reject the request
-				writeError(w, http.StatusInternalServerError, "TENANT_CONTEXT_ERROR", "Failed to set tenant security context", nil)
-				return
-			}
+            // Set tenant context in the database for RLS policies
+            if err := setTenantContextInDB(db, tenantID); err != nil {
+                slog.Error("Failed to set tenant context for RLS", "tenant_id", tenantID, "error", err)
+                // This is critical - if RLS context fails, reject the request
+                writeError(w, http.StatusInternalServerError, "TENANT_CONTEXT_ERROR", "Failed to set tenant security context", nil)
+                return
+            }
 
-			// Update metrics if available
-			// Note: HTTPRequestsTotal metric should be defined in metrics package
-			// For now, log the tenant access
-			slog.Debug("Tenant request",
-				"tenant_id", tenantID.String(),
-				"method", r.Method,
-				"path", r.URL.Path,
-			)
+            // Enforce user membership in tenant (skip for admin and specific onboarding endpoints)
+            if !shouldBypassMembershipCheck(r) {
+                // Allow platform admin
+                if isAdminFromHeaders(r) {
+                    next.ServeHTTP(w, r.WithContext(ctx))
+                    return
+                }
+                userID := strings.TrimSpace(r.Header.Get("X-PS-User-ID"))
+                if userID == "" {
+                    writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "user authentication required", nil)
+                    return
+                }
+                // Membership exists?
+                var dummy int
+                row := db.QueryRowContext(ctx, "SELECT 1 FROM tenant_memberships WHERE tenant_id=$1 AND user_id=$2", tenantID, userID)
+                if err := row.Scan(&dummy); err != nil {
+                    writeError(w, http.StatusForbidden, "FORBIDDEN", "user is not a member of tenant", map[string]any{"tenant_id": tenantID})
+                    return
+                }
+            }
 
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+            // Update metrics if available
+            // Note: HTTPRequestsTotal metric should be defined in metrics package
+            // For now, log the tenant access
+            slog.Debug("Tenant request",
+                "tenant_id", tenantID.String(),
+                "method", r.Method,
+                "path", r.URL.Path,
+            )
+
+            next.ServeHTTP(w, r.WithContext(ctx))
+        })
+    }
 }
 
 // Removed - frontend authentication is handled by the frontend/auth service
@@ -212,3 +233,36 @@ func GetTenantID(ctx context.Context) (uuid.UUID, bool) {
 }
 
 // Removed - user context is handled by frontend
+
+// isAdminFromHeaders determines if request has admin role/header
+func isAdminFromHeaders(r *http.Request) bool {
+    roles := strings.Split(strings.TrimSpace(r.Header.Get("X-PS-User-Roles")), ",")
+    for _, part := range roles {
+        if strings.EqualFold(strings.TrimSpace(part), "admin") {
+            return true
+        }
+    }
+    if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-PS-User-Admin")), "true") {
+        return true
+    }
+    return false
+}
+
+// shouldBypassMembershipCheck allows non-members to hit specific onboarding endpoints
+func shouldBypassMembershipCheck(r *http.Request) bool {
+    p := r.URL.Path
+    // Allow self-membership creation: POST /v1/tenants/{id}/memberships/self
+    if r.Method == http.MethodPost && strings.HasPrefix(p, "/v1/tenants/") && strings.HasSuffix(p, "/memberships/self") {
+        return true
+    }
+    // Allow external org resolution and public endpoints
+    if strings.HasPrefix(p, "/v1/tenants/resolve") {
+        return true
+    }
+    // Admin and system endpoints are already guarded elsewhere
+    if strings.HasPrefix(p, "/v1/admin/") || strings.HasPrefix(p, "/admin/") {
+        return true
+    }
+    // Health/ready endpoints handled earlier as public
+    return false
+}

@@ -100,12 +100,6 @@ func registerPresetHandlers(r chi.Router, opt Options) {
 			AllowedToolQuery: "network_get OR file-io_read",
 			Patterns:         map[string]any{"dual_llm": map[string]any{"enabled": true, "quarantined_tools_disabled": true, "bridge_handles_only": true}},
 		},
-		{
-			ID:          "program_manifest_external",
-			Name:        "Program Manifest (External)",
-			Description: "Require external program manifest; plan is immutable.",
-			Patterns:    map[string]any{"plan_then_execute": map[string]any{"enabled": true, "drift_policy": "block"}},
-		},
 	}
 
 	// List presets
@@ -170,7 +164,8 @@ func registerPresetHandlers(r chi.Router, opt Options) {
 		}
 		var matched []any
 		for _, t := range items {
-			if matchToolByQuery(t, q) {
+			adapter := &pgToolLike{CapabilityTags: t.CapabilityTags, DataDomains: t.DataDomains, SideEffect: t.SideEffect, AuthScope: t.AuthScope}
+			if matchToolByQuery(adapter, q) {
 				matched = append(matched, t)
 			}
 		}

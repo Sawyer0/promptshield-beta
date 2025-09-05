@@ -53,7 +53,7 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 	defer s.Stop()
 
 	// Create client connection
-	conn, err := grpc.NewClient("bufnet",
+	conn, err := grpc.DialContext(context.Background(), "bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -110,34 +110,30 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 		// Send request trailers to flush processing
 		_ = stream.Send(&extproc.ProcessingRequest{Request: &extproc.ProcessingRequest_RequestTrailers{RequestTrailers: &extproc.HttpTrailers{}}})
 
-		// Try a few times to receive the immediate response
-		var resp *extproc.ProcessingResponse
-		var recvErr error
-		for i := 0; i < 3; i++ {
-			resp, recvErr = stream.Recv()
-			if recvErr == nil {
+		// Consume responses until ImmediateResponse is observed
+		found := false
+		for i := 0; i < 10; i++ {
+			resp, err := stream.Recv()
+			require.NoError(t, err)
+			if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
+				assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
+				body := string(immediateResp.Body)
+				assert.Contains(t, body, "blocked")
+				assert.Contains(t, body, "PromptShield")
+				headers := immediateResp.Headers.GetSetHeaders()
+				var hasDecisionHeader bool
+				for _, header := range headers {
+					if header.Header.Key == "x-ps-decision" {
+						hasDecisionHeader = true
+						break
+					}
+				}
+				assert.True(t, hasDecisionHeader, "Should have x-ps-decision header")
+				found = true
 				break
 			}
-			time.Sleep(10 * time.Millisecond)
 		}
-		require.NoError(t, recvErr)
-
-		// Should receive immediate response (blocked)
-		if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
-			assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
-			body := string(immediateResp.Body)
-			assert.Contains(t, body, "blocked")
-			assert.Contains(t, body, "PromptShield")
-			headers := immediateResp.Headers.GetSetHeaders()
-			var hasDecisionHeader bool
-			for _, header := range headers {
-				if header.Header.Key == "x-ps-decision" {
-					hasDecisionHeader = true
-					break
-				}
-			}
-			assert.True(t, hasDecisionHeader, "Should have x-ps-decision header")
-		} else {
+		if !found {
 			t.Fatal("Expected immediate response for blocked request")
 		}
 	})
@@ -230,7 +226,7 @@ func TestIntegration_ResponseScanning(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	conn, err := grpc.NewClient("bufnet",
+	conn, err := grpc.DialContext(context.Background(), "bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -326,7 +322,7 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	conn, err := grpc.NewClient("bufnet",
+	conn, err := grpc.DialContext(context.Background(), "bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -383,35 +379,32 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-
-			// Check if we get an immediate response (blocked)
-			select {
-			case <-ctx.Done():
-				t.Fatal("Context timeout")
-			default:
-				// Try to receive (non-blocking)
-				resp, err := stream.Recv()
-				if err != nil {
-					// Expected for streaming - continue
-					continue
-				}
-
+			// Opportunistically check for an immediate response during streaming
+			if resp, err := stream.Recv(); err == nil {
 				if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
-					// Request was blocked due to malicious content
 					assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
 					return
 				}
 			}
 		}
-
-		// If we get here, the stream should have been blocked
-		// Try one more receive to get the final decision
-		resp, err := stream.Recv()
-		if err == nil {
+		// Flush processing and read until we see ImmediateResponse or EOF
+		_ = stream.Send(&extproc.ProcessingRequest{Request: &extproc.ProcessingRequest_RequestTrailers{RequestTrailers: &extproc.HttpTrailers{}}})
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			resp, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				// continue loop on transient errors
+				continue
+			}
 			if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
 				assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
+				return
 			}
 		}
+		t.Fatalf("expected ImmediateResponse Forbidden for streamed malicious content")
 	})
 }
 

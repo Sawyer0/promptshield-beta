@@ -1,3 +1,9 @@
+### Organization selection
+
+- `GET /api/orgs`: list Clerk orgs for current user.
+- `POST /api/orgs/create`: create a Clerk org, returns `{ id, name }`.
+- `POST /api/orgs/select`: selects an org, resolves tenant via Gateway `POST /v1/tenants/resolve`, and sets `ps_tenant_id` cookie.
+
 # PromptShield Frontend API Guide
 
 Complete documentation for integrating with the PromptShield Security Gateway backend.

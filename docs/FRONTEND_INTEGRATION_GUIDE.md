@@ -1,3 +1,26 @@
+### Clerk Organizations Integration (Multi-tenant)
+
+Server (BFF):
+- Set `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY`.
+- BFF uses Clerk Express middleware to populate `req.auth`.
+- Active tenant is stored in a signed cookie `ps_tenant_id`.
+- BFF mint short-lived RS256 JWT for Gateway with claims: `sub`, `tenant_id`, `roles`, `admin`.
+
+Endpoints:
+- `POST /api/orgs/create`: creates a Clerk org, then selects it.
+- `GET /api/orgs`: lists Clerk org memberships for the user.
+- `POST /api/orgs/select`: calls Gateway `POST /v1/tenants/resolve` to link `clerk` org → tenant and sets cookie.
+
+Gateway:
+- Validates BFF JWT via `PS_BFF_JWT_PUBLIC_KEY`.
+- Extracts `X-PS-Tenant-ID` from JWT claim `tenant_id`.
+- Resolves Clerk org mapping with `POST /v1/tenants/resolve` and stores in `tenant_org_links`.
+
+Database:
+- Apply `migrations_consolidated/0021_external_org_links.sql` to create `tenant_org_links`.
+
+Dev bypass:
+- Set `PS_DEV_BYPASS_AUTH=true` and optional `PS_DEV_*` fields.
 # Frontend Integration Guide for PromptShield Multi-Tenant SaaS
 
 ## Overview

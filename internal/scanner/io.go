@@ -90,13 +90,62 @@ func (s *Scanner) ScanFile(ctx context.Context, path string) (types.ScanResult, 
 
 // ScanReader scans content from the provided reader. Caller controls the reader lifetime.
 func (s *Scanner) ScanReader(ctx context.Context, r io.Reader, inputName string) (types.ScanResult, error) {
+	// Read all content first to apply agent patterns
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return types.ScanResult{}, fmt.Errorf("reading %s: %w", inputName, err)
+	}
+
+	return s.ScanContent(ctx, string(content), inputName)
+}
+
+// ScanContent scans the provided content string, applying agent hardening patterns
+func (s *Scanner) ScanContent(ctx context.Context, content string, inputName string) (types.ScanResult, error) {
 	result := types.ScanResult{Input: inputName}
 	if s.logger != nil {
-		s.logger.Debug("scan reader begin", "input", inputName)
+		s.logger.Debug("scan content begin", "input", inputName, "size", len(content))
+	}
+
+	// Apply context minimization if enabled
+	processedContent := content
+	if s.contextMinimizer != nil && s.contextMinimizer.IsEnabled() {
+		minimized, err := s.contextMinimizer.MinimizeContext(content, "")
+		if err != nil {
+			if s.quarantineOnError {
+				result.Violations = append(result.Violations, types.Violation{
+					RuleID:   "context_minimization_error",
+					Message:  "context minimization failed: " + err.Error(),
+					Severity: "HIGH"})
+				return result, nil
+			}
+			return types.ScanResult{}, fmt.Errorf("context minimization failed: %w", err)
+		}
+		processedContent = minimized
+		if s.logger != nil {
+			s.logger.Debug("applied context minimization",
+				"original_size", len(content),
+				"minimized_size", len(processedContent))
+		}
+	}
+
+	// Apply map-reduce processing for large documents if enabled
+	if s.mapReduceProcessor != nil && s.mapReduceProcessor.IsEnabled() {
+		return s.mapReduceProcessor.ProcessDocument(ctx, processedContent, s)
+	}
+
+	// Standard processing for normal-sized content
+	return s.scanContentDirect(ctx, processedContent, inputName)
+}
+
+// scanContentDirect performs the actual scanning without agent pattern preprocessing
+func (s *Scanner) scanContentDirect(ctx context.Context, content string, inputName string) (types.ScanResult, error) {
+	result := types.ScanResult{Input: inputName}
+	if s.logger != nil {
+		s.logger.Debug("scan content direct begin", "input", inputName)
 	}
 
 	// Use a scanner with a large token buffer to handle long lines/JSONL entries.
-	scanner := bufio.NewScanner(r)
+	scanner := bufio.NewScanner(strings.NewReader(content))
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, s.bufferSizeBytes)
 

@@ -209,6 +209,31 @@ func NewWithOptions(opt Options) *Server {
 		}
 	}
 
+	// Optional DLQ publisher for blocked/errored streams (Redis Streams)
+	if opt.DLQRedisAddr != "" || strings.TrimSpace(os.Getenv("PS_DLQ_REDIS")) != "" {
+		addr := opt.DLQRedisAddr
+		if addr == "" {
+			addr = strings.TrimSpace(os.Getenv("PS_DLQ_REDIS"))
+		}
+		dlq, err := nats.NewDLQ(addr)
+		if err == nil && dlq != nil {
+			stream := opt.DLQStream
+			if stream == "" {
+				stream = strings.TrimSpace(os.Getenv("PS_DLQ_STREAM"))
+			}
+			prev := s.audit.logf
+			s.audit.logf = func(eventType string, data map[string]any) {
+				if prev != nil {
+					prev(eventType, data)
+				}
+				dec := strings.ToLower(asString(data["decision"]))
+				if dec == "quarantine" || dec == "deny" || dec == "block" || dec == "error" {
+					_ = dlq.Publish(context.Background(), stream, data)
+				}
+			}
+		}
+	}
+
 	// Enforce mandatory sinks via env
 	// PS_AUDIT_REQUIRED: true|1|yes (default: true)
 	// PS_AUDIT_REQUIRED_MODE: fail|unhealthy (default: fail)
@@ -354,6 +379,8 @@ func LoadRulesFromDatabase(ctx context.Context, repo contracts.RulepackRepositor
 		if err := yaml.Unmarshal(dslBytes, &pack); err != nil {
 			continue // Skip invalid rulepacks
 		}
+		// Attach origin identifier for auditing
+		pack.SourcePath = info.ID.String()
 
 		packs = append(packs, pack)
 	}

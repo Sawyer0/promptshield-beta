@@ -26,4 +26,7 @@ type Options struct {
 	TenantID uuid.UUID
 	// RedisAddr for live rule updates (if empty, live updates disabled)
 	RedisAddr string
+	// DLQ options for blocked/errored streams
+	DLQRedisAddr string
+	DLQStream    string
 }

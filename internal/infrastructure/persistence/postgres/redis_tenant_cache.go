@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	redis "github.com/redis/go-redis/v9"
 	"github.com/promptshield/promptshield/internal/domain"
+	redis "github.com/redis/go-redis/v9"
 )
 
 // RedisTenantRepository implements TenantRepository with Redis write-through cache
@@ -123,6 +123,31 @@ func (r *RedisTenantRepository) Delete(ctx context.Context, id uuid.UUID) error 
 
 	// Invalidate cache
 	r.invalidateTenant(ctx, id, tenant.Name)
+	return nil
+}
+
+// GetByExternalOrg resolves tenant via external organization mapping, with read-through cache
+func (r *RedisTenantRepository) GetByExternalOrg(ctx context.Context, provider string, externalOrgID string) (*domain.Tenant, error) {
+	// External mapping is low-volume; delegate to PostgreSQL repository
+	t, err := r.pg.GetByExternalOrg(ctx, provider, externalOrgID)
+	if err != nil {
+		return nil, err
+	}
+	// Cache resolved tenant
+	r.cacheTenant(ctx, t)
+	return t, nil
+}
+
+// LinkExternalOrg upserts external organization mapping and invalidates cache
+func (r *RedisTenantRepository) LinkExternalOrg(ctx context.Context, provider string, externalOrgID string, tenantID uuid.UUID) error {
+	if err := r.pg.LinkExternalOrg(ctx, provider, externalOrgID, tenantID); err != nil {
+		return err
+	}
+	// Invalidate cached tenant; fetch to warm cache
+	if t, err := r.pg.Get(ctx, tenantID); err == nil {
+		r.invalidateTenant(ctx, tenantID, t.Name)
+		r.cacheTenant(ctx, t)
+	}
 	return nil
 }
 

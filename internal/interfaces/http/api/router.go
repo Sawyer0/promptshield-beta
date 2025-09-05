@@ -2,20 +2,26 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+    "sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+    rnats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
+    pmetrics "github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/usage"
 	"github.com/promptshield/promptshield/internal/version"
 )
 
 // Router
+
+var startFlushSubscriberOnce sync.Once
 
 func NewMux(opt Options) http.Handler {
 	r := chi.NewRouter()
@@ -114,13 +120,46 @@ func NewMux(opt Options) http.Handler {
 	registerServiceControlHandlers(r, opt)
 	registerSettingsHandlers(r, opt)
 	registerBusinessMetricsHandlers(r, opt)
-	registerUserHandlers(r, opt)
+    registerUserHandlers(r, opt)
+    // Tool execution endpoint
+    r.Post("/api/tools/exec", toolExecHandler(opt))
+    // Tool execution
+    r.Post("/api/tools/exec", toolExecHandler(opt))
 	registerProviderProfileHandlers(r, opt)
 	registerToolHandlers(r, opt)
 	registerPresetHandlers(r, opt)
 	registerAgentHandlers(r, opt)
 
 	// Security Gateway - no complex usage/quota management needed
+
+	// Start Redis pub/sub subscriber for tool policy flush if configured
+    if addr := strings.TrimSpace(os.Getenv("PS_NATS_URL")); addr != "" {
+        _ = addr // silence unused in certain builds
+        startFlushSubscriberOnce.Do(func(){
+            slog.With("component","policy-flush-subscriber").Info("starting subscriber", "addr", addr)
+            pmetrics.PolicyFlushSubscriberUp.Set(1)
+            _ = rnats.StartToolPolicyFlushSubscriber(addr, func(ev rnats.ToolPolicyFlush){
+                // Metrics: latency and counters
+                scope := "global"; if ev.TenantID != "" { scope = "tenant" }
+                if !ev.At.IsZero() {
+                    if d := time.Since(ev.At); d >= 0 {
+                        pmetrics.PolicyFlushLatencySeconds.WithLabelValues(scope).Observe(d.Seconds())
+                    }
+                }
+                pmetrics.PolicyFlushEventsTotal.WithLabelValues("subscriber", scope).Inc()
+                // Log
+                logger := slog.With("component", "policy-flush-subscriber")
+                logger.Info("received tool policy flush", "scope", scope, "tenant_id", ev.TenantID)
+                pmetrics.PolicyFlushLastReceiveUnixSeconds.Set(float64(time.Now().Unix()))
+                // Apply flush
+                if ev.TenantID != "" { flushToolPolicyCacheTenant(ev.TenantID) } else { flushToolPolicyCache() }
+            })
+        })
+    }
+    if strings.TrimSpace(os.Getenv("PS_NATS_URL")) == "" {
+        slog.With("component","policy-flush-subscriber").Info("subscriber disabled; PS_NATS_URL empty")
+        pmetrics.PolicyFlushSubscriberUp.Set(0)
+    }
 
 	// Admin endpoints (simple token auth)
 	r.Group(func(a chi.Router) {
@@ -144,6 +183,39 @@ func NewMux(opt Options) http.Handler {
 				go func() { _ = opt.OnShutdown(r.Context(), delay) }()
 			}
 		})
+
+		// Flush tool policies cache (immediate, in-memory)
+		a.Post("/admin/tool-policies/flush", func(w http.ResponseWriter, r *http.Request) {
+            // Optional tenant-scoped flush (JSON body: {"tenant_id":"..."})
+            var req struct{ TenantID string `json:"tenant_id"` }
+            _ = json.NewDecoder(r.Body).Decode(&req)
+            // Immediate local flush
+            if strings.TrimSpace(req.TenantID) != "" { flushToolPolicyCacheTenant(strings.TrimSpace(req.TenantID)) } else { flushToolPolicyCache() }
+			// Bump global epoch for cluster-wide invalidation (lazy propagation)
+			if opt.SettingsRepository != nil {
+				if s, err := opt.SettingsRepository.Get(r.Context()); err == nil && s != nil {
+					var raw map[string]any
+					_ = json.NewDecoder(strings.NewReader(string(s.Settings))).Decode(&raw)
+					if raw == nil { raw = map[string]any{} }
+					if v, ok := raw["tool_policy_epoch"].(float64); ok { raw["tool_policy_epoch"] = int64(v) + 1 } else {
+						raw["tool_policy_epoch"] = 1
+					}
+					raw["updated_by"] = getUserFromContext(r.Context())
+					raw["updated_at"] = time.Now().UTC()
+					_, _ = opt.SettingsRepository.Update(r.Context(), raw)
+				}
+			}
+            // Publish push invalidation event via Redis (if configured)
+            if addr := strings.TrimSpace(os.Getenv("PS_NATS_URL")); addr != "" {
+                ev := rnats.ToolPolicyFlush{ TenantID: strings.TrimSpace(req.TenantID), At: time.Now().UTC(), Reason: "admin_flush" }
+                _ = rnats.PublishToolPolicyFlush(addr, ev)
+                scope := "global"; if ev.TenantID != "" { scope = "tenant" }
+                // Log
+                logger := slog.With("component", "policy-flush-publisher")
+                logger.Info("published tool policy flush", "scope", scope, "tenant_id", ev.TenantID)
+            }
+            w.WriteHeader(http.StatusNoContent)
+        })
 	})
 
 	// License (GET is public; POST rotates license and is admin-protected)

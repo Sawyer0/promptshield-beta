@@ -22,6 +22,9 @@ import (
 	ckeys "github.com/promptshield/promptshield/internal/shared/contextkeys"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	pkg "github.com/promptshield/promptshield/pkg/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type decisionResponse struct {
@@ -33,6 +36,16 @@ type decisionResponse struct {
 
 func checkHandlerVersioned(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		tracer := otel.Tracer("promptshield/http")
+		ctxSpan, span := tracer.Start(r.Context(), "http_check",
+			trace.WithAttributes(
+				attribute.String("http.route", "/check"),
+				attribute.String("ps.tenant_id", r.Header.Get("X-PS-Tenant-ID")),
+				attribute.String("ps.request_id", r.Header.Get("X-Request-ID")),
+			),
+		)
+		defer span.End()
+
 		reqToken := os.Getenv("PS_ENFORCER_AUTH_TOKEN")
 		if reqToken != "" {
 			if !httpAuthOK(r, reqToken) {
@@ -61,7 +74,7 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		} else {
 			w.Header().Set("X-PromptShield-License", "LICENSED")
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(ctxSpan, 2*time.Second)
 		defer cancel()
 		// Inject tenant into context for scanner manager and BYOK
 		ctx = context.WithValue(ctx, ckeys.TenantID, tenantID)
@@ -152,6 +165,21 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		_ = json.NewEncoder(w).Encode(respObj)
 		respMap := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": r.Header.Get("X-Request-ID")}
 
+		// span decision event
+		ev := "ps.decision.allow"
+		if decision == "quarantine" || decision == "deny" {
+			ev = "ps.decision.block"
+		}
+		span.SetAttributes(
+			attribute.String("decision", decision),
+			attribute.String("reason", reason),
+			attribute.Int("ps.violations", total),
+		)
+		span.AddEvent(ev, trace.WithAttributes(
+			attribute.String("reason", reason),
+			attribute.Int("ps.violations", total),
+		))
+
 		// Publish decision event
 		if opt.Events != nil {
 			opt.Events.Publish(Event{Type: "decision", Data: respMap})
@@ -190,6 +218,16 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 
 func scanHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		tracer := otel.Tracer("promptshield/http")
+		ctxSpan, span := tracer.Start(r.Context(), "http_scan",
+			trace.WithAttributes(
+				attribute.String("http.route", "/scan"),
+				attribute.String("ps.tenant_id", r.Header.Get("X-PS-Tenant-ID")),
+				attribute.String("ps.request_id", r.Header.Get("X-Request-ID")),
+			),
+		)
+		defer span.End()
+
 		// Resolve runtime config from store (fallback to env defaults)
 		store := opt.ConfigStore
 		if store == nil {
@@ -237,6 +275,19 @@ func scanHandler(opt Options) http.HandlerFunc {
 				b, _ := json.Marshal(res)
 				_, _ = bw.Write(b)
 				_ = bw.WriteByte('\n')
+				// span per-line event
+				dn := stringFromAny(res["decision"])
+				rn := stringFromAny(res["reason"])
+				vn := intFromAny(res["violations"])
+				ev := "ps.decision.allow"
+				if dn == "quarantine" || dn == "deny" {
+					ev = "ps.decision.block"
+				}
+				span.AddEvent(ev, trace.WithAttributes(
+					attribute.String("decision", dn),
+					attribute.String("reason", rn),
+					attribute.Int("ps.violations", vn),
+				))
 				if opt.Events != nil {
 					opt.Events.Publish(Event{Type: "decision", Data: res})
 				}
@@ -256,7 +307,7 @@ func scanHandler(opt Options) http.HandlerFunc {
 		}
 
 		body, _ := io.ReadAll(r.Body)
-		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutMs)*time.Millisecond)
+		ctx, cancel := context.WithTimeout(ctxSpan, time.Duration(timeoutMs)*time.Millisecond)
 		defer cancel()
 		// Try JSON array for aggregate decisions
 		var (
@@ -269,6 +320,19 @@ func scanHandler(opt Options) http.HandlerFunc {
 				res := runScanLine(ctx, item)
 				decisions = append(decisions, res)
 				totalViolations += intFromAny(res["violations"])
+				// span per-item decision event
+				dn := stringFromAny(res["decision"])
+				rn := stringFromAny(res["reason"])
+				vn := intFromAny(res["violations"])
+				ev := "ps.decision.allow"
+				if dn == "quarantine" || dn == "deny" {
+					ev = "ps.decision.block"
+				}
+				span.AddEvent(ev, trace.WithAttributes(
+					attribute.String("decision", dn),
+					attribute.String("reason", rn),
+					attribute.Int("ps.violations", vn),
+				))
 				if opt.Events != nil {
 					opt.Events.Publish(Event{Type: "decision", Data: res})
 				}
@@ -295,6 +359,21 @@ func scanHandler(opt Options) http.HandlerFunc {
 		}
 		// Fallback: single record
 		res := runScanLine(ctx, body)
+		// record span decision event
+		dn := stringFromAny(res["decision"])
+		rn := stringFromAny(res["reason"])
+		vn := intFromAny(res["violations"])
+		ev := "ps.decision.allow"
+		if dn == "quarantine" || dn == "deny" {
+			ev = "ps.decision.block"
+		}
+		span.SetAttributes(attribute.Int("ps.violations", vn))
+		span.AddEvent(ev, trace.WithAttributes(
+			attribute.String("decision", dn),
+			attribute.String("reason", rn),
+			attribute.Int("ps.violations", vn),
+		))
+
 		report := map[string]any{
 			"decisions": []any{res},
 			"summary": map[string]any{
@@ -370,4 +449,10 @@ func runScanLine(ctx context.Context, data []byte) map[string]any {
 		}
 	}
 	return map[string]any{"decision": decision, "reason": reason, "violations": total}
+}
+
+// stringFromAny converts interface{} to string best-effort
+func stringFromAny(v any) string {
+	s, _ := v.(string)
+	return s
 }

@@ -15,6 +15,9 @@ type TenantRepository interface {
 	List(ctx context.Context, offset, limit int) ([]*Tenant, int, error)
 	Update(ctx context.Context, tenant *Tenant) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	// External organization mapping helpers (e.g., Clerk org -> tenant)
+	GetByExternalOrg(ctx context.Context, provider string, externalOrgID string) (*Tenant, error)
+	LinkExternalOrg(ctx context.Context, provider string, externalOrgID string, tenantID uuid.UUID) error
 }
 
 // AuditRepository defines operations for audit trail management

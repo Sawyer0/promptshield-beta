@@ -21,6 +21,7 @@ import (
 	"github.com/promptshield/promptshield/internal/shared/redact"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // processStream contains the full streaming enforcement logic that was previously
@@ -137,7 +138,17 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 					tenantScReq, tenantScResp = s.scReq, s.scResp
 				}
 
-				span.SetAttributes(attribute.String("tenant_id", tenantID.String()))
+				span.SetAttributes(attribute.String("ps.tenant_id", tenantID.String()))
+				span.SetAttributes(
+					attribute.String("http.method", method),
+					attribute.String("http.route", endpoint),
+					attribute.String("ps.tool_id", toolID),
+					attribute.String("ps.lane", lane),
+					attribute.String("ps.plan_hash", planHash),
+					attribute.Int("ps.plan_step", planStep),
+					attribute.String("ps.conversation_id", conversationID),
+					attribute.String("ps.request_id", requestID),
+				)
 			}
 
 			// If no tenant scanners loaded, use global as fallback
@@ -207,6 +218,7 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 							"latency_ms":      time.Since(start).Milliseconds(),
 							"bytes_request":   total,
 							"bytes_response":  totalResp,
+							"rulepack_ids":    s.currentRulepackIDs(),
 						})
 						didAudit = true
 						return sendImmediateResponse(stream, decision, reason)
@@ -298,10 +310,16 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 						"latency_ms":      time.Since(start).Milliseconds(),
 						"bytes_request":   total,
 						"bytes_response":  totalResp,
+						"rulepack_ids":    s.currentRulepackIDs(),
 					})
-					didAudit = true
+					span.AddEvent("ps.decision.block", trace.WithAttributes(
+						attribute.String("reason", reason),
+						attribute.Int64("ps.bytes_request_total", total),
+						attribute.Int64("ps.bytes_response_total", totalResp),
+					))
 					return sendImmediateResponse(stream, decision, reason)
 				}
+				span.SetAttributes(attribute.Int64("ps.bytes_request_total", total))
 
 				// Build sliding window including previous tail
 				var window []byte
@@ -347,7 +365,13 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 						if s.telemetry != nil {
 							s.telemetry.Collect("decision", map[string]any{"ts": time.Now().UTC().Unix(), "decision": decision, "rule_id": reason})
 						}
-						span.SetAttributes(attribute.String("decision", decision), attribute.String("reason", reason))
+						span.SetAttributes(attribute.String("decision", decision), attribute.String("reason", reason), attribute.Int("ps.violations", len(res.Violations)))
+						span.AddEvent("ps.decision.block", trace.WithAttributes(
+							attribute.String("reason", reason),
+							attribute.Int("ps.violations", len(res.Violations)),
+							attribute.Int64("ps.bytes_request_total", total),
+							attribute.Int64("ps.bytes_response_total", totalResp),
+						))
 						// audit
 						s.auditDecision("enforcer.decision", map[string]any{
 							"tenant_id":       tenantID.String(),
@@ -365,6 +389,7 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 							"bytes_request":   total,
 							"bytes_response":  totalResp,
 							"violations":      len(res.Violations),
+							"rulepack_ids":    s.currentRulepackIDs(),
 						})
 						didAudit = true
 						return sendImmediateResponseWithDetails(stream, decision, reason, &res)
@@ -431,10 +456,16 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 						"latency_ms":      time.Since(start).Milliseconds(),
 						"bytes_request":   total,
 						"bytes_response":  totalResp,
+						"rulepack_ids":    s.currentRulepackIDs(),
 					})
-					didAudit = true
+					span.AddEvent("ps.decision.block", trace.WithAttributes(
+						attribute.String("reason", reason),
+						attribute.Int64("ps.bytes_request_total", total),
+						attribute.Int64("ps.bytes_response_total", totalResp),
+					))
 					return sendImmediateResponse(stream, decision, reason)
 				}
+				span.SetAttributes(attribute.Int64("ps.bytes_response_total", totalResp))
 
 				// Build sliding window on response side
 				var rwindow []byte
@@ -477,8 +508,13 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 						"latency_ms":      time.Since(start).Milliseconds(),
 						"bytes_request":   total,
 						"bytes_response":  totalResp,
+						"rulepack_ids":    s.currentRulepackIDs(),
 					})
-					didAudit = true
+					span.AddEvent("ps.decision.block", trace.WithAttributes(
+						attribute.String("reason", reason),
+						attribute.Int64("ps.bytes_request_total", total),
+						attribute.Int64("ps.bytes_response_total", totalResp),
+					))
 					return sendImmediateResponse(stream, decision, reason)
 				}
 
@@ -540,26 +576,13 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 						if s.telemetry != nil {
 							s.telemetry.Collect("decision", map[string]any{"ts": time.Now().UTC().Unix(), "decision": decision, "rule_id": reason})
 						}
-						span.SetAttributes(attribute.String("decision", decision), attribute.String("reason", reason))
-						// audit
-						s.auditDecision("enforcer.decision", map[string]any{
-							"tenant_id":       tenantID.String(),
-							"endpoint":        endpoint,
-							"method":          method,
-							"tool_id":         toolID,
-							"lane":            lane,
-							"plan_hash":       planHash,
-							"plan_step":       planStep,
-							"conversation_id": conversationID,
-							"request_id":      requestID,
-							"decision":        decision,
-							"reason":          reason,
-							"latency_ms":      time.Since(start).Milliseconds(),
-							"bytes_request":   total,
-							"bytes_response":  totalResp,
-							"violations":      len(res.Violations),
-						})
-						didAudit = true
+						span.SetAttributes(attribute.String("decision", decision), attribute.String("reason", reason), attribute.Int("ps.violations", len(res.Violations)))
+						span.AddEvent("ps.decision.block", trace.WithAttributes(
+							attribute.String("reason", reason),
+							attribute.Int("ps.violations", len(res.Violations)),
+							attribute.Int64("ps.bytes_request_total", total),
+							attribute.Int64("ps.bytes_response_total", totalResp),
+						))
 						return sendImmediateResponseWithDetails(stream, decision, reason, &res)
 					case "redact":
 						doRedact = true
@@ -574,10 +597,63 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 						s.telemetry.Collect("decision", map[string]any{"ts": time.Now().UTC().Unix(), "decision": "replace", "rule_id": reason})
 					}
 					span.SetAttributes(attribute.String("decision", "replace"), attribute.String("reason", reason))
+					span.AddEvent("ps.decision.replace", trace.WithAttributes(
+						attribute.String("reason", reason),
+						attribute.Int64("ps.bytes_request_total", total),
+						attribute.Int64("ps.bytes_response_total", totalResp),
+					))
 					return sendImmediateReplacementResponse(stream, replaceBody, reason)
 				}
 				if doRedact && os.Getenv("PS_ENFORCER_REDACTION_MUTATION") != "0" && strings.ToLower(os.Getenv("PS_ENFORCER_REDACTION_MUTATION")) != "false" {
+					// Assurance mode
+					assurance := strings.ToLower(strings.TrimSpace(os.Getenv("PS_REDACTION_ASSURANCE")))
+					if assurance == "" {
+						assurance = "conservative"
+					}
+					if assurance == "observe" {
+						// Do not mutate in observe mode
+						if err := stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ResponseBody{ResponseBody: &extproc.BodyResponse{Response: &extproc.CommonResponse{}}}}); err != nil {
+							span.RecordError(err)
+							return err
+						}
+						continue
+					}
 					redacted := redact.Redact(string(b))
+					// Post-redaction self-scan
+					ctxScan2, cancel2 := context.WithTimeout(ctx, s.timeout)
+					mutWindow := append([]byte(nil), tailResp...)
+					mutWindow = append(mutWindow, []byte(redacted)...)
+					if len(mutWindow) > s.windowLimit {
+						mutWindow = mutWindow[len(mutWindow)-s.windowLimit:]
+					}
+					res2, scanErr2 := scLocalResp.ScanReader(ctxScan2, bytes.NewReader(mutWindow), "extproc:response-window:redacted")
+					cancel2()
+					unclean := false
+					if scanErr2 != nil && !errors.Is(scanErr2, context.DeadlineExceeded) {
+						unclean = true
+					}
+					if len(res2.Violations) > 0 {
+						if assurance == "conservative" {
+							unclean = true
+						} else {
+							// best_effort: block only if threshold met
+							if hasThresholdHit(res2, s.failOn) {
+								unclean = true
+							}
+						}
+					}
+					if unclean {
+						decision = "quarantine"
+						reason = "redaction_not_clean"
+						metrics.ExtprocStreams.WithLabelValues(decision).Inc()
+						metrics.ExtprocStreamDuration.WithLabelValues(decision).Observe(time.Since(start).Seconds())
+						if s.telemetry != nil {
+							s.telemetry.Collect("decision", map[string]any{"ts": time.Now().UTC().Unix(), "decision": decision, "rule_id": reason})
+						}
+						span.SetAttributes(attribute.String("decision", decision), attribute.String("reason", reason))
+						return sendImmediateResponse(stream, decision, reason)
+					}
+					// Send mutated body chunk
 					rb := &extproc.BodyResponse{Response: &extproc.CommonResponse{}}
 					rb.Response.BodyMutation = &extproc.BodyMutation{Mutation: &extproc.BodyMutation_Body{Body: []byte(redacted)}}
 					metrics.ExtprocRedactions.Inc()
@@ -621,6 +697,7 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 					"latency_ms":      time.Since(start).Milliseconds(),
 					"bytes_request":   total,
 					"bytes_response":  totalResp,
+					"rulepack_ids":    s.currentRulepackIDs(),
 				})
 				didAudit = true
 			}
@@ -652,6 +729,7 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 					"latency_ms":      time.Since(start).Milliseconds(),
 					"bytes_request":   total,
 					"bytes_response":  totalResp,
+					"rulepack_ids":    s.currentRulepackIDs(),
 				})
 				didAudit = true
 			}
