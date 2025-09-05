@@ -36,3 +36,17 @@ curl -sS http://localhost:9090/metrics | head -n 20
 # Tear down
 docker compose down -v
 ```
+
+### Clerk + Multi-tenant Setup (BFF + Gateway)
+
+1) Apply migrations (include `migrations_consolidated/0021_external_org_links.sql`).
+
+2) Configure env:
+- Gateway: `PS_BFF_JWT_PUBLIC_KEY`, `PS_BFF_JWT_ISSUER`, `PS_BFF_JWT_AUDIENCE`, `PS_PG_DSN`.
+- BFF (server): `CLERK_SECRET_KEY`, `PS_BFF_JWT_PRIVATE_KEY`, `PS_GATEWAY_URL`.
+- Client: `VITE_CLERK_PUBLISHABLE_KEY`.
+
+3) Flow:
+- User signs in via Clerk, selects an organization.
+- BFF calls `POST /v1/tenants/resolve` to map `provider='clerk', external_org_id` → tenant.
+- BFF sets `ps_tenant_id` signed cookie and forwards requests with short-lived BFF→Gateway JWT.

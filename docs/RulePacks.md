@@ -1,5 +1,9 @@
 # RulePacks – composition, imports, options, and performance
 
+### Tenant resolution with Clerk Organizations
+
+When using Clerk Organizations, the frontend BFF calls `POST /v1/tenants/resolve` with `{ provider: "clerk", external_org_id, fallback_name }`. The backend maps that external organization to a tenant and returns `tenant_id`. All rulepack operations must include `X-PS-Tenant-ID` (propagated automatically from the BFF JWT claim `tenant_id`).
+
 This document describes the RulePack schema used by PromptShield and how rules are evaluated.
 
 ## Composition

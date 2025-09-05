@@ -128,7 +128,7 @@ func agentEnforcementMiddleware(opt Options) func(http.Handler) http.Handler {
 			// Action-Selector
 			if patterns != nil && patterns.ActionSelector != nil && patterns.ActionSelector.Enabled {
 				q := strings.TrimSpace(patterns.ActionSelector.AllowedToolQuery)
-				if q != "" && !matchToolByQuery(tool, q) {
+				if q != "" && !matchToolByQuery(&pgToolLike{CapabilityTags: tool.CapabilityTags, DataDomains: tool.DataDomains, SideEffect: tool.SideEffect, AuthScope: tool.AuthScope}, q) {
 					setDecisionHeaders(w, "deny", "action_selector", "tool not allowed by policy", nil)
 					logAgentAudit(r, opt, tenantID, toolID, "deny", "action_selector", map[string]any{"query": q})
 					writeErrorJSON(w, http.StatusForbidden, "NOT_ALLOWED", "tool not allowed by policy", map[string]any{"policy": "action_selector"}, r)

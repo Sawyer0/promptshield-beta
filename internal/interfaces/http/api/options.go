@@ -56,6 +56,9 @@ type Options struct {
 	// Provider API keys management (deprecated - use ProviderKeyStore)
 	ProviderKeys map[string]string // provider -> encrypted key
 
+	// Tool runner (BYOK and internal tools)
+	ToolRunner contracts.ToolRunner
+
 	// Security scanning components
 	Scanner   *scanner.Scanner  // Core scanning engine for policy enforcement
 	RulePacks []*rules.RulePack // Active rule packs for scanning
@@ -66,8 +69,8 @@ type Options struct {
 		ReloadRulepacks() error
 	}
 
-	// PlanState for Plan-Then-Execute and Dual-LLM lane tokens
-	PlanState contracts.PlanState
+    // PlanState for Plan-Then-Execute and Dual-LLM lane tokens
+    PlanState contracts.PlanState
 }
 
 // Deprecated: Use writeErrorJSON instead

@@ -60,6 +60,10 @@ type Scanner struct {
 
 	// Base request context (tenant, tracing) for semantic analyzers
 	baseCtx context.Context
+
+	// Agent hardening patterns
+	contextMinimizer   *ContextMinimizer
+	mapReduceProcessor *MapReduceProcessor
 }
 
 func ScanEngineCstor(maxTokenBytes int) *Scanner {
@@ -161,6 +165,14 @@ func (s *Scanner) SetMaxResidentMemoryBytes(b uint64) { s.maxResidentMemoryBytes
 
 // SetTotalScanBudget sets a global budget for an entire multi-file scan. A context deadline takes precedence.
 func (s *Scanner) SetTotalScanBudget(d time.Duration) { s.totalScanBudget = d }
+
+// SetContextMinimizer configures context minimization for agent hardening
+func (s *Scanner) SetContextMinimizer(minimizer *ContextMinimizer) { s.contextMinimizer = minimizer }
+
+// SetMapReduceProcessor configures map-reduce processing for large documents
+func (s *Scanner) SetMapReduceProcessor(processor *MapReduceProcessor) {
+	s.mapReduceProcessor = processor
+}
 
 // SetQuarantineOnTimeout controls whether timeouts produce a synthetic violation instead of an error.
 func (s *Scanner) SetQuarantineOnTimeout(enable bool) { s.quarantineOnTimeout = enable }

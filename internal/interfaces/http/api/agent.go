@@ -87,7 +87,7 @@ func registerAgentHandlers(r chi.Router, opt Options) {
 			// Action-Selector enforcement using allowed_tool_query
 			if patterns != nil && patterns.ActionSelector != nil && patterns.ActionSelector.Enabled {
 				q := strings.TrimSpace(patterns.ActionSelector.AllowedToolQuery)
-				if q != "" && !matchToolByQuery(tool, q) {
+				if q != "" && !matchToolByQuery(&pgToolLike{CapabilityTags: tool.CapabilityTags, DataDomains: tool.DataDomains, SideEffect: tool.SideEffect, AuthScope: tool.AuthScope}, q) {
 					decision["allow"] = false
 					decision["reason"] = "action_selector: tool not allowed by preset query"
 					_ = json.NewEncoder(w).Encode(decision)

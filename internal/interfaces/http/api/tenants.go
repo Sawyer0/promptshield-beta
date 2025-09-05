@@ -24,8 +24,12 @@ func registerTenantHandlers(r chi.Router, opt Options) {
 		tr.Put("/{id}", updateTenantHandler(opt))
 		tr.Delete("/{id}", deleteTenantHandler(opt))
 	})
-	// Non-admin: list tenants for current user (based on membership)
-	r.Get("/tenants/my", listMyTenantsHandler(opt))
+    // Non-admin: list tenants for current user (based on membership)
+    r.Get("/tenants/my", listMyTenantsHandler(opt))
+    // Public mapping endpoint used by BFF to resolve Clerk org -> tenant
+    r.Post("/tenants/resolve", resolveExternalOrgHandler(opt))
+    // Self-membership upsert (bypass enforced in tenant middleware)
+    r.Post("/tenants/{id}/memberships/self", upsertSelfMembershipHandler(opt))
 }
 
 // createTenantHandler handles POST /v1/admin/tenants
@@ -348,5 +352,110 @@ func listMyTenantsHandler(opt Options) http.HandlerFunc {
 			"tenants": tenants,
 			"count":   len(tenants),
 		}, r)
+	}
+}
+
+// upsertSelfMembershipHandler handles POST /v1/tenants/{id}/memberships/self
+// It adds the current user as a member of the tenant if not already.
+func upsertSelfMembershipHandler(opt Options) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        if opt.DB == nil {
+            writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
+                "database not configured", nil, r)
+            return
+        }
+        idStr := chi.URLParam(r, "id")
+        id, err := uuid.Parse(idStr)
+        if err != nil {
+            writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+                "Invalid tenant ID format", map[string]interface{}{"id": idStr}, r)
+            return
+        }
+        userID := strings.TrimSpace(r.Header.Get("X-PS-User-ID"))
+        if userID == "" {
+            writeErrorJSON(w, http.StatusUnauthorized, "UNAUTHORIZED", "user context required", nil, r)
+            return
+        }
+        // Upsert membership
+        _, err = opt.DB.ExecContext(r.Context(), `
+            INSERT INTO tenant_memberships (tenant_id, user_id, role, created_at, updated_at)
+            VALUES ($1,$2,'member', NOW(), NOW())
+            ON CONFLICT (tenant_id, user_id) DO UPDATE SET updated_at = NOW()
+        `, id, userID)
+        if err != nil {
+            writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR",
+                "failed to upsert membership", map[string]interface{}{"error": err.Error()}, r)
+            return
+        }
+        w.WriteHeader(http.StatusNoContent)
+    }
+}
+
+// resolveExternalOrgHandler ensures a tenant exists for an external organization
+// and returns the mapped tenant ID. Idempotent.
+// POST /v1/tenants/resolve { provider: "clerk", external_org_id: "org_123", fallback_name?: "Acme" }
+func resolveExternalOrgHandler(opt Options) http.HandlerFunc {
+	type req struct {
+		Provider      string `json:"provider"`
+		ExternalOrgID string `json:"external_org_id"`
+		FallbackName  string `json:"fallback_name"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if opt.TenantRepository == nil {
+			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
+				"domain.Tenant management not configured", nil, r)
+			return
+		}
+		var in req
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST", "bad json", nil, r)
+			return
+		}
+		in.Provider = strings.TrimSpace(in.Provider)
+		in.ExternalOrgID = strings.TrimSpace(in.ExternalOrgID)
+		if in.Provider == "" || in.ExternalOrgID == "" {
+			writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "provider and external_org_id required", nil, r)
+			return
+		}
+
+		// Fast path: mapping already exists
+		if t, err := opt.TenantRepository.GetByExternalOrg(r.Context(), in.Provider, in.ExternalOrgID); err == nil && t != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"tenant_id": t.ID}, r)
+			return
+		}
+
+		// Otherwise, create/find tenant by fallback name if provided
+		var tenant *domain.Tenant
+		name := strings.TrimSpace(in.FallbackName)
+		if name != "" {
+			if existing, _ := opt.TenantRepository.GetByName(r.Context(), name); existing != nil {
+				tenant = existing
+			}
+		}
+		if tenant == nil {
+			// Create a new tenant using fallback or external id as name
+			nm := name
+			if nm == "" {
+				nm = in.ExternalOrgID
+			}
+			tenant = &domain.Tenant{
+				ID:        uuid.New(),
+				Name:      nm,
+				Status:    domain.TenantStatusActive,
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			}
+			if err := opt.TenantRepository.Create(r.Context(), tenant); err != nil {
+				writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "create tenant failed", map[string]any{"error": err.Error()}, r)
+				return
+			}
+		}
+
+		// Link mapping (upsert)
+		if err := opt.TenantRepository.LinkExternalOrg(r.Context(), in.Provider, in.ExternalOrgID, tenant.ID); err != nil {
+			writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "link mapping failed", map[string]any{"error": err.Error()}, r)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tenant_id": tenant.ID}, r)
 	}
 }
