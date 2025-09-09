@@ -19,19 +19,9 @@ import (
 
 // toolExecHandler handles POST /api/tools/exec
 func toolExecHandler(opt Options) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
 		if opt.ToolRunner == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "tool runner not configured", nil, r)
-			return
-		}
-		tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-		if tenantStr == "" {
-			writeErrorJSON(w, http.StatusBadRequest, "MISSING_TENANT", "X-PS-Tenant-ID header is required", nil, r)
-			return
-		}
-		tenantID, err := uuid.Parse(tenantStr)
-		if err != nil {
-			writeErrorJSON(w, http.StatusBadRequest, "INVALID_TENANT", "invalid tenant id", nil, r)
 			return
 		}
 		var body struct {
@@ -153,7 +143,7 @@ func toolExecHandler(opt Options) http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 		}
 		_ = json.NewEncoder(w).Encode(resExec)
-	}
+	})
 }
 
 func auditToolExec(opt Options, tenantID uuid.UUID, req contracts.ToolExecRequest, res *contracts.ToolExecResult, dur time.Duration, status int, r *http.Request) {

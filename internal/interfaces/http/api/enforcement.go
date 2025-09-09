@@ -56,12 +56,7 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		}
 		// Require tenant id header for isolation
 		tenantID := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-		if tenantID == "" {
-			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing tenant id", map[string]any{"hint": "pass X-PS-Tenant-ID"})
-			return
-		}
-		if _, err := uuid.Parse(tenantID); err != nil {
-			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tenant id", nil)
+		if _, ok := validateTenantIDString(w, tenantID); !ok {
 			return
 		}
 		if !license.IsLicensed() {

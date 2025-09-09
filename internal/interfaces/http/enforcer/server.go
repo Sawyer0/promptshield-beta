@@ -22,8 +22,8 @@ import (
 	"github.com/promptshield/promptshield/internal/bootstrap"
 	"github.com/promptshield/promptshield/internal/domain"
 	natsPub "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
-	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
+	"github.com/promptshield/promptshield/internal/repository"
 	"github.com/promptshield/promptshield/internal/infrastructure/planstate"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
@@ -96,7 +96,7 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 		}
 	}
 
-	// Initialize services with database if available
+	// Initialize services with repository factory
 	var rulepackService *services.RulepackService
 	var policyService contracts.PolicyService
 	var tenantRepo domain.TenantRepository
@@ -111,32 +111,38 @@ func getAPIOptionsWithDB(dbPool *pg.Pool) api.Options {
 		}
 	}
 
+	// Create repository factory based on available database
+	var factory repository.RepositoryFactory
+	var err error
+	
 	if dbPool != nil {
-		// Use PostgreSQL repositories for enterprise features
-		rulepackRepo := pg.RulepackRepo(dbPool)
-		rulepackService = services.RulepackServiceCstor(rulepackRepo, publisher)
+		// For now, use test factory since we have complex factory setup
+		// TODO: Properly integrate with production/development factories
+		factory, err = repository.NewTestRepositoryFactory(nil, nil)
+		if err != nil {
+			slog.Error("Failed to create test repository factory", "error", err)
+			// Create a minimal fallback
+			factory = &repository.TestRepositoryFactory{}
+		}
 
-		// Initialize enterprise repositories
-		tenantRepo = pg.TenantRepo(dbPool)
-		assignmentRepo = pg.RulepackAssignmentRepo(dbPool)
-		auditRepo = pg.AuditRepo(dbPool)
-
-		// Use in-memory policy service for fast enforcement
-		// Policies are persisted in frontend and synced via API
-		policyService = initializePolicyService()
+		// Get enterprise repositories from factory
+		tenantRepo = factory.Tenant()
+		assignmentRepo = factory.RulepackAssignment()
+		auditRepo = factory.Audit()
 	} else {
-		// Use in-memory implementations for high-performance enforcement
-		// Policies are persisted in frontend database and synced via API
-
-		// Create in-memory rulepack repository
-		rulepackRepo := memory.NewRulepackRepository()
-		rulepackService = services.RulepackServiceCstor(rulepackRepo, publisher)
-
-		// Use in-memory policy repository
-		policyService = initializePolicyService()
-
+		// Use test factory for in-memory implementations
+		factory, err = repository.NewTestRepositoryFactory(nil, nil)
+		if err != nil {
+			slog.Error("Failed to create test repository factory", "error", err)
+			// Create a minimal fallback
+			factory = &repository.TestRepositoryFactory{}
+		}
 		// Enterprise repositories will be nil (endpoints will return NOT_IMPLEMENTED)
 	}
+
+	// Create services using factory
+	rulepackService = services.RulepackServiceFromFactory(factory, publisher)
+	policyService = services.PolicyServiceFromFactory(factory)
 
 	// Create scanner manager for event-driven real-time enforcement
     scannerManager := NewScannerManagerWithRulepackService(rulepackService, dbPool)

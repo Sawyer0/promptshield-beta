@@ -2,7 +2,6 @@ package api
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -16,81 +15,22 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/promptshield/promptshield/internal/application/services"
-	"github.com/promptshield/promptshield/internal/contracts"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
+	"github.com/promptshield/promptshield/internal/repository"
 )
 
-// MockRulepackRepository for testing
-type MockRulepackRepository struct {
-	data map[uuid.UUID][]byte
-}
 
-func NewMockRulepackRepository() *MockRulepackRepository {
-	return &MockRulepackRepository{
-		data: make(map[uuid.UUID][]byte),
-	}
-}
-
-func (m *MockRulepackRepository) Create(ctx context.Context, tenantID uuid.UUID, name, desc string) (uuid.UUID, error) {
-	return uuid.New(), nil
-}
-
-func (m *MockRulepackRepository) CreateVersion(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, status string, createdBy uuid.UUID) (uuid.UUID, error) {
-	m.data[packID] = dsl
-	return uuid.New(), nil
-}
-
-func (m *MockRulepackRepository) CreateVersionActivateTx(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, createdBy uuid.UUID) (uuid.UUID, error) {
-	m.data[packID] = dsl
-	return uuid.New(), nil
-}
-
-func (m *MockRulepackRepository) GetActive(ctx context.Context, packID uuid.UUID) (json.RawMessage, int, error) {
-	if data, exists := m.data[packID]; exists {
-		return data, 1, nil
-	}
-	return nil, 0, assert.AnError
-}
-
-func (m *MockRulepackRepository) Activate(ctx context.Context, packID, versionID uuid.UUID) error {
-	return nil
-}
-
-func (m *MockRulepackRepository) GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error) {
-	if data, exists := m.data[packID]; exists {
-		return data, "approved", nil
-	}
-	return nil, "", assert.AnError
-}
-
-func (m *MockRulepackRepository) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
-	return uuid.New(), 1, nil
-}
-
-func (m *MockRulepackRepository) ActivateLatest(ctx context.Context, packID uuid.UUID) error {
-	return nil
-}
-
-func (m *MockRulepackRepository) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]contracts.RulepackInfo, error) {
-	return []contracts.RulepackInfo{}, nil
-}
-
-func (m *MockRulepackRepository) Delete(ctx context.Context, packID uuid.UUID) error {
-	delete(m.data, packID)
-	return nil
-}
-
-func (m *MockRulepackRepository) PurgeOldVersions(ctx context.Context, packID uuid.UUID, keep int) error {
-	return nil
-}
 
 // FuzzHTTPRulepackEndpoints tests HTTP endpoints against malicious inputs
 func FuzzHTTPRulepackEndpoints(f *testing.F) {
 	// Setup test environment
 	setupTestServer := func() *httptest.Server {
-		repo := NewMockRulepackRepository()
+		factory, err := repository.NewTestRepositoryFactory(nil, nil)
+		if err != nil {
+			panic("Failed to create test repository factory: " + err.Error())
+		}
 		publisher, _ := nats.NewPublisher("")
-		service := services.RulepackServiceCstor(repo, publisher)
+		service := services.RulepackServiceFromFactory(factory, publisher)
 
 		options := Options{
 			RulepackService: service,
@@ -257,9 +197,12 @@ func FuzzHTTPRulepackEndpoints(f *testing.F) {
 // FuzzHTTPMultipartUpload tests multipart form uploads
 func FuzzHTTPMultipartUpload(f *testing.F) {
 	setupTestServer := func() *httptest.Server {
-		repo := NewMockRulepackRepository()
+		factory, err := repository.NewTestRepositoryFactory(nil, nil)
+		if err != nil {
+			f.Fatalf("Failed to create test repository factory: %v", err)
+		}
 		publisher, _ := nats.NewPublisher("")
-		service := services.RulepackServiceCstor(repo, publisher)
+		service := services.RulepackServiceFromFactory(factory, publisher)
 
 		options := Options{
 			RulepackService: service,
@@ -350,9 +293,12 @@ func FuzzHTTPMultipartUpload(f *testing.F) {
 // FuzzHTTPHeaders tests various HTTP header attacks
 func FuzzHTTPHeaders(f *testing.F) {
 	setupTestServer := func() *httptest.Server {
-		repo := NewMockRulepackRepository()
+		factory, err := repository.NewTestRepositoryFactory(nil, nil)
+		if err != nil {
+			f.Fatalf("Failed to create test repository factory: %v", err)
+		}
 		publisher, _ := nats.NewPublisher("")
-		service := services.RulepackServiceCstor(repo, publisher)
+		service := services.RulepackServiceFromFactory(factory, publisher)
 
 		options := Options{
 			RulepackService: service,
@@ -465,9 +411,12 @@ func FuzzHTTPHeaders(f *testing.F) {
 
 // PropertyTest_HTTPSecurity tests HTTP security properties
 func TestProperty_HTTPSecurity(t *testing.T) {
-	repo := NewMockRulepackRepository()
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
 	publisher, _ := nats.NewPublisher("")
-	service := services.RulepackServiceCstor(repo, publisher)
+	service := services.RulepackServiceFromFactory(factory, publisher)
 
 	options := Options{
 		RulepackService: service,

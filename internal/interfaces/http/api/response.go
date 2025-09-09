@@ -1,12 +1,10 @@
 package api
 
 import (
-	"encoding/json"
-	"log/slog"
-	"net/http"
-	"time"
-
-	"github.com/promptshield/promptshield/internal/shared/types"
+    "encoding/json"
+    "log/slog"
+    "net/http"
+    "time"
 )
 
 // StandardResponse wraps all API responses
@@ -95,31 +93,7 @@ func getMeta(r *http.Request) map[string]interface{} {
 
 // getCorrelationID is defined in middleware_common.go
 
-// getTenantID retrieves tenant ID from context
-func getTenantID(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	
-	if id := r.Context().Value(tenantIDKey); id != nil {
-		if strID, ok := id.(string); ok {
-			return strID
-		}
-	}
-	
-	// Fallback to header
-	return r.Header.Get("X-PS-Tenant-ID")
-}
-
-// writeDomainError writes a domain error as a JSON response
-func writeDomainError(w http.ResponseWriter, err *types.DomainError, r *http.Request) {
-	if err == nil {
-		writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil, r)
-		return
-	}
-	
-	writeErrorJSON(w, err.HTTPStatus, string(err.Code), err.Message, err.Details, r)
-}
+// (removed) getTenantID, writeDomainError — no longer needed
 
 // getLogger retrieves logger from request context or returns default
 func getLogger(r *http.Request) *slog.Logger {
@@ -131,4 +105,26 @@ func getLogger(r *http.Request) *slog.Logger {
 		}
 	}
 	return slog.Default()
+}
+
+// writeError is a convenience function for writing simple errors
+func writeError(w http.ResponseWriter, status int, code, message string, details map[string]interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	
+	response := StandardResponse{
+		Error: &ErrorResponse{
+			Code:    code,
+			Message: message,
+			Details: details,
+		},
+		Meta: map[string]interface{}{
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"version":   "1",
+		},
+	}
+	
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		slog.Error("Failed to encode error response", "error", err)
+	}
 }

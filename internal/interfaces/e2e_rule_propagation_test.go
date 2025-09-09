@@ -17,6 +17,7 @@ import (
 
 	"github.com/promptshield/promptshield/internal/application/services"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
+	"github.com/promptshield/promptshield/internal/repository"
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/pkg/types"
@@ -43,7 +44,9 @@ func TestE2E_HTTPAPIRulePropagation(t *testing.T) {
 	defer publisher.Close()
 
 	// Create RulepackService with audit
-	rulepackService := services.RulepackServiceCstor(repo, publisher)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	require.NoError(t, err)
+	rulepackService := services.RulepackServiceFromFactory(factory, publisher)
 
 	// Create HTTP API server
 	apiOptions := api.Options{
@@ -306,7 +309,9 @@ func TestE2E_ConcurrentRulePropagation(t *testing.T) {
 	publisher, _ := nats.NewPublisher("")
 	defer publisher.Close()
 
-	rulepackService := services.RulepackServiceCstor(repo, publisher)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	require.NoError(t, err)
+	rulepackService := services.RulepackServiceFromFactory(factory, publisher)
 
 	// Create many enforcer instances
 	numEnforcers := 10

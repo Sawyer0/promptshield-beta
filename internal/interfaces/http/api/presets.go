@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 )
 
@@ -146,14 +145,8 @@ func registerPresetHandlers(r chi.Router, opt Options) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"matched": []any{}, "total": 0})
 			return
 		}
-		tenantStr := r.Header.Get("X-PS-Tenant-ID")
-		if tenantStr == "" {
-			writeErrorJSON(w, http.StatusBadRequest, "MISSING_TENANT", "X-PS-Tenant-ID required", nil, r)
-			return
-		}
-		tenantID, err := uuid.Parse(tenantStr)
-		if err != nil {
-			writeErrorJSON(w, http.StatusBadRequest, "INVALID_TENANT", "bad tenant id", nil, r)
+		tenantID, ok := requireTenantID(w, r)
+		if !ok {
 			return
 		}
 		repo := pg.Tools(opt.DB)

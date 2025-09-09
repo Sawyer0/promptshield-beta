@@ -41,8 +41,8 @@ start_enforcer() {
   fi
   if [[ -z "$bin" ]]; then
     if command -v go >/dev/null 2>&1; then
-      log "Starting enforcer via 'go run ./enforcer'"
-      PS_TELEMETRY=0 go run ./enforcer &
+      log "Starting gateway via 'go run ./gateway'"
+      PS_TELEMETRY=0 go run ./gateway &
       ENF_PID=$!
     else
       echo "No enforcer binary or Go toolchain found. Build first: 'make build-enforcer'" >&2

@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/services"
-	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
+	"github.com/promptshield/promptshield/internal/repository"
 )
 
 // stub RowScanner
@@ -93,13 +93,18 @@ type testTool struct {
 }
 
 func newMuxWith(t *testing.T, db pg.DB) http.Handler {
-	repo := memory.NewRulepackRepository()
-	svc := services.RulepackServiceCstor(repo, nil)
+    t.Helper()
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	opt := Options{RulepackService: svc, DB: db}
 	return NewMux(opt)
 }
 
 func activateRulepack(t *testing.T, svc *services.RulepackService, tenantID uuid.UUID, dsl any) {
+    t.Helper()
 	data, _ := json.Marshal(dsl)
 	packID, err := svc.Create(context.Background(), tenantID, "p", "")
 	if err != nil {
@@ -141,8 +146,11 @@ func TestAgentMiddleware_AllowWithPatternsAndTool(t *testing.T) {
 		ArgSchemaJSON: `{"params":[]}`,
 	}
 	db := &testDB{tool: tool}
-	repo := memory.NewRulepackRepository()
-	svc := services.RulepackServiceCstor(repo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	opt := Options{RulepackService: svc, DB: db}
 	h := NewMux(opt)
 	// Activate rulepack with action selector allowing read AND network_get
@@ -169,8 +177,11 @@ func TestAgentMiddleware_ArgContracts_DenyFreeText(t *testing.T) {
 		ArgSchemaJSON: `{"params":[{"name":"id","type":"string","required":true},{"name":"text","type":"string"}]}`,
 	}
 	db := &testDB{tool: tool}
-	repo := memory.NewRulepackRepository()
-	svc := services.RulepackServiceCstor(repo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	opt := Options{RulepackService: svc, DB: db}
 	h := NewMux(opt)
 	activateRulepack(t, svc, tenant, map[string]any{
@@ -199,8 +210,11 @@ func TestAgentMiddleware_DualLLM_QuarantinedDenied(t *testing.T) {
 		CapabilityTagsJSON: `["write"]`, DataDomainsJSON: `[]`, SideEffect: "irreversible", AuthScope: "user-delegated", ArgSchemaJSON: `{"params":[]}`,
 	}
 	db := &testDB{tool: tool}
-	repo := memory.NewRulepackRepository()
-	svc := services.RulepackServiceCstor(repo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	opt := Options{RulepackService: svc, DB: db}
 	h := NewMux(opt)
 	activateRulepack(t, svc, tenant, map[string]any{
@@ -228,8 +242,11 @@ func TestAgentMiddleware_PlanRequired(t *testing.T) {
 		CapabilityTagsJSON: `[]`, DataDomainsJSON: `[]`, SideEffect: "none", AuthScope: "user-delegated", ArgSchemaJSON: `{"params":[]}`,
 	}
 	db := &testDB{tool: tool}
-	repo := memory.NewRulepackRepository()
-	svc := services.RulepackServiceCstor(repo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	opt := Options{RulepackService: svc, DB: db}
 	h := NewMux(opt)
 	activateRulepack(t, svc, tenant, map[string]any{

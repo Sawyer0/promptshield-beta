@@ -3,7 +3,7 @@ version: '3.8'
 x-promptshield-common: &promptshield-common
   build:
     context: .
-    dockerfile: Dockerfile.enforcer
+    dockerfile: Dockerfile.gateway
     args:
       ENABLE_HYPERSCAN: ${ENABLE_HYPERSCAN:-0}
   env_file:

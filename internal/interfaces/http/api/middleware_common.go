@@ -18,9 +18,8 @@ import (
 type contextKey string
 
 const (
-	correlationIDKey contextKey = "correlation_id"
-	tenantIDKey      contextKey = "tenant_id"
-	userIDKey        contextKey = "user_id"
+    correlationIDKey contextKey = "correlation_id"
+    tenantIDKey      contextKey = "tenant_id"
 )
 
 // correlationIDMiddleware adds correlation ID to requests with tracing support
@@ -104,17 +103,7 @@ func requestLoggerMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// rateLimitMiddleware applies simple rate limiting for Security Gateway
-func rateLimitMiddleware(quotaStore interface{}) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Security Gateway uses simple environment-based rate limiting
-			// Rate limiting is handled by PS_ENFORCER_RPS environment variable
-			// Complex per-tenant quota management removed for simplicity
-			next.ServeHTTP(w, r)
-		})
-	}
-}
+// Removed legacy rateLimitMiddleware (unused)
 
 // getCorrelationID extracts correlation ID from request context
 func getCorrelationID(r *http.Request) string {

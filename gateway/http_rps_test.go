@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
@@ -14,9 +15,10 @@ import (
 	"time"
 
 	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
-	"github.com/promptshield/promptshield/internal/testutil/mocks"
+	"github.com/promptshield/promptshield/internal/repository"
 )
 
 // TestHTTP_SustainedRPS measures sustained RPS of /check under concurrency.
@@ -27,9 +29,27 @@ func TestHTTP_SustainedRPS(t *testing.T) {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
 	os.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
 
-	// Start in-memory HTTP server with mock RulepackService
-	mockRepo := &mocks.MockRulepackRepository{}
-	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
+	// Set test mode to ensure we get a test factory
+	os.Setenv("PS_TEST_MODE", "true")
+	defer os.Unsetenv("PS_TEST_MODE")
+
+	// Setup with repository factory
+	ctx := context.Background()
+	repoFactory, err := repository.BuildWithFallback(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create repository factory: %v", err)
+	}
+	defer repoFactory.Close()
+
+	// Create NATS publisher
+	publisher, err := nats.NewPublisher("")
+	if err != nil {
+		t.Fatalf("Failed to create NATS publisher: %v", err)
+	}
+	defer publisher.Close()
+
+	// Create RulepackService using factory
+	rulepackService := services.RulepackServiceFromFactory(repoFactory, publisher)
 	
 	options := api.Options{
 		RulepackService: rulepackService,
@@ -99,9 +119,27 @@ func TestHTTP_P95_Sub300ms(t *testing.T) {
 	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
 	os.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
 
-	// Setup with mock RulepackService
-	mockRepo := &mocks.MockRulepackRepository{}
-	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
+	// Set test mode to ensure we get a test factory
+	os.Setenv("PS_TEST_MODE", "true")
+	defer os.Unsetenv("PS_TEST_MODE")
+
+	// Setup with repository factory
+	ctx := context.Background()
+	repoFactory, err := repository.BuildWithFallback(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create repository factory: %v", err)
+	}
+	defer repoFactory.Close()
+
+	// Create NATS publisher
+	publisher, err := nats.NewPublisher("")
+	if err != nil {
+		t.Fatalf("Failed to create NATS publisher: %v", err)
+	}
+	defer publisher.Close()
+
+	// Create RulepackService using factory
+	rulepackService := services.RulepackServiceFromFactory(repoFactory, publisher)
 	
 	options := api.Options{
 		RulepackService: rulepackService,

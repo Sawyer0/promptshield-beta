@@ -13,7 +13,7 @@ MODE ?= observe
 	dev dev-gateway dev-ui
 
 build:
-	go build -ldflags "-X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.buildDate=$(DATE)'" -o bin/$(BIN) ./enforcer
+	go build -ldflags "-X 'main.version=$(VERSION)' -X 'main.commit=$(COMMIT)' -X 'main.buildDate=$(DATE)'" -o bin/$(BIN) ./gateway
 
 # Legacy target for compatibility; builds the new gateway binary.
 build-enforcer: build

@@ -29,11 +29,7 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
         repo := pg.ProviderProfiles(opt.DB)
 
         // List
-        pr.Get("/", func(w http.ResponseWriter, r *http.Request) {
-            tenantStr := r.Header.Get("X-PS-Tenant-ID")
-            if tenantStr == "" { writeErrorJSON(w, http.StatusBadRequest, "MISSING_TENANT", "X-PS-Tenant-ID required", nil, r); return }
-            tenantID, err := uuid.Parse(tenantStr)
-            if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_TENANT", "bad tenant id", nil, r); return }
+        pr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
             items, err := repo.List(r.Context(), tenantID)
             if err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil, r); return }
             // Redact api_key
@@ -45,16 +41,15 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
                 })
             }
             _ = json.NewEncoder(w).Encode(map[string]any{"data": out})
-        })
+        }))
 
         // Create
-        pr.Post("/", func(w http.ResponseWriter, r *http.Request) {
+        pr.Post("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
             var body struct { Provider, Label, APIKey, BaseURL string; ExtraHeaders json.RawMessage }
             _ = json.NewDecoder(r.Body).Decode(&body)
             if strings.TrimSpace(body.Provider) == "" || strings.TrimSpace(body.Label) == "" || strings.TrimSpace(body.APIKey) == "" {
                 writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "provider, label and apiKey are required", nil, r); return
             }
-            tenantID, _ := uuid.Parse(strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")))
             encKey, err := enc.EncryptString(body.APIKey)
             if err != nil {
                 writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "encryption failed – set PS_ENCRYPTION_KEY (base64 32 bytes) or PS_TENANT_SECRET", nil, r)
@@ -66,26 +61,23 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
             if err := repo.Create(r.Context(), p); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil, r); return }
             w.WriteHeader(http.StatusCreated)
             _ = json.NewEncoder(w).Encode(map[string]any{"id": p.ID, "provider": p.Provider, "label": p.Label, "base_url": p.BaseURL})
-        })
+        }))
 
         // Get
-        pr.Get("/{id}", func(w http.ResponseWriter, r *http.Request) {
-            tenantID, _ := uuid.Parse(strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")))
-            idStr := chi.URLParam(r, "id"); id, err := uuid.Parse(idStr); if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad id", nil, r); return }
+        pr.Get("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
             p, err := repo.Get(r.Context(), tenantID, id); if err != nil { writeErrorJSON(w, http.StatusNotFound, "NOT_FOUND", "profile not found", nil, r); return }
             _ = json.NewEncoder(w).Encode(map[string]any{
                 "id": p.ID, "tenant_id": p.TenantID, "provider": p.Provider, "label": p.Label,
                 "base_url": p.BaseURL, "created_at": p.CreatedAt, "updated_at": p.UpdatedAt,
             })
-        })
+        }))
 
         // Update (apiKey optional)
-        pr.Put("/{id}", func(w http.ResponseWriter, r *http.Request) {
-            tenantID, _ := uuid.Parse(strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")))
-            id, err := uuid.Parse(chi.URLParam(r, "id")); if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad id", nil, r); return }
+        pr.Put("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
             var body struct { Provider, Label, APIKey, BaseURL string; ExtraHeaders json.RawMessage }
             _ = json.NewDecoder(r.Body).Decode(&body)
             var encKey string
+            var err error
             if strings.TrimSpace(body.APIKey) != "" {
                 if encKey, err = enc.EncryptString(body.APIKey); err != nil {
                     writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "encryption failed – set PS_ENCRYPTION_KEY (base64 32 bytes) or PS_TENANT_SECRET", nil, r)
@@ -97,14 +89,12 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
             if len(body.ExtraHeaders) > 0 { p.ExtraHdrs = body.ExtraHeaders }
             if err := repo.Update(r.Context(), p); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil, r); return }
             w.WriteHeader(http.StatusNoContent)
-        })
+        }))
 
         // Delete
-        pr.Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
-            tenantID, _ := uuid.Parse(strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID")))
-            id, err := uuid.Parse(chi.URLParam(r, "id")); if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad id", nil, r); return }
+        pr.Delete("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
             if err := repo.Delete(r.Context(), tenantID, id); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil, r); return }
             w.WriteHeader(http.StatusNoContent)
-        })
+        }))
     })
 }

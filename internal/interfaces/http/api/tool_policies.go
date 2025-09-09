@@ -21,11 +21,7 @@ func registerToolHandlers(r chi.Router, opt Options) {
             return
         }
 
-        tr.Get("/policies", func(w http.ResponseWriter, r *http.Request) {
-            tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-            if tenantStr == "" { writeErrorJSON(w, http.StatusBadRequest, "MISSING_TENANT", "X-PS-Tenant-ID required", nil, r); return }
-            tenantID, err := uuid.Parse(tenantStr)
-            if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_TENANT", "bad tenant id", nil, r); return }
+        tr.Get("/policies", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
             // Read from tenant_settings
             const q = `SELECT value FROM tenant_settings WHERE tenant_id=$1 AND key='tool_policies' LIMIT 1`
             var val sql.NullString
@@ -50,13 +46,9 @@ func registerToolHandlers(r chi.Router, opt Options) {
                 return
             }
             _ = json.NewEncoder(w).Encode(map[string]any{"policies": []any{}})
-        })
+        }))
 
-        tr.Put("/policies", func(w http.ResponseWriter, r *http.Request) {
-            tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-            if tenantStr == "" { writeErrorJSON(w, http.StatusBadRequest, "MISSING_TENANT", "X-PS-Tenant-ID required", nil, r); return }
-            tenantID, err := uuid.Parse(tenantStr)
-            if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_TENANT", "bad tenant id", nil, r); return }
+        tr.Put("/policies", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
             // Accept either { policies: [...] } or plain []
             var raw any
             if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
@@ -89,6 +81,6 @@ func registerToolHandlers(r chi.Router, opt Options) {
                 })
             }
             w.WriteHeader(http.StatusNoContent)
-        })
+        }))
     })
 }

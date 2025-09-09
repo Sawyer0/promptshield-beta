@@ -55,6 +55,10 @@ type APITokenRepository interface {
 	Update(ctx context.Context, token *APIToken) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	Rotate(ctx context.Context, id uuid.UUID) (string, error)
+	// Additional utility methods
+	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
+	Revoke(ctx context.Context, id uuid.UUID) error
+	DeleteExpired(ctx context.Context) error
 }
 
 // SettingsRepository defines operations for platform settings management

@@ -8,7 +8,7 @@ This document describes the complete technical stack used by PromptShield, deriv
 - **Build system**: Make (`Makefile`), Go toolchain
   - `make build-enforcer` builds `ps-enforcer` with ldflags
   - `make test`, `make bench`, quick/large benches
-- **Containerization**: Multi-stage Dockerfiles (`Dockerfile`, `Dockerfile.enforcer`)
+- **Containerization**: Multi-stage Dockerfiles (`Dockerfile`, `Dockerfile.gateway`)
 - **Orchestration**: Kubernetes manifests (`deployments/kubernetes/enforcer.yaml`)
 - **Compose**: `docker-compose.yaml` for local Envoy + Enforcer + Backend
 
