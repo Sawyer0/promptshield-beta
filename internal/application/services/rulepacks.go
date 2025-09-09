@@ -17,7 +17,6 @@ import (
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
-	"github.com/promptshield/promptshield/internal/shared/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -52,12 +51,13 @@ type RulepackService struct {
 }
 
 // RulepackServiceCstor creates a RulepackService with auditing configured from environment.
+// Deprecated: Use RulepackServiceFromFactory instead for better dependency management
 func RulepackServiceCstor(r contracts.RulepackRepository, pub *nats.Publisher) *RulepackService {
 	auditLogger, closeFunc, err := audit.NewLoggerFromEnv()
 	if err != nil {
 		slog.Error("Failed to initialize audit logger", "error", err)
 		// Create a no-op audit logger for degraded functionality
-		auditLogger = &noOpAuditLogger{}
+		auditLogger = &legacyNoOpAuditLogger{}
 	}
 	
 	// Store close function for proper cleanup (in production, this would be managed by DI container)
@@ -70,10 +70,10 @@ func RulepackServiceCstor(r contracts.RulepackRepository, pub *nats.Publisher) *
 	return &RulepackService{repo: r, pub: pub, audit: auditLogger}
 }
 
-// noOpAuditLogger provides a no-op implementation for graceful degradation
-type noOpAuditLogger struct{}
+// legacyNoOpAuditLogger provides a no-op implementation for the legacy constructor
+type legacyNoOpAuditLogger struct{}
 
-func (n *noOpAuditLogger) Log(event audit.Event) error {
+func (n *legacyNoOpAuditLogger) Log(event audit.Event) error {
 	// No-op implementation - just log that we would have audited this
 	slog.Debug("Audit event not logged due to initialization failure", 
 		"event_type", event.Type, 
@@ -81,22 +81,7 @@ func (n *noOpAuditLogger) Log(event audit.Event) error {
 	return nil
 }
 
-func (n *noOpAuditLogger) LogWithContext(ctx context.Context, event types.AuditEvent) error {
-	// No-op implementation - just log that we would have audited this
-	slog.Debug("Audit event not logged due to initialization failure", 
-		"action", event.Action, 
-		"object_id", event.ObjectID,
-		"timestamp", event.Timestamp)
-	return nil
-}
 
-func (n *noOpAuditLogger) Flush() error {
-	return nil
-}
-
-func (n *noOpAuditLogger) Close() error {
-	return nil
-}
 
 func checksumJSON(raw json.RawMessage) string {
 	h := sha256.Sum256(raw)

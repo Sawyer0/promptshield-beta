@@ -11,6 +11,7 @@ import (
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/contracts"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
+	"github.com/promptshield/promptshield/internal/repository"
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -234,7 +235,9 @@ func TestIntegration_RulePropagation(t *testing.T) {
 	// Message tracking would require wrapping the publisher
 
 	// Create service
-	service := services.RulepackServiceCstor(repo, publisher)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	require.NoError(t, err)
+	service := services.RulepackServiceFromFactory(factory, publisher)
 
 	// Create rulepack
 	packID, err := service.Create(ctx, tenantID, "test-pack", "Test rulepack")

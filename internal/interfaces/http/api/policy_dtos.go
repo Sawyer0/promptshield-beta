@@ -1,8 +1,7 @@
 package api
 
 import (
-	"time"
-	"github.com/google/uuid"
+    "time"
 )
 
 // PolicyCreateRequest represents a request to create a new policy
@@ -72,22 +71,4 @@ type PolicyValidationResponse struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
-// Helper functions for DTO conversions
-
-// parseUUID safely parses a UUID string
-func parseUUID(s string) (uuid.UUID, error) {
-	return uuid.Parse(s)
-}
-
-// stringPtr returns a pointer to a string (for optional fields)
-func stringPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-// intPtr returns a pointer to an int (for optional fields)
-func intPtr(i int) *int {
-	return &i
-}
+// Helper functions removed (unused)

@@ -34,14 +34,8 @@ type RulepackMeta struct {
 
 func mountRulepacks(r chi.Router, opt Options) {
 	r.Route("/rulepacks", func(rr chi.Router) {
-		rr.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-			id, err := uuid.Parse(tenantStr)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing or invalid tenant id", nil)
-				return
-			}
-			rulepacks, err := opt.RulepackService.List(r.Context(), id)
+		rr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+			rulepacks, err := opt.RulepackService.List(r.Context(), tenantID)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 				return
@@ -62,16 +56,10 @@ func mountRulepacks(r chi.Router, opt Options) {
 			if err := json.NewEncoder(w).Encode(result); err != nil {
 				slog.Error("Failed to encode rulepacks list response", "error", err)
 			}
-		})
-		rr.Get("/active", func(w http.ResponseWriter, r *http.Request) {
-			tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-			id, err := uuid.Parse(tenantStr)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing or invalid tenant id", nil)
-				return
-			}
+		}))
+		rr.Get("/active", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
 			// Find the active rulepack from the list
-			rulepacks, err := opt.RulepackService.List(r.Context(), id)
+			rulepacks, err := opt.RulepackService.List(r.Context(), tenantID)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 				return
@@ -97,7 +85,7 @@ func mountRulepacks(r chi.Router, opt Options) {
 			if err := json.NewEncoder(w).Encode(RulepackMeta{}); err != nil {
 				slog.Error("Failed to encode empty rulepack response", "error", err)
 			}
-		})
+		}))
 		rr.Group(func(a chi.Router) {
 			a.Use(adminAuth(opt))
 			a.Post("/validate", func(w http.ResponseWriter, r *http.Request) {
@@ -174,10 +162,8 @@ func mountRulepacks(r chi.Router, opt Options) {
 				}
 
 				// Resolve tenant from header (required)
-				tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-				tenantID, err := uuid.Parse(tenantStr)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing or invalid tenant id", nil)
+				tenantID, ok := getTenantID(w, r)
+				if !ok {
 					return
 				}
 
@@ -334,10 +320,8 @@ func mountRulepacks(r chi.Router, opt Options) {
 				}
 
 				// Resolve tenant from header
-				tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-				tenantID, err := uuid.Parse(tenantStr)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing or invalid tenant id", nil)
+				tenantID, ok := getTenantID(w, r)
+				if !ok {
 					return
 				}
 
@@ -405,10 +389,8 @@ func mountRulepacks(r chi.Router, opt Options) {
 				}
 
 				// Resolve tenant from header
-				tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-				tenantID, err := uuid.Parse(tenantStr)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing or invalid tenant id", nil)
+				tenantID, ok := getTenantID(w, r)
+				if !ok {
 					return
 				}
 
@@ -442,25 +424,143 @@ func mountRulepacks(r chi.Router, opt Options) {
 
 				writeError(w, http.StatusNotFound, "NOT_FOUND", "rulepack not found", nil)
 			})
-			a.Delete("/{id}", func(w http.ResponseWriter, r *http.Request) {
-				id := chi.URLParam(r, "id")
-				packID, err := uuid.Parse(id)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid id format", nil)
-					return
-				}
-				tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-				tenantID, err := uuid.Parse(tenantStr)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing or invalid tenant id", nil)
-					return
-				}
-
+			a.Delete("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, packID uuid.UUID) {
 				if err := opt.RulepackService.Delete(r.Context(), tenantID, packID); err != nil {
 					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 					return
 				}
 				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			// Version management endpoints (from controlplane)
+			a.Get("/{id}", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+
+				dsl, version, err := opt.RulepackService.GetActive(r.Context(), packID)
+				if err != nil {
+					writeError(w, http.StatusNotFound, "NOT_FOUND", "rulepack not found", nil)
+					return
+				}
+
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"id":      packID.String(),
+					"version": version,
+					"dsl":     dsl,
+				})
+			})
+
+			a.Post("/{id}/versions", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "failed to read body", nil)
+					return
+				}
+
+				var req struct {
+					Version int             `json:"version"`
+					DSL     json.RawMessage `json:"dsl"`
+				}
+				if err := json.Unmarshal(body, &req); err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid JSON", nil)
+					return
+				}
+
+				// Validate DSL
+				valid, _, errors := opt.RulepackService.ValidateDSL(req.DSL)
+				if !valid {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "DSL validation failed", map[string]any{"errors": errors})
+					return
+				}
+
+				tenantID, ok := getTenantID(w, r)
+				if !ok {
+					return
+				}
+
+				versionID, err := opt.RulepackService.Upload(r.Context(), tenantID, packID, req.Version, req.DSL, false)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				w.WriteHeader(http.StatusCreated)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"versionId": versionID.String(),
+					"status":    "approved",
+				})
+			})
+
+			a.Get("/{id}/versions/{ver}", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+
+				version, err := strconv.Atoi(chi.URLParam(r, "ver"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid version", nil)
+					return
+				}
+
+				dsl, status, err := opt.RulepackService.GetVersion(r.Context(), packID, version)
+				if err != nil {
+					writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error(), nil)
+					return
+				}
+				
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"id": packID.String(), 
+					"version": version, 
+					"status": status, 
+					"dsl": dsl,
+				})
+			})
+
+			a.Post("/{id}/versions/{ver}/activate", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+
+				version, err := strconv.Atoi(chi.URLParam(r, "ver"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid version", nil)
+					return
+				}
+
+				var req struct {
+					TenantID string          `json:"tenantId"`
+					DSL      json.RawMessage `json:"dsl"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request", nil)
+					return
+				}
+
+				tenantID, err := uuid.Parse(req.TenantID)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tenant ID", nil)
+					return
+				}
+
+				if err := opt.RulepackService.CreateVersionActivate(r.Context(), tenantID, packID, version, req.DSL); err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+
+				_ = json.NewEncoder(w).Encode(map[string]string{"status": "activated"})
 			})
 		})
 	})

@@ -14,12 +14,12 @@ import (
 // RedisAPITokenRepository implements APITokenRepository with Redis write-through cache
 // Optimized for token validation (GetByHash) which happens on every request
 type RedisAPITokenRepository struct {
-	pg    APITokenRepository
+	pg    domain.APITokenRepository
 	redis *redis.Client
 	ttl   time.Duration
 }
 
-func NewRedisAPITokenRepository(pg APITokenRepository, redisClient *redis.Client, ttl time.Duration) APITokenRepository {
+func NewRedisAPITokenRepository(pg domain.APITokenRepository, redisClient *redis.Client, ttl time.Duration) domain.APITokenRepository {
 	if ttl == 0 {
 		ttl = 30 * time.Minute // Longer TTL for auth tokens
 	}
@@ -176,3 +176,56 @@ func (r *RedisAPITokenRepository) invalidateToken(ctx context.Context, token *do
 	r.redis.Del(ctx, r.tokenKey(token.ID))
 	r.redis.Del(ctx, r.tokenHashKey(token.TokenHash))
 }
+
+// Update updates an API token and invalidates cache
+func (r *RedisAPITokenRepository) Update(ctx context.Context, token *domain.APIToken) error {
+	// Update PostgreSQL first
+	if err := r.pg.Update(ctx, token); err != nil {
+		return err
+	}
+	
+	// Invalidate cache for this token
+	r.invalidateToken(ctx, token)
+	
+	return nil
+}
+
+// Delete removes an API token and invalidates cache
+func (r *RedisAPITokenRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	// Get token first to invalidate cache properly
+	token, err := r.pg.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	
+	// Delete from PostgreSQL
+	if err := r.pg.Delete(ctx, id); err != nil {
+		return err
+	}
+	
+	// Invalidate cache
+	r.invalidateToken(ctx, token)
+	
+	return nil
+}
+
+// Rotate rotates an API token and invalidates cache
+func (r *RedisAPITokenRepository) Rotate(ctx context.Context, id uuid.UUID) (string, error) {
+	// Get token first to invalidate cache properly
+	token, err := r.pg.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	
+	// Rotate in PostgreSQL
+	newToken, err := r.pg.Rotate(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	
+	// Invalidate old cache entries
+	r.invalidateToken(ctx, token)
+	
+	return newToken, nil
+}
+

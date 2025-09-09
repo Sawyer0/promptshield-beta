@@ -68,6 +68,6 @@ echo "export PS_TENANT_ID=\"$TENANT_ID\""
 echo "export PS_CONTROL_PLANE_ADDR=\":8085\""
 echo ""
 
-echo "🎉 Setup complete! You can now start the control plane:"
+echo "🎉 Setup complete! You can now start the gateway:"
 echo "  export PS_PG_DSN=\"$SUPABASE_URL\""
-echo "  ./bin/ps-controlplane"
+echo "  ./bin/ps-gateway"

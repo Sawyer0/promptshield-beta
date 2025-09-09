@@ -23,8 +23,8 @@ import (
 
 var startFlushSubscriberOnce sync.Once
 
-func NewMux(opt Options) http.Handler {
-	r := chi.NewRouter()
+// applyStandardMiddleware applies the common middleware chain to a router
+func applyStandardMiddleware(r chi.Router, opt Options) {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Timeout(10 * time.Second))
 	r.Use(versionHeader("1"))
@@ -46,55 +46,88 @@ func NewMux(opt Options) http.Handler {
 	r.Use(agentEnforcementMiddleware(opt))
 	// bytes in/out accounting
 	r.Use(captureBytesMiddleware)
+}
 
-	// Multi-tenant validation (tenant routing only - auth handled by frontend)
-	if opt.DB != nil {
-		r.Use(tenantValidationMiddleware(opt.DB))
-	}
-	// Note: User authentication handled by frontend - backend only validates tenants
-
-	// Ensure defaults for optional dependencies
-	if opt.ConfigStore == nil {
-		opt.ConfigStore = NewRuntimeConfigStoreFromEnv()
-	}
-	// RulepackService is required and must be provided by caller
+// validateAndSetDefaults ensures required options are set and provides defaults
+func validateAndSetDefaults(opt *Options) {
+	// Required dependencies
 	if opt.RulepackService == nil {
 		panic("RulepackService is required")
+	}
+	
+	// Optional dependencies with defaults
+	if opt.ConfigStore == nil {
+		opt.ConfigStore = NewRuntimeConfigStoreFromEnv()
 	}
 	if opt.Events == nil {
 		opt.Events = NewEventHub()
 	}
-	// usage store is optional; if unset, usage endpoint will report zeroes
-	// Quota store default: derive from entitlements/env if not provided
+	
+	// Quota store from environment if not provided
 	if opt.QuotaStore == nil {
-		var rps float64
-		var burst int
-		if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); v != "" {
-			if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
-				rps = f
-			}
-		}
-		if rps > 0 {
-			if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); v != "" {
-				if n, err := strconv.Atoi(v); err == nil && n > 0 {
-					burst = n
-				}
-			}
-			opt.QuotaStore = usage.NewInMemoryQuota(rps, burst)
+		opt.QuotaStore = createQuotaStoreFromEnv()
+	}
+}
+
+// createQuotaStoreFromEnv creates a quota store from environment variables
+func createQuotaStoreFromEnv() usage.QuotaStore {
+	var rps float64
+	var burst int
+	
+	if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			rps = f
 		}
 	}
+	
+	if rps > 0 {
+		if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				burst = n
+			}
+		}
+		return usage.NewInMemoryQuota(rps, burst)
+	}
+	
+	return nil
+}
 
-	// Health & info
+// registerAllHandlers registers all API endpoints in a logical order
+func registerAllHandlers(r chi.Router, opt Options) {
+	// Core functionality
+	mountRulepacks(r, opt)
+	mountConfig(r, opt)
+	
+	// Tool and agent functionality
+	r.Post("/api/tools/exec", toolExecHandler(opt))
+	registerToolHandlers(r, opt)
+	registerAgentHandlers(r, opt)
+	registerPresetHandlers(r, opt)
+	
+	// Enterprise features (safe to mount even if repositories are nil)
+	registerTenantHandlers(r, opt)
+	registerAssignmentHandlers(r, opt)
+	registerAuditHandlers(r, opt)
+	registerUserHandlers(r, opt)
+	registerProviderProfileHandlers(r, opt)
+	
+	// System and monitoring
+	registerSystemHandlers(r, opt)
+	registerServiceControlHandlers(r, opt)
+	registerSettingsHandlers(r, opt)
+	registerBusinessMetricsHandlers(r, opt)
+}
+
+// registerStandardEndpoints registers health, readiness, and version endpoints
+func registerStandardEndpoints(r chi.Router) {
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		// Ready regardless of rulepack presence; no built-in defaults
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
-	// Version
 	r.Get("/version", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"version":    version.Version,
@@ -102,33 +135,281 @@ func NewMux(opt Options) http.Handler {
 			"build_date": version.BuildDate,
 		})
 	})
+}
 
-	// Rulepacks
-	mountRulepacks(r, opt)
+// registerAdminEndpoints registers administrative endpoints with token auth
+func registerAdminEndpoints(r chi.Router, opt Options) {
+	r.Group(func(a chi.Router) {
+		a.Use(adminAuth(opt))
+		
+		// System control
+		a.Post("/admin/drain", drainHandler(opt))
+		a.Post("/admin/shutdown", shutdownHandler(opt))
+		a.Post("/admin/tool-policies/flush", toolPolicyFlushHandler(opt))
+	})
+}
 
-	// Config
-	mountConfig(r, opt)
+// drainHandler handles graceful drain requests
+func drainHandler(opt Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		if opt.OnDrain != nil {
+			go func() { _ = opt.OnDrain(r.Context()) }()
+		}
+	}
+}
 
-	// Enterprise / platform features (registrations are no-ops when corresponding
-	// repositories are nil, so safe to mount unconditionally).
-	registerTenantHandlers(r, opt)
-	registerAssignmentHandlers(r, opt)
-	// registerQuotaHandlers(r, opt) - removed for Security Gateway
-	registerAuditHandlers(r, opt)
-	// Policy endpoints are deprecated in favor of rulepacks; do not register
-	registerSystemHandlers(r, opt)
-	registerServiceControlHandlers(r, opt)
-	registerSettingsHandlers(r, opt)
-	registerBusinessMetricsHandlers(r, opt)
-    registerUserHandlers(r, opt)
-    // Tool execution endpoint
-    r.Post("/api/tools/exec", toolExecHandler(opt))
-    // Tool execution
-    r.Post("/api/tools/exec", toolExecHandler(opt))
-	registerProviderProfileHandlers(r, opt)
-	registerToolHandlers(r, opt)
-	registerPresetHandlers(r, opt)
-	registerAgentHandlers(r, opt)
+// shutdownHandler handles graceful shutdown requests
+func shutdownHandler(opt Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		if opt.OnShutdown != nil {
+			// optional delay in seconds
+			delay := 0 * time.Second
+			if v := r.URL.Query().Get("delay"); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+					delay = time.Duration(n) * time.Second
+				}
+			}
+			go func() { _ = opt.OnShutdown(r.Context(), delay) }()
+		}
+	}
+}
+
+// toolPolicyFlushHandler handles tool policy cache flush requests
+func toolPolicyFlushHandler(opt Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Optional tenant-scoped flush (JSON body: {"tenant_id":"..."})
+		var req struct{ TenantID string `json:"tenant_id"` }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		
+		// Immediate local flush
+		tenantID := strings.TrimSpace(req.TenantID)
+		if tenantID != "" {
+			flushToolPolicyCacheTenant(tenantID)
+		} else {
+			flushToolPolicyCache()
+		}
+		
+		// Bump global epoch for cluster-wide invalidation
+		updateToolPolicyEpoch(r, opt)
+		
+		// Publish push invalidation event via NATS (if configured)
+		publishToolPolicyFlush(tenantID)
+		
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// updateToolPolicyEpoch increments the tool policy epoch in settings
+func updateToolPolicyEpoch(r *http.Request, opt Options) {
+	if opt.SettingsRepository == nil {
+		return
+	}
+	
+	s, err := opt.SettingsRepository.Get(r.Context())
+	if err != nil || s == nil {
+		return
+	}
+	
+	var raw map[string]any
+	_ = json.NewDecoder(strings.NewReader(string(s.Settings))).Decode(&raw)
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	
+	if v, ok := raw["tool_policy_epoch"].(float64); ok {
+		raw["tool_policy_epoch"] = int64(v) + 1
+	} else {
+		raw["tool_policy_epoch"] = 1
+	}
+	
+	raw["updated_by"] = getUserFromContext(r.Context())
+	raw["updated_at"] = time.Now().UTC()
+	_, _ = opt.SettingsRepository.Update(r.Context(), raw)
+}
+
+// publishToolPolicyFlush publishes a tool policy flush event via NATS
+func publishToolPolicyFlush(tenantID string) {
+	addr := strings.TrimSpace(os.Getenv("PS_NATS_URL"))
+	if addr == "" {
+		return
+	}
+	
+	ev := rnats.ToolPolicyFlush{
+		TenantID: tenantID,
+		At:       time.Now().UTC(),
+		Reason:   "admin_flush",
+	}
+	
+	_ = rnats.PublishToolPolicyFlush(addr, ev)
+	
+	scope := "global"
+	if ev.TenantID != "" {
+		scope = "tenant"
+	}
+	
+	logger := slog.With("component", "policy-flush-publisher")
+	logger.Info("published tool policy flush", "scope", scope, "tenant_id", ev.TenantID)
+}
+
+// registerLicenseEndpoints registers license management endpoints
+func registerLicenseEndpoints(r chi.Router, opt Options) {
+	// Public license info
+	r.Get("/license", func(w http.ResponseWriter, r *http.Request) {
+		l := license.Info()
+		ent, _ := license.Entitlement()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"org":          l.Organization,
+			"tier":         l.Tier,
+			"expires_at":   l.ExpiresAt,
+			"licensed":     license.IsLicensed(),
+			"entitlements": ent,
+		})
+	})
+	
+	// Admin-only license rotation
+	r.Group(func(a chi.Router) {
+		a.Use(adminAuth(opt))
+		a.Post("/license", licenseUpdateHandler())
+	})
+}
+
+// licenseUpdateHandler handles license key updates
+func licenseUpdateHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := r.FormValue("key")
+		if key == "" {
+			var body struct {
+				Key string `json:"key"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			key = body.Key
+		}
+		if key == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing key", nil)
+			return
+		}
+		_ = os.Setenv("PROMPTSHIELD_LICENSE_KEY", key)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// registerSecurityEndpoints registers security gateway decision endpoints
+func registerSecurityEndpoints(r chi.Router, opt Options) {
+	r.Group(func(g chi.Router) {
+		// Tenant-based rate limiting (auth handled by frontend)
+		if opt.QuotaStore != nil {
+			g.Use(tenantQuota(opt))
+		}
+		
+		g.Post("/check", checkHandlerVersioned(opt))
+		g.Post("/scan", scanHandler(opt))
+		g.Post("/scan:async", asyncScanHandler())
+	})
+}
+
+// asyncScanHandler handles async scan requests (feature-gated)
+func asyncScanHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Require entitlements to run async jobs
+		license.Check()
+		ent, ok := license.Entitlement()
+		if !ok || !ent.Features["async_jobs"] {
+			http.Error(w, "async jobs not licensed", http.StatusForbidden)
+			return
+		}
+		
+		// In tests we only need a 200 to verify gating; real impl would enqueue work
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{\"status\":\"accepted\"}"))
+	}
+}
+
+// registerObservabilityEndpoints registers observability and monitoring endpoints
+func registerObservabilityEndpoints(r chi.Router, opt Options) {
+	r.Group(func(a chi.Router) {
+		a.Use(adminAuth(opt))
+		a.Get("/events", eventsStreamHandler(opt))
+	})
+}
+
+// eventsStreamHandler handles server-sent events streaming
+func eventsStreamHandler(opt Options) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var flusher http.Flusher
+		if f, ok := w.(http.Flusher); ok {
+			flusher = f
+		}
+		
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		
+		ch := opt.Events.Subscribe(r.Context().Done())
+		defer opt.Events.Unsubscribe(ch)
+		
+		// Optional type filtering
+		var filters map[string]struct{}
+		if v := strings.TrimSpace(r.URL.Query().Get("types")); v != "" {
+			filters = make(map[string]struct{})
+			for _, t := range strings.Split(v, ",") {
+				if t = strings.TrimSpace(t); t != "" {
+					filters[t] = struct{}{}
+				}
+			}
+		}
+		
+		// Send initial ready event
+		_, _ = w.Write([]byte("event: ready\ndata: {\"status\":\"ok\"}\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+		
+		// Stream events
+		notify := r.Context().Done()
+		for {
+			select {
+			case <-notify:
+				return
+			case ev := <-ch:
+				if ev == nil {
+					return
+				}
+				if len(filters) > 0 {
+					if _, ok := filters[ev.Type]; !ok {
+						continue
+					}
+				}
+				_, _ = w.Write(ev.SSE())
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+		}
+	}
+}
+
+func NewMux(opt Options) http.Handler {
+	r := chi.NewRouter()
+	
+	// Apply standard middleware chain
+	applyStandardMiddleware(r, opt)
+	
+	// Multi-tenant validation (tenant routing only - auth handled by frontend)
+	if opt.DB != nil {
+		r.Use(tenantValidationMiddleware(opt.DB))
+	}
+	// Note: User authentication handled by frontend - backend only validates tenants
+
+	// Validate and set option defaults
+	validateAndSetDefaults(&opt)
+
+	// Standard endpoints
+	registerStandardEndpoints(r)
+
+	// Register all API endpoints
+	registerAllHandlers(r, opt)
 
 	// Security Gateway - no complex usage/quota management needed
 
@@ -161,171 +442,20 @@ func NewMux(opt Options) http.Handler {
         pmetrics.PolicyFlushSubscriberUp.Set(0)
     }
 
-	// Admin endpoints (simple token auth)
-	r.Group(func(a chi.Router) {
-		a.Use(adminAuth(opt))
-		a.Post("/admin/drain", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusAccepted)
-			if opt.OnDrain != nil {
-				go func() { _ = opt.OnDrain(r.Context()) }()
-			}
-		})
-		a.Post("/admin/shutdown", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusAccepted)
-			if opt.OnShutdown != nil {
-				// optional delay in seconds
-				delay := 0 * time.Second
-				if v := r.URL.Query().Get("delay"); v != "" {
-					if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-						delay = time.Duration(n) * time.Second
-					}
-				}
-				go func() { _ = opt.OnShutdown(r.Context(), delay) }()
-			}
-		})
+	// Admin endpoints
+	registerAdminEndpoints(r, opt)
 
-		// Flush tool policies cache (immediate, in-memory)
-		a.Post("/admin/tool-policies/flush", func(w http.ResponseWriter, r *http.Request) {
-            // Optional tenant-scoped flush (JSON body: {"tenant_id":"..."})
-            var req struct{ TenantID string `json:"tenant_id"` }
-            _ = json.NewDecoder(r.Body).Decode(&req)
-            // Immediate local flush
-            if strings.TrimSpace(req.TenantID) != "" { flushToolPolicyCacheTenant(strings.TrimSpace(req.TenantID)) } else { flushToolPolicyCache() }
-			// Bump global epoch for cluster-wide invalidation (lazy propagation)
-			if opt.SettingsRepository != nil {
-				if s, err := opt.SettingsRepository.Get(r.Context()); err == nil && s != nil {
-					var raw map[string]any
-					_ = json.NewDecoder(strings.NewReader(string(s.Settings))).Decode(&raw)
-					if raw == nil { raw = map[string]any{} }
-					if v, ok := raw["tool_policy_epoch"].(float64); ok { raw["tool_policy_epoch"] = int64(v) + 1 } else {
-						raw["tool_policy_epoch"] = 1
-					}
-					raw["updated_by"] = getUserFromContext(r.Context())
-					raw["updated_at"] = time.Now().UTC()
-					_, _ = opt.SettingsRepository.Update(r.Context(), raw)
-				}
-			}
-            // Publish push invalidation event via Redis (if configured)
-            if addr := strings.TrimSpace(os.Getenv("PS_NATS_URL")); addr != "" {
-                ev := rnats.ToolPolicyFlush{ TenantID: strings.TrimSpace(req.TenantID), At: time.Now().UTC(), Reason: "admin_flush" }
-                _ = rnats.PublishToolPolicyFlush(addr, ev)
-                scope := "global"; if ev.TenantID != "" { scope = "tenant" }
-                // Log
-                logger := slog.With("component", "policy-flush-publisher")
-                logger.Info("published tool policy flush", "scope", scope, "tenant_id", ev.TenantID)
-            }
-            w.WriteHeader(http.StatusNoContent)
-        })
-	})
+	// License endpoints
+	registerLicenseEndpoints(r, opt)
 
-	// License (GET is public; POST rotates license and is admin-protected)
-	r.Get("/license", func(w http.ResponseWriter, r *http.Request) {
-		l := license.Info()
-		ent, _ := license.Entitlement()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"org":          l.Organization,
-			"tier":         l.Tier,
-			"expires_at":   l.ExpiresAt,
-			"licensed":     license.IsLicensed(),
-			"entitlements": ent,
-		})
-	})
-	r.Group(func(a chi.Router) {
-		a.Use(adminAuth(opt))
-		a.Post("/license", func(w http.ResponseWriter, r *http.Request) {
-			key := r.FormValue("key")
-			if key == "" {
-				var body struct {
-					Key string `json:"key"`
-				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				key = body.Key
-			}
-			if key == "" {
-				writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing key", nil)
-				return
-			}
-			_ = os.Setenv("PROMPTSHIELD_LICENSE_KEY", key)
-			w.WriteHeader(http.StatusNoContent)
-		})
-	})
+	// Security Gateway endpoints
+	registerSecurityEndpoints(r, opt)
 
-	// Security Gateway decision endpoints (tenant-based + rate limiting)
-	r.Group(func(g chi.Router) {
-		// Tenant-based rate limiting (auth handled by frontend)
-		if opt.QuotaStore != nil {
-			g.Use(tenantQuota(opt))
-		}
-		g.Post("/check", checkHandlerVersioned(opt))
-		g.Post("/scan", scanHandler(opt))
-		// Async scan endpoint (feature-gated by license)
-		g.Post("/scan:async", func(w http.ResponseWriter, r *http.Request) {
-			// Require entitlements to run async jobs
-			// Ensure license state is initialized for this process
-			license.Check()
-			ent, ok := license.Entitlement()
-			if !ok || !ent.Features["async_jobs"] {
-				http.Error(w, "async jobs not licensed", http.StatusForbidden)
-				return
-			}
-			// In tests we only need a 200 to verify gating; real impl would enqueue work
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("{\"status\":\"accepted\"}"))
-		})
-	})
+	// Observability endpoints
+	registerObservabilityEndpoints(r, opt)
 
-	// Observability endpoints (admin-protected)
-	r.Group(func(a chi.Router) {
-		a.Use(adminAuth(opt))
-
-		a.Get("/events", func(w http.ResponseWriter, r *http.Request) {
-			var flusher http.Flusher
-			if f, ok := w.(http.Flusher); ok {
-				flusher = f
-			}
-			w.Header().Set("Content-Type", "text/event-stream")
-			w.Header().Set("Cache-Control", "no-cache")
-			w.Header().Set("Connection", "keep-alive")
-			ch := opt.Events.Subscribe(r.Context().Done())
-			defer opt.Events.Unsubscribe(ch)
-			// Optional type filtering
-			var filters map[string]struct{}
-			if v := strings.TrimSpace(r.URL.Query().Get("types")); v != "" {
-				filters = make(map[string]struct{})
-				for _, t := range strings.Split(v, ",") {
-					if t = strings.TrimSpace(t); t != "" {
-						filters[t] = struct{}{}
-					}
-				}
-			}
-			// initial
-			_, _ = w.Write([]byte("event: ready\ndata: {\"status\":\"ok\"}\n\n"))
-			if flusher != nil {
-				flusher.Flush()
-			}
-			notify := r.Context().Done()
-			for {
-				select {
-				case <-notify:
-					return
-				case ev := <-ch:
-					if ev == nil {
-						return
-					}
-					if len(filters) > 0 {
-						if _, ok := filters[ev.Type]; !ok {
-							continue
-						}
-					}
-					_, _ = w.Write(ev.SSE())
-					if flusher != nil {
-						flusher.Flush()
-					}
-				}
-			}
-		})
-
-	})
+	// Debug endpoints for authentication troubleshooting
+	registerDebugEndpoints(r, opt)
 
 	// Expose usage store via context for handlers that may record usage
 	if opt.UsageStore != nil {
@@ -337,22 +467,7 @@ func NewMux(opt Options) http.Handler {
 	return r
 }
 
-// registerPolicyHandlers registers policy management endpoints
-func registerPolicyHandlers(r chi.Router, opt Options) {
-	if opt.PolicyService == nil {
-		// Policy management not configured - skip registration
-		// Debug output
-		println("WARNING: PolicyService is nil, skipping policy endpoint registration")
-		return
-	}
-
-	// Create policy handlers with the policy service
-	handlers := NewPolicyHandlers(opt.PolicyService)
-
-	// Register routes
-	handlers.RegisterRoutes(r, opt)
-	println("INFO: Policy endpoints registered at /admin/policies")
-}
+// (removed) registerPolicyHandlers — policy endpoints are registered elsewhere
 
 // registerServiceControlHandlers registers service control endpoints
 func registerServiceControlHandlers(r chi.Router, opt Options) {

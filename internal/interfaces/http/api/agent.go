@@ -19,15 +19,9 @@ import (
 func registerAgentHandlers(r chi.Router, opt Options) {
 	r.Route("/api/agent", func(ar chi.Router) {
 		// Authorization for a tool action (Action-Selector, ArgContracts, RiskRules, Plan-Then-Execute)
-		ar.Post("/authorize", func(w http.ResponseWriter, r *http.Request) {
-			tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-			if tenantStr == "" || opt.RulepackService == nil || opt.DB == nil {
-				writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing tenant or service not available", nil, r)
-				return
-			}
-			tenantID, err := uuid.Parse(tenantStr)
-			if err != nil {
-				writeErrorJSON(w, http.StatusBadRequest, "INVALID_TENANT", "bad tenant id", nil, r)
+		ar.Post("/authorize", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+			if opt.RulepackService == nil || opt.DB == nil {
+				writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "service not available", nil, r)
 				return
 			}
 
@@ -169,18 +163,12 @@ func registerAgentHandlers(r chi.Router, opt Options) {
 			}
 
 			_ = json.NewEncoder(w).Encode(decision)
-		})
+		}))
 
 		// Context-Minimization policy endpoint for clients to fetch masking instructions
-		ar.Get("/context-policy", func(w http.ResponseWriter, r *http.Request) {
-			tenantStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
-			if tenantStr == "" || opt.RulepackService == nil {
-				writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing tenant or service not available", nil, r)
-				return
-			}
-			tenantID, err := uuid.Parse(tenantStr)
-			if err != nil {
-				writeErrorJSON(w, http.StatusBadRequest, "INVALID_TENANT", "bad tenant id", nil, r)
+		ar.Get("/context-policy", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+			if opt.RulepackService == nil {
+				writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "service not available", nil, r)
 				return
 			}
 			patterns, _ := loadActivePatterns(r, opt, tenantID)
@@ -197,7 +185,7 @@ func registerAgentHandlers(r chi.Router, opt Options) {
 				resp = map[string]any{"enabled": false}
 			}
 			_ = json.NewEncoder(w).Encode(resp)
-		})
+		}))
 	})
 }
 

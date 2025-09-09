@@ -87,6 +87,8 @@ func TestTenantIsolation_WithJWT(t *testing.T) {
 		t.Fatalf("db pool: %v", err)
 	}
 
+	// For integration test, continue using direct repository creation
+	// This tests the actual PostgreSQL integration
 	rulepackRepo := pg.RulepackRepo(pool)
 	rulepackSvc := services.RulepackServiceCstor(rulepackRepo, nil)
 	tenantRepo := pg.TenantRepo(pool)

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -52,6 +53,12 @@ func (s *PolicyScannerService) ReloadActivePolicies(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
+	// Handle case where policy repository is not available
+	if s.policyRepo == nil {
+		slog.Debug("Policy repository not available, skipping policy reload")
+		return nil
+	}
+	
 	// Get all active policies from repository
 	policies, err := s.policyRepo.GetActive(ctx)
 	if err != nil {
@@ -82,6 +89,12 @@ func (s *PolicyScannerService) ReloadActivePolicies(ctx context.Context) error {
 
 // ActivatePolicy adds a policy to the active set and reloads the scanner
 func (s *PolicyScannerService) ActivatePolicy(ctx context.Context, policyID uuid.UUID) error {
+	// Handle case where policy repository is not available
+	if s.policyRepo == nil {
+		slog.Debug("Policy repository not available, cannot activate policy")
+		return fmt.Errorf("policy repository not available")
+	}
+	
 	// Get the policy
 	policy, err := s.policyRepo.Get(ctx, policyID)
 	if err != nil {

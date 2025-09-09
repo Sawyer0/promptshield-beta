@@ -18,25 +18,25 @@ import (
 // registerSystemHandlers registers all system management and diagnostics endpoints
 func registerSystemHandlers(r chi.Router, opt Options) {
 	// System management endpoints (admin only)
-	r.Route("/admin/system", func(sr chi.Router) {
-		sr.Use(adminAuth(opt))
+    r.Route("/admin/system", func(sr chi.Router) {
+        sr.Use(adminAuth(opt))
 
-		sr.Get("/features", getFeaturesHandler(opt))
-		sr.Get("/stats", getSystemStatsHandler(opt))
-		sr.Post("/drain", drainSystemHandler(opt))
-		sr.Post("/shutdown", shutdownSystemHandler(opt))
-		sr.Get("/info", getSystemInfoHandler(opt))
-	})
+        sr.Get("/features", getFeaturesHandler(opt))
+        sr.Get("/stats", getSystemStatsHandler())
+        sr.Post("/drain", drainSystemHandler(opt))
+        sr.Post("/shutdown", shutdownSystemHandler(opt))
+        sr.Get("/info", getSystemInfoHandler(opt))
+    })
 
 	// Debug and diagnostics endpoints (admin only)
-	r.Route("/debug", func(dr chi.Router) {
-		dr.Use(adminAuth(opt))
+    r.Route("/debug", func(dr chi.Router) {
+        dr.Use(adminAuth(opt))
 
-		dr.Get("/status", getSystemStatusHandler(opt))
-		dr.Get("/goroutines", getGoroutinesHandler(opt))
-		dr.Get("/memory", getMemoryStatsHandler(opt))
-		dr.Get("/health", getHealthCheckHandler(opt))
-	})
+        dr.Get("/status", getSystemStatusHandler(opt))
+        dr.Get("/goroutines", getGoroutinesHandler(opt))
+        dr.Get("/memory", getMemoryStatsHandler(opt))
+        dr.Get("/health", getHealthCheckHandler(opt))
+    })
 }
 
 // SystemFeatures represents available features and their status
@@ -123,8 +123,8 @@ func getFeaturesHandler(opt Options) http.HandlerFunc {
 }
 
 // getSystemStatsHandler handles GET /v1/admin/system/stats
-func getSystemStatsHandler(opt Options) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func getSystemStatsHandler() http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
 		// This would normally pull from Prometheus metrics
 		// For now, return basic stats
 		stats := SystemStats{
@@ -140,8 +140,8 @@ func getSystemStatsHandler(opt Options) http.HandlerFunc {
 			Version:       version.Version,
 		}
 
-		writeJSON(w, http.StatusOK, stats, r)
-	}
+        writeJSON(w, http.StatusOK, stats, r)
+    }
 }
 
 // drainSystemHandler handles POST /v1/admin/system/drain
@@ -362,12 +362,15 @@ func getSystemStatusHandler(opt Options) http.HandlerFunc {
 		}
 
 		// Set appropriate HTTP status code
-		statusCode := http.StatusOK
-		if overallStatus == "degraded" {
-			statusCode = http.StatusPartialContent
-		} else if overallStatus == "unhealthy" {
-			statusCode = http.StatusServiceUnavailable
-		}
+        var statusCode int
+        switch overallStatus {
+        case "degraded":
+            statusCode = http.StatusPartialContent
+        case "unhealthy":
+            statusCode = http.StatusServiceUnavailable
+        default:
+            statusCode = http.StatusOK
+        }
 
 		writeJSON(w, statusCode, status, r)
 	}

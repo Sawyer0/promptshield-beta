@@ -15,6 +15,7 @@ import (
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/internal/license"
+	"github.com/promptshield/promptshield/internal/repository"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"google.golang.org/grpc"
 )
@@ -41,22 +42,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Database connection (single pgx pool for both repositories and middleware)
-	logger.Info("Connecting to database")
+	// Initialize repository factory with automatic environment detection
+	logger.Info("Initializing repository factory")
+	repoFactory, err := repository.BuildWithFallback(ctx)
+	if err != nil {
+		logger.Error("Failed to initialize repository factory", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if closeErr := repoFactory.Close(); closeErr != nil {
+			logger.Error("Failed to close repository factory", "error", closeErr)
+		}
+	}()
+	
+	// Verify repository factory health
+	if err := repoFactory.HealthCheck(ctx); err != nil {
+		logger.Warn("Repository factory health check failed, continuing with degraded functionality", "error", err)
+	} else {
+		logger.Info("Repository factory initialized successfully")
+	}
+
+	// Get repositories from factory
+	tenantRepo := repoFactory.Tenant()
+	assignmentRepo := repoFactory.RulepackAssignment()
+	auditRepo := repoFactory.Audit()
+	settingsRepo := repoFactory.Settings()
+
+	// Legacy database connection for middleware compatibility
+	// TODO: Remove this once all middleware is updated to use repository factory
 	db, err := pg.NewPool(ctx, dsn)
 	if err != nil {
-		logger.Error("Failed to connect to database", "error", err)
+		logger.Error("Failed to connect to legacy database pool", "error", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-	logger.Info("Database connection established")
-
-	// Initialize repositories
-	tenantRepo := pg.TenantRepo(db)
-	rulepackRepo := pg.RulepackRepo(db)
-	assignmentRepo := pg.RulepackAssignmentRepo(db)
-	auditRepo := pg.AuditRepo(db)
-	settingsRepo := pg.NewSettingsRepository(db)
 
 	// Initialize audit event store and hash chain (MANDATORY for security)
 	auditEventStore := pg.NewAuditEventStore(db)
@@ -74,8 +93,8 @@ func main() {
 	}
 	defer publisher.Close()
 
-	// Initialize services
-	rulepackSvc := services.RulepackServiceCstor(rulepackRepo, publisher)
+	// Initialize services using repository factory
+	rulepackSvc := services.RulepackServiceFromFactory(repoFactory, publisher)
 
 	// Initialize scanner for enforcement
 	scanEngine := scanner.ScanEngineCstor(0)
@@ -126,7 +145,7 @@ func main() {
 	if s, err := grpcenforcer.Build(grpcAddr, grpcenforcer.Options{
 		Timeout:         300 * time.Millisecond,
 		EnforcementMode: getEnv("PS_ENFORCER_MODE", "observe"),
-		RulepackRepo:    rulepackRepo, // Enable tenant-aware enforcement
+		RulepackRepo:    repoFactory.Rulepack(), // Enable tenant-aware enforcement using factory
 	}); err == nil {
 		logger.Info("gRPC ext_proc server starting", "address", grpcAddr)
 		grpcServer = s
