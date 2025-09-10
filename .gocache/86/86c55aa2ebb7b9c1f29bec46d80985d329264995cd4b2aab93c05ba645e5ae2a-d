@@ -1,4 +1,0 @@
-./collector.go
-./exporter.go
-./provider.go
-./telemetry.go
