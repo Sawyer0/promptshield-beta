@@ -1,9 +1,0 @@
-./complexity.go
-./doc.go
-./loader.go
-./loader_file.go
-./loader_imports.go
-./loader_validate.go
-./merge.go
-./types.go
-./validate.go

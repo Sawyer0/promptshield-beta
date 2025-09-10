@@ -1,0 +1,13 @@
+#!/bin/sh
+# Secret scan pre-commit hook
+
+# Run the Node-based secret scanner on staged changes
+node scripts/precommit-check-secrets.mjs
+status=$?
+if [ $status -ne 0 ]; then
+  echo "pre-commit: secret scan failed; aborting commit." 1>&2
+  exit $status
+fi
+
+exit 0
+
