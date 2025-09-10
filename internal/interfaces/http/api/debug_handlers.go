@@ -138,10 +138,9 @@ func debugJWTConfigHandler(opt Options) http.HandlerFunc {
 func debugTenantContextHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenantInfo := map[string]interface{}{
-			"headers": map[string]string{
-				"x_ps_tenant_id": r.Header.Get("X-PS-Tenant-ID"),
-				"x_tenant_id":    r.Header.Get("X-Tenant-ID"),
-			},
+            "headers": map[string]string{
+                "x_ps_tenant_id": r.Header.Get("X-PS-Tenant-ID"),
+            },
 		}
 		
 		// Check tenant context

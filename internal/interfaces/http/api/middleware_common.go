@@ -168,7 +168,7 @@ func corsMiddleware(next http.Handler) http.Handler {
         
         // Set CORS headers
         w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, X-PS-Frontend-Auth, X-Tenant-ID, X-PS-Tenant-ID, X-PS-User-ID, X-PS-User-Name")
+        w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, X-PS-Tenant-ID, X-PS-User-ID, X-PS-User-Name")
         w.Header().Set("Access-Control-Allow-Credentials", "true")
         w.Header().Set("Access-Control-Max-Age", "86400")
 		
