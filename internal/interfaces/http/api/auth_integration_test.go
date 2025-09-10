@@ -1,20 +1,47 @@
 package api
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"strings"
-	"testing"
-	"time"
+    "crypto"
+    "crypto/rand"
+    "crypto/rsa"
+    "crypto/sha256"
+    "crypto/x509"
+    "encoding/base64"
+    "encoding/json"
+    "encoding/pem"
+    "fmt"
+    "net/http"
+    "net/http/httptest"
+    "os"
+    "testing"
+    "time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+    "github.com/go-chi/chi/v5"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
 )
+
+// generateTestKeyPair creates a temporary RSA keypair and returns (privPEM, pubPEM)
+func generateTestKeyPair() ([]byte, []byte, error) {
+    key, err := rsa.GenerateKey(rand.Reader, 2048)
+    if err != nil {
+        return nil, nil, err
+    }
+    // Private key PKCS8
+    privBytes, err := x509.MarshalPKCS8PrivateKey(key)
+    if err != nil {
+        return nil, nil, err
+    }
+    privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
+
+    // Public key PKIX
+    pubBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+    if err != nil {
+        return nil, nil, err
+    }
+    pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes})
+    return privPEM, pubPEM, nil
+}
 
 // Test JWT keys for testing (DO NOT use in production)
 const testPrivateKey = `-----BEGIN PRIVATE KEY-----
@@ -129,20 +156,34 @@ func TestJWTAuthIntegration(t *testing.T) {
 		})
 
 		t.Run("should accept valid JWT and inject headers", func(t *testing.T) {
-			// Generate a valid JWT token using the test private key
-			// This would normally be done by the frontend BFF
-			validToken := generateTestJWT(t)
-			
+			// Generate an RSA keypair and configure middleware with the matching public key
+			privPEM, pubPEM, err := generateTestKeyPair()
+			require.NoError(t, err)
+			os.Setenv("PS_BFF_JWT_PUBLIC_KEY", string(pubPEM))
+			// Rebuild router with middleware bound to the new public key
+			r2 := chi.NewRouter()
+			r2.Use(jwtAuthMiddleware)
+			r2.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"user_id":   r.Header.Get("X-PS-User-ID"),
+					"tenant_id": r.Header.Get("X-PS-Tenant-ID"),
+					"roles":     r.Header.Get("X-PS-User-Roles"),
+					"is_admin":  r.Header.Get("X-PS-User-Admin"),
+				})
+			})
+			// Sign a valid token with the generated private key
+			validToken := generateTestJWT(t, privPEM)
 			req := httptest.NewRequest("GET", "/test", nil)
 			req.Header.Set("Authorization", "Bearer "+validToken)
 			w := httptest.NewRecorder()
 			
-			r.ServeHTTP(w, req)
+			r2.ServeHTTP(w, req)
 			
 			assert.Equal(t, http.StatusOK, w.Code)
 			
 			var response map[string]interface{}
-			err := json.Unmarshal(w.Body.Bytes(), &response)
+			err = json.Unmarshal(w.Body.Bytes(), &response)
 			require.NoError(t, err)
 			
 			assert.Equal(t, "test-user-123", response["user_id"])
@@ -225,7 +266,8 @@ func TestDebugEndpoints(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		
-		authData := response["auth"].(map[string]interface{})
+		data := response["data"].(map[string]interface{})
+		authData := data["auth"].(map[string]interface{})
 		headers := authData["headers"].(map[string]interface{})
 		assert.Equal(t, "test-user-123", headers["x_ps_user_id"])
 		assert.Equal(t, "test-tenant-123", headers["x_ps_tenant_id"])
@@ -243,7 +285,8 @@ func TestDebugEndpoints(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		
-		jwtConfig := response["jwt_config"].(map[string]interface{})
+		data := response["data"].(map[string]interface{})
+		jwtConfig := data["jwt_config"].(map[string]interface{})
 		assert.Equal(t, true, jwtConfig["configured"])
 		assert.Equal(t, true, jwtConfig["public_key_valid"])
 		assert.Equal(t, "test-issuer", jwtConfig["issuer"])
@@ -264,7 +307,8 @@ func TestDebugEndpoints(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 		
-		headers := response["headers"].(map[string]interface{})
+		data := response["data"].(map[string]interface{})
+		headers := data["headers"].(map[string]interface{})
 		assert.Contains(t, headers, "X-Test-Header")
 		assert.Contains(t, headers, "Authorization")
 	})
@@ -272,45 +316,74 @@ func TestDebugEndpoints(t *testing.T) {
 
 // generateTestJWT generates a valid JWT token for testing
 // This simulates what the frontend BFF would do
-func generateTestJWT(t *testing.T) string {
-	// This is a simplified version - in a real test, you'd use a proper JWT library
-	// For now, we'll create a mock token that matches the expected format
-	
-	// Note: This is a placeholder. In a real implementation, you would:
-	// 1. Use the jwt-go library to create a proper token
-	// 2. Sign it with the test private key
-	// 3. Include all the required claims
-	
-	// For this test, we'll assume the JWT middleware accepts this format
-	// In practice, you'd need to implement proper JWT generation
-	
-	header := `{"alg":"RS256","typ":"JWT"}`
-	payload := `{
-		"sub":"test-user-123",
-		"name":"Test User",
-		"email":"test@example.com",
-		"tenant_id":"test-tenant-123",
-		"roles":["admin"],
-		"admin":true,
-		"iss":"test-issuer",
-		"aud":"test-audience",
-		"iat":` + string(rune(time.Now().Unix())) + `,
-		"exp":` + string(rune(time.Now().Add(time.Hour).Unix())) + `
-	}`
-	
-	// Base64 encode (simplified - real implementation would use proper base64url encoding)
-	encodedHeader := base64Encode(header)
-	encodedPayload := base64Encode(payload)
-	
-	// For testing purposes, we'll use a mock signature
-	// In a real implementation, this would be properly signed with RS256
-	mockSignature := "mock_signature_for_testing"
-	
-	return encodedHeader + "." + encodedPayload + "." + mockSignature
+func generateTestJWT(t *testing.T, privPEM []byte) string {
+    t.Helper()
+
+    // Parse RSA private key
+    priv, err := parseRSAPrivateKeyFromPEM(privPEM)
+    if err != nil {
+        t.Fatalf("parse private key: %v", err)
+    }
+
+    // Header
+    header := map[string]any{
+        "alg": "RS256",
+        "typ": "JWT",
+    }
+
+    now := time.Now().Unix()
+    // Payload with required claims expected by middleware
+    payload := map[string]any{
+        "iss":        "test-issuer",
+        "aud":        "test-audience",
+        "sub":        "test-user-123",
+        "name":       "Test User",
+        "email":      "test@example.com",
+        "tenant_id":  "test-tenant-123",
+        "roles":      []string{"admin"},
+        "admin":      true,
+        "iat":        now,
+        "nbf":        now - 5,
+        "exp":        now + 3600,
+    }
+
+    enc := base64.URLEncoding
+    // Encode header and payload
+    hb, _ := json.Marshal(header)
+    pb, _ := json.Marshal(payload)
+    hEnc := enc.EncodeToString(hb)
+    pEnc := enc.EncodeToString(pb)
+
+    signingInput := hEnc + "." + pEnc
+    sum := sha256.Sum256([]byte(signingInput))
+    sig, err := rsa.SignPKCS1v15(rand.Reader, priv, crypto.SHA256, sum[:])
+    if err != nil {
+        t.Fatalf("sign: %v", err)
+    }
+    sEnc := enc.EncodeToString(sig)
+
+    return signingInput + "." + sEnc
 }
 
-// base64Encode is a simplified base64 encoder for testing
-func base64Encode(s string) string {
-	// This is a placeholder - use proper base64url encoding in real implementation
-	return strings.ReplaceAll(strings.ReplaceAll(s, "+", "-"), "/", "_")
+func parseRSAPrivateKeyFromPEM(b []byte) (*rsa.PrivateKey, error) {
+    block, _ := pem.Decode(b)
+    if block == nil {
+        return nil, fmt.Errorf("no PEM block")
+    }
+    switch block.Type {
+    case "PRIVATE KEY":
+        // PKCS8
+        k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+        if err != nil {
+            return nil, err
+        }
+        if pk, ok := k.(*rsa.PrivateKey); ok {
+            return pk, nil
+        }
+        return nil, fmt.Errorf("not RSA private key: %T", k)
+    case "RSA PRIVATE KEY":
+        return x509.ParsePKCS1PrivateKey(block.Bytes)
+    default:
+        return nil, fmt.Errorf("unsupported key type %s", block.Type)
+    }
 }

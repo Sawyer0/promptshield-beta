@@ -20,6 +20,8 @@ import (
 	obsEvents "github.com/promptshield/promptshield/internal/observability/events"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	semfake "github.com/promptshield/promptshield/internal/semantic/fake"
+	semdeberta "github.com/promptshield/promptshield/internal/semantic/deberta"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	health "google.golang.org/grpc/health"
@@ -64,6 +66,7 @@ func NewWithOptions(opt Options) *Server {
 		telemetry:       opt.Telemetry,
 		enforcementMode: mode,
 		rulepackRepo:    opt.RulepackRepo,
+		assignmentRepo:  opt.AssignmentRepo,
 		tenantID:        opt.TenantID,
 	}
 
@@ -76,6 +79,30 @@ func NewWithOptions(opt Options) *Server {
 	scReq.SetQuarantineOnError(true)
 	scResp.SetQuarantineOnTimeout(true)
 	scResp.SetQuarantineOnError(true)
+	// Regex complexity guard via env (max regex length)
+	if v := strings.TrimSpace(os.Getenv("PS_MAX_REGEX_LEN")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			scReq.SetMaxPatternLength(n)
+			scResp.SetMaxPatternLength(n)
+		}
+	}
+	// Optional semantic analyzer injection (fake or DeBERTa) for L3 rules
+	var semAnalyzer scanner.SemanticAnalyzer
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_FAKE_L3"))); v == "1" || v == "true" || v == "yes" {
+		var d time.Duration
+		if ms := strings.TrimSpace(os.Getenv("PS_FAKE_L3_DELAY_MS")); ms != "" {
+			if n, err := strconv.Atoi(ms); err == nil && n > 0 {
+				d = time.Duration(n) * time.Millisecond
+			}
+		}
+		semAnalyzer = semfake.Analyzer{Delay: d}
+	} else if ep := strings.TrimSpace(os.Getenv("PS_DEBERTA_ENDPOINT")); ep != "" {
+		semAnalyzer = semdeberta.New(semdeberta.Options{Endpoint: ep, APIKey: strings.TrimSpace(os.Getenv("HF_TOKEN"))})
+	}
+	if semAnalyzer != nil {
+		scReq.SetSemanticAnalyzer(semAnalyzer)
+		scResp.SetSemanticAnalyzer(semAnalyzer)
+	}
 
 	loaded := false
 

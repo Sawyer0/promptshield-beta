@@ -37,9 +37,7 @@ Note: the `gateway` binds `:9090`/`:9091` by default (non-loopback). You must pr
   - Claims from the verified ID token are attached to request context and used for tenancy resolution.
 
 **Protected User Endpoints:**
-- `POST /v1/check` - Security decision API
-- `POST /v1/scan` - Batch scanning API
-- `POST /v1/scan/async` - Async job submission
+- `POST /v1/check` - Security decision API (single payload, aggregate arrays, and NDJSON streaming)
 
 ### Admin Authentication (Management Endpoints)
 - Bearer token with admin privileges:

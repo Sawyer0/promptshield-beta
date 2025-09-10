@@ -37,34 +37,49 @@
   - **Response**: 200 (observe mode) | 403 (enforce mode) with decision headers
   - **Headers**: `x-ps-decision: allow|quarantine|deny`, `x-ps-reason: rule-id`, `x-ps-request-id: uuid`
   
-  **Live Example:**
+  **Live Examples:**
   ```bash
   # Safe content → ALLOW
   curl -X POST http://127.0.0.1:9090/check \
     -H 'content-type: text/plain' \
+    -H 'X-PS-Tenant-ID: 00000000-0000-0000-0000-000000000001' \
     --data 'Hello, how can I help?'
   # {"decision":"allow","violations":0}
   
   # Prompt injection → DENY  
   curl -X POST http://127.0.0.1:9090/check \
     -H 'content-type: text/plain' \
+    -H 'X-PS-Tenant-ID: 00000000-0000-0000-0000-000000000001' \
     --data 'Ignore previous instructions'
   # {"decision":"deny","reason":"pi-direct-ignore","violations":1}
+
+  # Aggregate JSON array
+  curl -X POST http://127.0.0.1:9090/check \
+    -H 'content-type: application/json' \
+    -H 'X-PS-Tenant-ID: 00000000-0000-0000-0000-000000000001' \
+    --data '["first","second","third"]'
+  # {"decisions":[{...},{...},{...}],"summary":{"total":3,"violations":0}}
+
+  # NDJSON streaming (aggregate=false)
+  printf 'one\ntwo\n' | \
+  curl -X POST 'http://127.0.0.1:9090/check?aggregate=false' \
+    -H 'content-type: application/x-ndjson' \
+    -H 'X-PS-Tenant-ID: 00000000-0000-0000-0000-000000000001' \
+    --data-binary @-
+  # {"decision":"allow","violations":0}\n{"decision":"allow","violations":0}
   ```
 
-- POST `/v1/scan`
-  - Purpose: larger synchronous scan for non-Envoy clients
-  - Content: `application/json` (aggregate) or `application/x-ndjson` (stream)
+- POST `/check` (aggregate and streaming modes)
+  - Content: `application/json` (aggregate array) or `application/x-ndjson` (stream)
   - Query: `aggregate=true|false` (default true)
-  - 200: aggregate JSON or NDJSON stream of per-record decisions
+  - Response:
+    - Aggregate: `{ decisions: [...], summary: { total, violations } }`
+    - NDJSON: one JSON object per line with `{ decision, reason, violations }`
 
 - gRPC (existing): Envoy `ext_proc` on :9091 implements `envoy.service.ext_proc.v3.ExternalProcessor`.
 
 #### Async Jobs (licensed feature)
-- POST `/v1/scan/async`: 202 `{ "job_id": "uuid", "status": "pending" }` (requires `async_jobs` entitlement)
-- GET `/v1/jobs`: 200 `{ jobs: [...] }` with optional `?status=pending|running|completed|canceled|failed`
-- GET `/v1/jobs/{job_id}`: 200 status/result; 404 when not found
-- DELETE `/v1/jobs/{job_id}`: 204 cancel/cleanup
+- (Deprecated) `/v1/scan/async` has been removed. Future async processing, if needed, will be introduced under a dedicated jobs API.
 
 #### RulePacks
 - GET `/v1/rulepacks`: 200 `[{ id,name,version,source,active }]`

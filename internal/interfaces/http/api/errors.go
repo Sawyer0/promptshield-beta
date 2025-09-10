@@ -1,11 +1,10 @@
 package api
 
 import (
-	"fmt"
-	"net/http"
-	"os"
-	"runtime"
-	"time"
+    "fmt"
+    "net/http"
+    "runtime"
+    "time"
 )
 
 // APIError represents a structured API error
@@ -309,4 +308,3 @@ func errorRecoveryMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-

@@ -188,29 +188,45 @@ const response = await fetch('https://api.promptshield.com/check', {
 }
 ```
 
-### 2. Scan Endpoint (Detailed Analysis)
+### 2. Batch and Streaming via /check
 
-**Endpoint:** `POST /scan`
+/scan has been consolidated into /check. You can submit batches as a JSON array or stream NDJSON with aggregate=false.
 
-**Purpose:** Perform detailed content analysis with full results
-
-**Request:**
+JSON array (aggregate decisions):
 ```javascript
-const response = await fetch('https://api.promptshield.com/scan', {
+const data = ["one", "two", "three"];
+const response = await fetch('https://api.promptshield.com/check', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
     'X-PS-Tenant-ID': tenantId,
     'X-PS-Frontend-Auth': 'verified',
   },
-  body: JSON.stringify({
-    content: 'Content to analyze',
-    options: {
-      fail_on: 'HIGH',
-      include_metadata: true,
-    }
-  }),
+  body: JSON.stringify(data),
 });
+// → { decisions: [...], summary: { total, violations } }
+```
+
+NDJSON streaming (aggregate=false):
+```javascript
+const tenantId = sessionStorage.getItem('tenantId');
+const stream = new ReadableStream({
+  start(controller) {
+    controller.enqueue(new TextEncoder().encode('first\n'));
+    controller.enqueue(new TextEncoder().encode('second\n'));
+    controller.close();
+  }
+});
+const resp = await fetch('https://api.promptshield.com/check?aggregate=false', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/x-ndjson',
+    'X-PS-Tenant-ID': tenantId,
+    'X-PS-Frontend-Auth': 'verified',
+  },
+  body: stream,
+});
+// Read line-by-line NDJSON from resp.body
 ```
 
 ### 3. Policy Management

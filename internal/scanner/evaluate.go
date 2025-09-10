@@ -16,7 +16,9 @@ func (s *Scanner) evaluateLine(res *types.ScanResult, line string, lineNum int64
 	if s.aho != nil {
 		ahoHits = s.aho.FindAll([]byte(lower))
 	}
-	for _, cr := range s.compiled {
+var lastSemanticConf float64
+for _, cr := range s.compiled {
+		lastSemanticConf = 0
 		if !contextMatches(cr.when, cr.unless, s.runtimeContext) {
 			continue
 		}
@@ -70,8 +72,14 @@ func (s *Scanner) evaluateLine(res *types.ScanResult, line string, lineNum int64
 				}
 			}
 			res.Metrics.SemanticAttempts++
-			if s.evaluateSemantic(line, cr, &matchCol) {
+			if ok, _conf := s.evaluateSemantic(line, cr, &matchCol); ok {
 				matched = true
+				// stash confidence in a local variable via closure trick: reassign to cr for later use
+				// we will attach confidence when appending the violation below
+				_ = _conf
+				// store in a small scope var by shadowing cr.message if needed (not used)
+				// better: we set a local variable to capture this value
+				lastSemanticConf = _conf
 			}
 		}
 	afterSemantic:
@@ -81,9 +89,12 @@ func (s *Scanner) evaluateLine(res *types.ScanResult, line string, lineNum int64
 				continue
 			}
 			compiledSeen[compiledKey] = struct{}{}
-			res.Violations = append(res.Violations, types.Violation{
-				RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: matchCol, RuleTimeoutMs: cr.timeoutMs,
-			})
+			v := types.Violation{RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: matchCol, RuleTimeoutMs: cr.timeoutMs}
+			v.Level = cr.level
+			if cr.level == 3 && lastSemanticConf > 0 {
+				v.Confidence = lastSemanticConf
+			}
+			res.Violations = append(res.Violations, v)
 			matchedAny = true
 			if s.firstMatch {
 				return true
@@ -122,6 +133,7 @@ func (s *Scanner) evalKeywords(res *types.ScanResult, lower string, line string,
 				}
 				compiledSeen[key] = struct{}{}
 				v := types.Violation{RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: idx + 1, RuleTimeoutMs: cr.timeoutMs}
+				v.Level = cr.level
 				v.Category = cr.category
 				if cr.response != nil {
 					v.ResponseAction = cr.response.Action
@@ -151,7 +163,8 @@ func (s *Scanner) evalKeywords(res *types.ScanResult, lower string, line string,
 				key := fmt.Sprintf("%s|%d|kw|all", cr.id, lineNum)
 				if _, ok := compiledSeen[key]; !ok {
 					compiledSeen[key] = struct{}{}
-					v := types.Violation{RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: col, RuleTimeoutMs: cr.timeoutMs}
+				v := types.Violation{RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: col, RuleTimeoutMs: cr.timeoutMs}
+				v.Level = cr.level
 					v.Category = cr.category
 					if cr.response != nil {
 						v.ResponseAction = cr.response.Action
@@ -271,9 +284,9 @@ func (s *Scanner) evalRegexesStandard(res *types.ScanResult, line string, lineNu
 			if earliest >= 0 {
 				col = earliest + 1
 			}
-			res.Violations = append(res.Violations, types.Violation{
-				RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: col, RuleTimeoutMs: cr.timeoutMs,
-			})
+			v := types.Violation{RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: col, RuleTimeoutMs: cr.timeoutMs}
+			v.Level = cr.level
+			res.Violations = append(res.Violations, v)
 			matched = true
 			matchCol = col
 			if s.logger != nil {
@@ -312,6 +325,7 @@ func (s *Scanner) evalRegexesStandard(res *types.ScanResult, line string, lineNu
 			}
 			compiledSeen[key] = struct{}{}
 			v := types.Violation{RuleID: cr.id, Message: cr.message, Severity: cr.severity, Line: int(lineNum), Column: loc[0] + 1, RuleTimeoutMs: cr.timeoutMs}
+			v.Level = cr.level
 			v.Category = cr.category
 			if cr.response != nil {
 				v.ResponseAction = cr.response.Action

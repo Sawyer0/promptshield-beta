@@ -304,27 +304,9 @@ func registerSecurityEndpoints(r chi.Router, opt Options) {
 		}
 		
 		g.Post("/check", checkHandlerVersioned(opt))
-		g.Post("/scan", scanHandler(opt))
-		g.Post("/scan:async", asyncScanHandler())
 	})
 }
 
-// asyncScanHandler handles async scan requests (feature-gated)
-func asyncScanHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Require entitlements to run async jobs
-		license.Check()
-		ent, ok := license.Entitlement()
-		if !ok || !ent.Features["async_jobs"] {
-			http.Error(w, "async jobs not licensed", http.StatusForbidden)
-			return
-		}
-		
-		// In tests we only need a 200 to verify gating; real impl would enqueue work
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("{\"status\":\"accepted\"}"))
-	}
-}
 
 // registerObservabilityEndpoints registers observability and monitoring endpoints
 func registerObservabilityEndpoints(r chi.Router, opt Options) {
@@ -454,8 +436,10 @@ func NewMux(opt Options) http.Handler {
 	// Observability endpoints
 	registerObservabilityEndpoints(r, opt)
 
-	// Debug endpoints for authentication troubleshooting
-	registerDebugEndpoints(r, opt)
+	// Debug endpoints for authentication troubleshooting (opt-in via PS_ENABLE_DEBUG_ENDPOINTS)
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("PS_ENABLE_DEBUG_ENDPOINTS")), "true") {
+		registerDebugEndpoints(r, opt)
+	}
 
 	// Expose usage store via context for handlers that may record usage
 	if opt.UsageStore != nil {

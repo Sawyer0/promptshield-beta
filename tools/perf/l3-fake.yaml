@@ -1,0 +1,15 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: l3-fake
+rules:
+  - id: l3_fake
+    level: 3
+    severity: HIGH
+    category: semantic
+    semantic:
+      engine: omni
+      confidence_threshold: 0
+    response:
+      action: quarantine
+

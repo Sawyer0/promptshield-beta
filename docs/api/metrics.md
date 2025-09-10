@@ -10,7 +10,7 @@ This document catalogs the Prometheus metrics emitted by the enforcer.
 - `ps_enforcer_request_duration_seconds_sum`
 - `ps_enforcer_request_duration_seconds_count`
 - `ps_http_bytes_total{direction,path}` — Total HTTP bytes in/out by path (captured at API router)
-- `ps_scan_request_duration_seconds_bucket{mode}` — `/v1/scan` request duration by mode (aggregate|ndjson)
+- `ps_scan_request_duration_seconds_bucket{mode}` — `/check` aggregate/NDJSON processing duration by mode (aggregate|ndjson)
 - `ps_scan_events_total{route}` — NDJSON decision events emitted per route
 
 Example PromQL:

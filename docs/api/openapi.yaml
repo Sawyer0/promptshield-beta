@@ -131,71 +131,95 @@ paths:
           description: Unauthorized (missing/invalid token)
         '500':
           description: Internal Error
-  /v1/scan:
+  /v1/check: # augmented modes
     post:
-      summary: Scan larger payloads; aggregate JSON or NDJSON stream
+      summary: Evaluate payload(s) and return decisions (single, aggregate, or NDJSON stream)
       description: |
-        Accepts application/json (aggregate) or application/x-ndjson (stream). When aggregate=true (default),
-        returns a JSON report of per-record decisions. For NDJSON, the response is an event stream.
-      operationId: postScan
+        The /v1/check endpoint supports three modes:
+        - Single payload (default): returns { decision, reason, violations }
+        - Aggregate JSON array: returns { decisions: [...], summary: { total, violations } }
+        - NDJSON stream (when content-type=application/x-ndjson and aggregate=false): returns one JSON object per line
+        Endpoint-scoped assignments can be applied via X-PS-Endpoint or ?endpoint=/path.
+      operationId: postCheck
       parameters:
         - in: query
           name: aggregate
           schema:
             type: boolean
             default: true
-          description: Return aggregate JSON when true; NDJSON stream when false
+          description: When false and input is application/x-ndjson, stream per-line results
       security:
         - bearerAuth: []
         - xPSToken: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              oneOf:
+                - type: object
+                  additionalProperties: true
+                - type: array
+                  items:
+                    oneOf:
+                      - type: object
+                        additionalProperties: true
+                      - type: string
           application/x-ndjson:
             schema:
               type: string
-              description: NDJSON input stream
+              description: NDJSON input stream (aggregate must be false)
       responses:
         '200':
-          description: Scan report (aggregate) or NDJSON stream
+          description: Allowed or aggregate/stream response
+          headers:
+            x-ps-request-id:
+              schema:
+                type: string
+            x-ps-decision:
+              schema:
+                type: string
+                enum: [allow, quarantine, deny]
+            x-ps-reason:
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ScanReport'
+                oneOf:
+                  - $ref: '#/components/schemas/Decision'
+                  - $ref: '#/components/schemas/ScanReport'
             application/x-ndjson:
               schema:
                 type: string
                 description: NDJSON stream of decision events
-  /v1/scan/async:
-    post:
-      summary: Start an async scan job (licensed feature)
-      description: |
-        Starts an asynchronous scan job. Requires a license with the `async_jobs` feature.
-        Returns a job identifier if accepted.
-      operationId: postScanAsync
-      security:
-        - bearerAuth: []
-        - xPSToken: []
-      responses:
-        '202':
-          description: Accepted
+        '403':
+          description: Quarantine or Deny
+          headers:
+            x-ps-request-id:
+              schema:
+                type: string
+            x-ps-decision:
+              schema:
+                type: string
+                enum: [quarantine, deny]
+            x-ps-reason:
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  job_id:
-                    type: string
-        '403':
-          description: Feature not available
+                $ref: '#/components/schemas/Decision'
+        '400':
+          description: Bad Request (body too large or invalid)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized (missing/invalid token)
+        '500':
+          description: Internal Error
   /v1/rulepacks:
     get:
       summary: List available rulepacks

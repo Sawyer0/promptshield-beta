@@ -54,13 +54,12 @@ This document describes the complete technical stack used by PromptShield, deriv
 
 ## Semantic Analysis (Level 3)
 
-- **Providers**:
-  - OpenAI: `github.com/openai/openai-go v1.12.0`
-  - Anthropic: `github.com/anthropics/anthropic-sdk-go v1.9.1`
-- **Wiring**: Enabled only when `PS_SEMANTIC_ENABLED=true` and `PS_SEMANTIC_PROVIDER` is set (`openai` or `anthropic`)
-- **API keys**: Resolved via OS keyring (preferred) or env (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`)
-- **Concurrency & cache**: Tuned by `PS_SEMANTIC_MAX_CONCURRENCY`, `PS_SEMANTIC_CACHE_SIZE`, `PS_SEMANTIC_CACHE_TTL`
-- **Rule requirements**: RulePacks must specify `semantic.model` and `semantic.analysis_prompt`; no built-in defaults
+- **Provider**: ProtectAI DeBERTa v3 prompt-injection classifier (v2 dataset)
+  - HTTP inference endpoint configured via `PS_DEBERTA_ENDPOINT`
+  - Optional `HF_TOKEN` when using HuggingFace Inference endpoints
+- **Wiring**: Enabled when `PS_SEMANTIC_ENABLED=true` and an endpoint is configured
+- **Caching & concurrency**: Implemented in the analyzer (LRU + TTL, bounded concurrency)
+- **Rule requirements**: Level‑3 rules use `confidence_threshold` to map risk score; prompts are not required
 
 ## Safety Guards
 
@@ -149,9 +148,11 @@ This document describes the complete technical stack used by PromptShield, deriv
 - Telemetry:
   - `PS_TELEMETRY=1`, `PS_TELEMETRY_ENDPOINT`, `PS_TELEMETRY_FILE`, `PS_TELEMETRY_SAMPLE`
 - Semantic (L3):
-  - `PS_SEMANTIC_ENABLED=true`, `PS_SEMANTIC_PROVIDER=openai|anthropic`
-  - `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (or saved to OS keyring)
-  - Tuning: `PS_SEMANTIC_MAX_CONCURRENCY`, `PS_SEMANTIC_CACHE_SIZE`, `PS_SEMANTIC_CACHE_TTL`
+  - `PS_SEMANTIC_ENABLED=true`
+  - `PS_DEBERTA_ENDPOINT` (HTTP inference)
+  - Optional: `HF_TOKEN`
+  - Policy bridge: `PS_ALPHA`, `PS_BETA`, `PS_BLOCK_THRESHOLD`
+  - Conversation: `PS_CONV_TTL`
 - Enforcer (HTTP):
   - `PS_ENFORCER_ADDR`, `PS_ENFORCER_RULEPACK`, `PS_ENFORCER_AUTH_TOKEN`
   - TLS: `PS_ENFORCER_TLS_MODE`, `PS_ENFORCER_TLS_CERT`, `PS_ENFORCER_TLS_KEY`, `PS_ENFORCER_TLS_CLIENT_CA`
@@ -173,7 +174,7 @@ This document describes the complete technical stack used by PromptShield, deriv
 - Patterns & Scanning: `cloudflare/ahocorasick`, `flier/gohs v1.2.3` (optional), `bits-and-blooms/bloom/v3 v3.6.0`
 - Discovery: `bmatcuk/doublestar/v4 v4.9.1`, `go-git` gitignore matcher
 - Utilities: `sourcegraph/conc`, `hashicorp/golang-lru/v2`, `hashicorp/go-retryablehttp`
-- Semantics: `openai-go v1.12.0`, `anthropic-sdk-go v1.9.1`
+- Semantics: ProtectAI DeBERTa v3 (HTTP inference endpoint)
 - Security & Storage: `99designs/keyring v1.2.2`, `lumberjack v2.2.1`
 - Validation: `santhosh-tekuri/jsonschema/v5 v5.3.1`
 

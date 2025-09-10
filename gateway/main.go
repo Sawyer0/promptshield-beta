@@ -146,6 +146,7 @@ func main() {
 		Timeout:         300 * time.Millisecond,
 		EnforcementMode: getEnv("PS_ENFORCER_MODE", "observe"),
 		RulepackRepo:    repoFactory.Rulepack(), // Enable tenant-aware enforcement using factory
+		AssignmentRepo:  repoFactory.RulepackAssignment(), // Endpoint-scoped assignment resolution
 	}); err == nil {
 		logger.Info("gRPC ext_proc server starting", "address", grpcAddr)
 		grpcServer = s

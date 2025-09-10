@@ -1,0 +1,17 @@
+./aho.go
+./bloom.go
+./context_minimization.go
+./doc.go
+./evaluate.go
+./io.go
+./limits.go
+./loader.go
+./map_reduce.go
+./regex_complexity.go
+./regex_literals.go
+./rule_eval.go
+./scanner.go
+./semantic.go
+./time_helpers.go
+./util.go
+./verifiers.go

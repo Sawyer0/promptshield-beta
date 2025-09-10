@@ -7,3 +7,10 @@ type tenantIDKey struct{}
 
 // TenantID is the context key for the current tenant identifier.
 var TenantID tenantIDKey
+
+type endpointPathKey struct{}
+
+// EndpointPath is the context key for the original application endpoint path that
+// PromptShield should apply rulepack assignments against (e.g., "/v1/chat/completions").
+// When unset, assignment-based loading is skipped and the runtime falls back to defaults.
+var EndpointPath endpointPathKey

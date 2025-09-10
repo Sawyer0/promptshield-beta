@@ -67,7 +67,8 @@ type RulepackAssignment struct {
 	ID          uuid.UUID `json:"id"`
 	TenantID    uuid.UUID `json:"tenant_id"`
 	RulepackID  uuid.UUID `json:"rulepack_id"`
-	TargetScope string    `json:"target_scope"`
+	Method      string    `json:"method"`        // HTTP method: GET|POST|PUT|PATCH|DELETE|* (ANY)
+	TargetScope string    `json:"target_scope"` // Path pattern: "/", exact, or "/prefix/*"
 	Priority    int       `json:"priority"`
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`

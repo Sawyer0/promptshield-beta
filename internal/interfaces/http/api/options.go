@@ -1,19 +1,19 @@
 package api
 
 import (
-	"context"
-	"net/http"
-	"time"
+    "context"
+    "net/http"
+    "time"
 
-	"github.com/promptshield/promptshield/internal/application/services"
-	"github.com/promptshield/promptshield/internal/domain"
-	"github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
-	"github.com/promptshield/promptshield/internal/observability/telemetry"
-	"github.com/promptshield/promptshield/internal/rules"
-	"github.com/promptshield/promptshield/internal/scanner"
-	"github.com/promptshield/promptshield/internal/shared/contracts"
-	"github.com/promptshield/promptshield/internal/usage"
-	pkg "github.com/promptshield/promptshield/pkg/types"
+    "github.com/promptshield/promptshield/internal/application/services"
+    "github.com/promptshield/promptshield/internal/domain"
+    "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
+    "github.com/promptshield/promptshield/internal/observability/telemetry"
+    "github.com/promptshield/promptshield/internal/rules"
+    "github.com/promptshield/promptshield/internal/scanner"
+    "github.com/promptshield/promptshield/internal/shared/contracts"
+    "github.com/promptshield/promptshield/internal/usage"
+    pkg "github.com/promptshield/promptshield/pkg/types"
 )
 
 // Options configures the API mux.
@@ -73,16 +73,11 @@ type Options struct {
     PlanState contracts.PlanState
 }
 
-// Deprecated: Use writeErrorJSON instead
-func writeError(w http.ResponseWriter, status int, code, msg string, details map[string]any) {
-	writeErrorJSON(w, status, code, msg, details, nil)
-}
-
 func versionHeader(v string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-PS-API-Version", v)
-			next.ServeHTTP(w, r)
-		})
-	}
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            w.Header().Set("X-PS-API-Version", v)
+            next.ServeHTTP(w, r)
+        })
+    }
 }
