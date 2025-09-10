@@ -115,22 +115,16 @@ func tenantValidationMiddleware(db postgres.DB) func(http.Handler) http.Handler 
                 return
             }
 
-            // Extract tenant ID - prioritize JWT claims (X-PS-Tenant-ID) over legacy headers
+            // Extract tenant ID from trusted header set by JWT middleware
             tenantIDStr := strings.TrimSpace(r.Header.Get("X-PS-Tenant-ID"))
             tenantSource := "jwt_header"
-            
-            if tenantIDStr == "" {
-                // Fallback to alternative header for compatibility
-                tenantIDStr = strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
-                tenantSource = "legacy_header"
-            }
 
             if tenantIDStr == "" {
                 writeTenantError(w, r, TenantValidationError{
                     Code:    TenantErrorMissing,
                     Message: "Tenant ID is required",
                     Details: map[string]interface{}{
-                        "expected_headers": []string{"X-PS-Tenant-ID", "X-Tenant-ID"},
+                        "expected_headers": []string{"X-PS-Tenant-ID"},
                         "source": "missing",
                     },
                 })
