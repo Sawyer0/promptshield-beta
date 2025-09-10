@@ -1,0 +1,206 @@
+# PromptShield UI MVP — Frontend Specification                                                                       
+                                                                                                                     
+This document defines the minimal, useful MVP UI for PromptShield, mapped to backend endpoints. It covers tenant user
+views and admin/owner views. All backend calls are proxied by the BFF (Express) using RS256 JWTs.                    
+                                                                                                                     
+## Global                                                                                                            
+                                                                                                                     
+- Navigation: Dashboard, Rulepacks, Assignments, Violations, Audits, Services, Tenants, System Health                
+- Tenant context: Derived from JWT claim tenant_id (BFF injects it)                                                  
+- Common UI: Table with pagination, filters, sort; JSON/YAML viewer; toasts; confirm dialogs                         
+- States: Empty, loading, error; optimistic updates where safe                                                       
+- Access control:                                                                                                    
+    - Tenant User: Dashboard, Rulepacks, Assignments, Violations, Audits, Services                                   
+    - Admin/Owner: Everything + Tenants + System Health (and elevated audit filters)                                 
+                                                                                                                     
+## Dashboard                                                                                                         
+                                                                                                                     
+- Purpose: At‑a‑glance activity and health                                                                           
+- Key UI:                                                                                                            
+    - Cards: Requests (24h), Allowed/Denied/Quarantined, p95 latency, Top rules hit                                  
+    - Charts: Violations over time (24h), Requests by status                                                         
+    - Health: healthz and readyz status badges                                                                       
+- Backend                                                                                                            
+    - Violations via audit search:                                                                                   
+    - POST `/admin/audits/search` (filters: actions `["request.decision","scan.decision"]`, time range)              
+- Health:                                                                                                            
+    - GET `/healthz`                                                                                                 
+    - GET `/readyz`                                                                                                  
+                                                                                                                     
+## Rulepacks                                                                                                         
+                                                                                                                     
+- Purpose: Manage detection/enforcement rulepacks                                                                    
+- Views:                                                                                                             
+    - List: ID, Name, Active Version, Active?, Created                                                               
+    - Detail: Metadata + versions; active version banner                                                             
+    - Create/Upload: YAML upload with validation; optional “Activate on upload”                                      
+    - Activate latest / Delete rulepack                                                                              
+- Actions:                                                                                                           
+    - Validate DSL                                                                                                   
+    - Create from YAML (multipart) and optionally activate                                                           
+    - Activate latest version                                                                                        
+    - Delete rulepack                                                                                                
+- Backend                                                                                                            
+    - GET /rulepacks                                                                                                 
+    - GET /rulepacks/active                                                                                          
+    - POST /rulepacks/validate (body: YAML or file)                                                                  
+    - POST /rulepacks?activate=true|false (multipart file or raw YAML)                                               
+    - PUT /rulepacks/active (If‑Match required with current version ETag)                                            
+    - DELETE /rulepacks/{id}                                                                                         
+                                                                                                                     
+Notes:                                                                                                               
+                                                                                                                     
+- For PUT /rulepacks/active send header If-Match: "<currentVersion>".                                                
+- For upload, send multipart file or raw YAML; BFF will set Authorization.                                           
+                                                                                                                     
+## Assignments                                                                                                       
+                                                                                                                     
+- Purpose: Map rulepacks to endpoint scopes with priorities                                                          
+- Views:                                                                                                             
+    - List (tenant scoped): Endpoint/Scope, Rulepack, Priority, Enabled, Created                                     
+    - Create: Choose Rulepack, Scope (/v1/*, /api/chat/*), Priority                                                  
+    - Edit/Delete assignment                                                                                         
+- Backend (Admin‑scoped but tenant‑limited by RLS)                                                                   
+    - GET /admin/tenants/{tenantId}/assignments                                                                      
+    - POST /admin/tenants/{tenantId}/assignments (body: rulepack_id, target_scope, priority)                         
+    - PUT /admin/assignments/{assignmentId} (body: priority)                                                         
+    - DELETE /admin/assignments/{assignmentId}                                                                       
+                                                                                                                     
+Notes:                                                                                                               
+                                                                                                                     
+- Tenant ID comes from JWT. BFF rewrites simple UI routes to these admin paths.                                      
+                                                                                                                     
+## Violations                                                                                                        
+                                                                                                                     
+- Purpose: Investigate blocked/denied/quarantined events                                                             
+- Views:                                                                                                             
+    - Table: Time, Decision, Rule/Reason, Endpoint, Status, User, Tenant                                             
+    - Filters: Time range, Decision, Rule/Reason, Endpoint, Status                                                   
+    - Detail drawer: Full event payload, matched content (redacted), rulepack/version link                           
+- Backend (via audit indexing)                                                                                       
+    - POST /admin/audits/search (filters: actions, start_time, end_time, paging)                                     
+    - Optional export:                                                                                               
+    - GET `/admin/audits/export?format=json|csv&limit=...`                                                           
+                                                                                                                     
+Notes:                                                                                                               
+                                                                                                                     
+- Use actions: ["request.decision","scan.decision"]. Decision is in metadata.decision.                               
+                                                                                                                     
+## Audits                                                                                                            
+                                                                                                                     
+- Purpose: Tamper‑evident activity log across the platform                                                           
+- Views:                                                                                                             
+    - Search: Action, Object Type/ID, Actor Email, Time range                                                        
+    - Results: Time, Action, Object, Actor, Tenant, Hash, Prev Hash                                                  
+    - Detail: Before/After JSON, Metadata, Hash chain fragment                                                       
+- Backend                                                                                                            
+    - POST /admin/audits/search (generic search)                                                                     
+    - GET /admin/audits/object/{type}/{id}                                                                           
+    - GET /admin/audits/export?format=json|csv&limit=...                                                             
+                                                                                                                     
+Notes:                                                                                                               
+                                                                                                                     
+- Show hash + prev_hash to indicate chain integrity.                                                                 
+                                                                                                                     
+## Services                                                                                                          
+                                                                                                                     
+- Purpose: Control per‑tenant services (e.g., enforcer, scanner)                                                     
+- Views:                                                                                                             
+    - List: Service Name, Type, Status, Enabled, Version, Last Started/Stopped                                       
+    - Detail: Config JSON, Status, Recent events, Metrics                                                            
+    - Actions: Start, Stop, Restart, Scale (if shown), Enable/Disable                                                
+- Backend (tenant‑scoped)                                                                                            
+    - GET /api/v1/services                                                                                           
+    - POST /api/v1/services (create config)                                                                          
+    - GET /api/v1/services/{serviceId}                                                                               
+    - PUT /api/v1/services/{serviceId}                                                                               
+    - DELETE /api/v1/services/{serviceId}                                                                            
+    - POST /api/v1/services/{serviceId}/start                                                                        
+    - POST /api/v1/services/{serviceId}/stop                                                                         
+    - POST /api/v1/services/{serviceId}/restart                                                                      
+    - POST /api/v1/services/{serviceId}/scale (body: replicas)                                                       
+    - GET /api/v1/services/{serviceId}/status                                                                        
+    - GET /api/v1/services/{serviceId}/logs                                                                          
+    - GET /api/v1/services/{serviceId}/metrics                                                                       
+                                                                                                                     
+Notes:                                                                                                               
+                                                                                                                     
+- Logs/metrics endpoints are stubs initially; show placeholders if not implemented.                                  
+                                                                                                                     
+## Tenants (Admin/Owner)                                                                                             
+                                                                                                                     
+- Purpose: Manage tenants                                                                                            
+- Views:                                                                                                             
+    - List: Name, Status, Created, Updated                                                                           
+    - Create/Edit: Name, Status                                                                                      
+    - Detail: ID, Name, Status, Metadata; Assignments quick view; Services overview                                  
+- Backend                                                                                                            
+    - POST /admin/tenants (body: name)                                                                               
+    - GET /admin/tenants                                                                                             
+    - GET /admin/tenants/{id}                                                                                        
+    - PUT /admin/tenants/{id} (body: name)                                                                           
+    - DELETE /admin/tenants/{id}                                                                                     
+                                                                                                                     
+Notes:                                                                                                               
+                                                                                                                     
+- RLS restricts visibility; platform admin can see all tenants.                                                      
+                                                                                                                     
+## System Health (Admin/Owner)                                                                                       
+                                                                                                                     
+- Purpose: Operational observability and lifecycle control                                                           
+- Views:                                                                                                             
+    - Info: Version, Commit, Build date, Go version, Platform, License summary, Features                             
+    - Stats: Decisions counters, p95 latency, uptime                                                                 
+    - Health: /healthz, /readyz statuses                                                                             
+    - Controls (admin‑token protected; optionally hidden in UI for MVP): Drain, Shutdown                             
+- Backend                                                                                                            
+    - GET /admin/system/info                                                                                         
+    - GET /admin/system/stats                                                                                        
+    - GET /healthz                                                                                                   
+    - GET /readyz                                                                                                    
+    - Optional:                                                                                                      
+    - POST `/admin/drain`                                                                                            
+    - POST `/admin/shutdown?delay=...`                                                                               
+                                                                                                                     
+## Minimal Routing (Frontend)                                                                                        
+                                                                                                                     
+- / → Dashboard                                                                                                      
+- /rulepacks → List                                                                                                  
+- /rulepacks/:id → Detail                                                                                            
+- /assignments → List/Create                                                                                         
+- /violations → Explore                                                                                              
+- /audits → Search                                                                                                   
+- /services → List                                                                                                   
+- /services/:serviceId → Detail                                                                                      
+- /admin/tenants → List                                                                                              
+- /admin/tenants/:id → Detail/Edit                                                                                   
+- /admin/system → Health/Info/Stats                                                                                  
+                                                                                                                     
+## BFF Proxy Mapping (for reference)                                                                                 
+                                                                                                                     
+- UI → BFF (same origin) → Gateway (JWT)                                                                             
+    - /rulepacks* → /rulepacks*                                                                                      
+    - /assignments (GET/POST) → /admin/tenants/{tenantId}/assignments                                                
+    - /assignments/:id (PUT/DELETE) → /admin/assignments/:id                                                         
+    - /services* → /api/v1/services*                                                                                 
+    - /system/info → /admin/system/info                                                                              
+    - /system/stats → /admin/system/stats                                                                            
+    - /healthz → /healthz, /readyz → /readyz                                                                         
+    - /audits* → /admin/audits*                                                                                      
+                                                                                                                     
+## MVP Acceptance Criteria                                                                                           
+                                                                                                                     
+- Authentication: BFF mints RS256 JWT, gateway validates; no direct browser → gateway calls                          
+- Tenant isolation: RLS enforced; UI only shows tenant data (except admin views)                                     
+- Rulepack flow: Validate → Upload → Activate latest; delete works                                                   
+- Assignment flow: Create/List by tenant; update priority; delete works                                              
+- Violations: Filtered view driven by audit search; export available                                                 
+- Audits: Searchable timeline; detail with before/after; export available                                            
+- Services: Start/Stop/Restart; status reflects state; logs/metrics placeholders ok                                  
+- Tenants (admin): CRUD; list populated; detail page loads                                                           
+- System Health: Info/Stats/Health endpoints render; errors surfaced cleanly                                         
+- CORS: Dev origins allowed; production uses same origin                                                             
+                                                                                                                     
+This is the complete MVP surface area to get users productive while keeping the UI minimal and directly aligned to   
+your backend. If you want, I can scaffold routes and page skeletons in the frontend with fetch hooks wired to these  
+endpoints.

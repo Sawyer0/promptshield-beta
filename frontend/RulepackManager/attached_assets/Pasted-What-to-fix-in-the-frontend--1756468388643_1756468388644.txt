@@ -1,0 +1,27 @@
+What to fix in the frontend                                                                                          
+                                                                                                                     
+- Services endpoints:                                                                                                
+    - Change to ${API_BASE}/api/v1/services paths.                                                                   
+    - File: frontend/RulepackManager/client/src/lib/api.ts                                                           
+    - Affected functions: serviceApi.getAll, serviceApi.start, serviceApi.stop, serviceApi.restart,                  
+serviceApi.getStatus.                                                                                                
+    - Affected functions: serviceApi.getAll, serviceApi.start, serviceApi.stop, serviceApi.restart,                  
+serviceApi.getStatus.                                                                                                
+-                                                                                                                    
+Assignments endpoints:                                                                                               
+    - List/create per tenant: use /admin/tenants/{tenantId}/assignments.                                             
+    - Update/delete: use /admin/assignments/{assignmentId}.                                                          
+    - File: frontend/RulepackManager/client/src/lib/api.ts (rulepackAssignmentApi).                                  
+-                                                                                                                    
+System info/stats:                                                                                                   
+    - Use /admin/system/info and /admin/system/stats (not /system/info|/system/stats).                               
+    - File: frontend/RulepackManager/client/src/lib/api.ts (systemApi.getInfo, systemApi.getStats).                  
+-                                                                                                                    
+Health/readiness parsing:                                                                                            
+    - Backend returns plain text (“ok”, “ready”), not JSON.                                                          
+    - Update to response.text() and handle string.                                                                   
+    - File: frontend/RulepackManager/client/src/lib/api.ts (systemApi.getHealth, systemApi.getReadiness).            
+-                                                                                                                    
+Optional hygiene:                                                                                                    
+    - userApi uses relative /admin/users (no API_BASE). If these should hit the Go gateway, prefix with API_BASE;    
+otherwise remove or clearly scope them to the Node server. 

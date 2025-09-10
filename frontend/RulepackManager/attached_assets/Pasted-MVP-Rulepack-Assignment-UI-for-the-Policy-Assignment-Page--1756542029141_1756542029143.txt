@@ -1,0 +1,37 @@
+MVP Rulepack Assignment UI for the Policy Assignment Page                                                                                                   
+                                                                                                                     
+- Fields:                                                                                                            
+    - Rulepack: select from existing rulepacks (by name + version).                                                  
+    - Target Scope: route pattern the rulepack applies to (e.g., /v1/, /v1/chat/completions, /api/payments/).        
+    - Priority: integer; higher wins when multiple scopes match. Default 100.                                        
+    - Enabled: toggle on/off (default on).                                                                           
+    - Enabled: toggle on/off (default on).                                                                           
+-                                                                                                                    
+Implicit:                                                                                                            
+    - Tenant: pulled from the user/session context; not in the form.                                                 
+    - One assignment per (tenant_id, target_scope, rulepack_id) — enforced by backend.                               
+-                                                                                                                    
+Validation:                                                                                                          
+    - Rulepack required (must exist).                                                                                
+    - Target Scope required; simple allowlist of formats: “/”, “/”, “/prefix/”, or exact “/path”.                    
+    - Priority must be integer ≥ 0.                                                                                  
+    - Show warning when new assignment overlaps an existing one with equal/higher priority.                          
+-                                                                                                                    
+Examples for Target Scope:                                                                                           
+    - Global: /v1/* (baseline enforcement).                                                                          
+    - Provider-specific: /v1/chat/completions.                                                                       
+    - App route: /api/orders/*.                                                                                      
+    - Exact: /api/payments/refund.                                                                                   
+-                                                                                                                    
+List View:                                                                                                           
+    - Columns: Scope, Rulepack, Priority, Enabled, Created.                                                          
+    - Actions: Edit (priority/toggle), Delete.                                                                       
+    - Filters: search by scope/rulepack; enabled state.                                                              
+-                                                                                                                    
+API mapping:                                                                                                         
+    - List/Create: GET/POST /admin/tenants/{tenantId}/assignments                                                    
+    - Update: PUT /admin/assignments/{assignmentId} (priority, enabled)                                              
+    - Delete: DELETE /admin/assignments/{assignmentId}                                                               
+                                                                                                                     
+That’s enough for users to deploy guardrails where they need them, with predictable precedence via priority and a    
+quick enable/disable switch.   
