@@ -1,0 +1,42 @@
+all the gateway from your Express server, not directly from the browser.                                          
+    - Change React to same-origin calls: set API_CONFIG.BASE_URL to '' for dev so the browser hits your Express      
+server only.                                                                                                         
+    - In Express, proxy those routes to the Go gateway (e.g., http://localhost:8098) instead of reading/writing      
+storage directly where appropriate.                                                                                  
+- Mint a short-lived RS256 JWT per proxied request:                                                                  
+    - Load private key: PS_BFF_JWT_PRIVATE_KEY (keep private; never expose to browser).                              
+    - Claims required by the gateway:                                                                                
+    - `sub`: user ID (UUID/string)                                                                                   
+    - `name` or `email`: user display name or email                                                                  
+    - `tenant_id`: active tenant UUID string                                                                         
+    - `iss`: must match `PS_BFF_JWT_ISSUER`                                                                          
+    - `aud`: must match `PS_BFF_JWT_AUDIENCE`                                                                        
+    - `exp`: 30–120 seconds in the future (short TTL)                                                                
+- Send as Authorization: Bearer <jwt> on the request to the Go gateway.                                              
+- Minimal Express helper (pseudo-code):                                                                              
+    - Sign with RS256 using your private key.                                                                        
+    - Attach Authorization header to the outgoing request to the gateway.                                            
+    - Example endpoints to proxy: /rulepacks, /admin/tenants, /admin/system/*, /api/v1/services/*, etc.              
+                                                                                                                     
+Gateway environment to set                                                                                           
+                                                                                                                     
+- PS_BFF_JWT_PUBLIC_KEY: PEM public key (matching Express private key).                                              
+- PS_BFF_JWT_ISSUER: e.g., promptshield-bff.                                                                         
+- PS_BFF_JWT_AUDIENCE: e.g., promptshield-gateway.                                                                   
+- PS_BFF_JWT_LEEWAY: optional skew, e.g., 60.                                                                        
+- Optional CORS: PS_CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173.                                
+                                                                                                                     
+Frontend code touch points                                                                                           
+                                                                                                                     
+- frontend/RulepackManager/client/src/config/api.ts:                                                                 
+    - Set BASE_URL: '' in dev to route via Express (same origin).                                                    
+- Express proxy (in frontend/RulepackManager/server):                                                                
+    - For routes that should hit the Go gateway, forward the request and add the JWT Authorization header.           
+    - Use the session-authenticated user to populate sub, name/email, and determine tenant_id.                       
+                                                                                                                     
+Validation steps                                                                                                     
+                                                                                                                     
+- Start gateway with the JWT env vars set.                                                                           
+- Hit a protected endpoint via Express (e.g., GET /rulepacks proxied to the gateway).                                
+- Expect 200 with data when JWT is present; 401 if the proxy omits the token.                                        
+- Public endpoints /healthz and /readyz still work without auth. 

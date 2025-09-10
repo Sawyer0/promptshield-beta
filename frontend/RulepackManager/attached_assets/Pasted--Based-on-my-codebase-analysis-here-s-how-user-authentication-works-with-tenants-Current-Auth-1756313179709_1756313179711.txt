@@ -1,0 +1,68 @@
+ Based on my codebase analysis, here's how user authentication works with tenants:
+
+  Current Authentication Setup:
+
+  Authentication is handled on the frontend with a "frontend bypass" strategy:
+
+  // From middleware.go lines 18-27
+  if frontendBypass := r.Header.Get("X-PS-Frontend-Auth"); frontendBypass == "verified" {
+      // Trust frontend authentication
+      if userID := r.Header.Get("X-PS-User-ID"); userID != "" {
+          r = r.WithContext(context.WithValue(r.Context(), "user_id", userID))
+      }
+      if userName := r.Header.Get("X-PS-User-Name"); userName != "" {
+          r = r.WithContext(context.WithValue(r.Context(), "user_name", userName))
+      }
+      next.ServeHTTP(w, r)
+      return
+  }
+
+  Frontend Auth + Tenant Flow:
+
+  The frontend would handle this flow:
+
+  // 1. User logs in via frontend (Supabase Auth, Auth0, etc.)
+  const user = await signIn(email, password);
+
+  // 2. Get user's tenant(s) from database
+  const userTenants = await getUserTenants(user.id);
+
+  // 3. User selects tenant (if multiple)
+  const selectedTenant = userTenants[0].tenant_id;
+
+  // 4. All API calls include both user context AND tenant context
+  fetch('/api/v1/rulepacks', {
+    headers: {
+      'X-PS-Frontend-Auth': 'verified',        // Backend trusts frontend
+      'X-PS-User-ID': user.id,                 // User identity
+      'X-PS-User-Name': user.name,             // User name
+      'X-Tenant-ID': selectedTenant            // Tenant context for RLS
+    }
+  });
+
+  Database Schema for User-Tenant Relationship:
+
+  -- From your migrations
+  CREATE TABLE tenant_users (
+      user_id UUID REFERENCES auth.users,     -- User from Supabase/frontend auth
+      tenant_id UUID REFERENCES tenants,      -- Tenant they belong to
+      role tenant_user_role,                  -- Their role in that tenant
+      PRIMARY KEY (user_id, tenant_id)
+  );
+
+  Benefits of This Approach:
+
+  1. Frontend controls auth - Use any auth provider (Supabase, Auth0, etc.)
+  2. Backend trusts frontend - No JWT validation needed in backend
+  3. Tenant isolation automatic - RLS handles data filtering
+  4. Multi-tenant users - Users can belong to multiple tenants
+
+  For You:
+
+  The frontend needs to:
+  1. Handle user authentication (login/logout)
+  2. Fetch user's tenant(s) after login
+  3. Include the 3 headers on every API call: X-PS-Frontend-Auth, X-PS-User-ID, X-Tenant-ID
+  4. Let users switch tenants if they belong to multiple
+
+  This gives me maximum flexibility while keeping tenant isolation secure through RLS policies.

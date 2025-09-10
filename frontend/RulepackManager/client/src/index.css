@@ -1,0 +1,235 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light Forest Green Enterprise Theme */
+  --background: hsl(150, 15%, 98%);
+  --foreground: hsl(150, 25%, 15%);
+  --card: hsl(150, 10%, 99%);
+  --card-foreground: hsl(150, 25%, 15%);
+  --popover: hsl(150, 10%, 99%);
+  --popover-foreground: hsl(150, 25%, 15%);
+  
+  /* Sophisticated forest green primary palette */
+  --primary: hsl(150, 45%, 35%);
+  --primary-foreground: hsl(150, 10%, 98%);
+  --secondary: hsl(150, 12%, 92%);
+  --secondary-foreground: hsl(150, 25%, 15%);
+  --muted: hsl(150, 10%, 95%);
+  --muted-foreground: hsl(150, 15%, 45%);
+  --accent: hsl(150, 12%, 94%);
+  --accent-foreground: hsl(150, 25%, 15%);
+  
+  /* Light alert colors that complement forest theme */
+  --destructive: hsl(5, 70%, 50%);
+  --destructive-foreground: hsl(150, 10%, 98%);
+  --warning: hsl(35, 85%, 55%);
+  --warning-foreground: hsl(150, 10%, 98%);
+  --success: hsl(150, 70%, 45%);
+  --success-foreground: hsl(150, 10%, 98%);
+  
+  /* Light UI elements */
+  --border: hsl(150, 12%, 88%);
+  --input: hsl(150, 12%, 95%);
+  --ring: hsl(150, 45%, 35%);
+  
+  /* Light Sidebar - elegant forest theme */
+  --sidebar-bg: hsl(150, 20%, 96%);
+  --sidebar-foreground: hsl(150, 25%, 25%);
+  --sidebar-primary: hsl(150, 45%, 35%);
+  --sidebar-primary-foreground: hsl(150, 10%, 98%);
+  --sidebar-accent: hsl(150, 15%, 92%);
+  --sidebar-accent-foreground: hsl(150, 25%, 25%);
+  --sidebar-border: hsl(150, 15%, 85%);
+  --sidebar-muted: hsl(150, 15%, 55%);
+  
+  /* Light theme charts */
+  --chart-1: hsl(150, 65%, 45%);
+  --chart-2: hsl(35, 75%, 55%);
+  --chart-3: hsl(220, 65%, 55%);
+  --chart-4: hsl(280, 60%, 55%);
+  
+  /* Professional Typography */
+  --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-security: 'Inter', 'SF Pro Text', system-ui, sans-serif;
+  --font-display: 'Inter', 'SF Pro Display', system-ui, sans-serif;
+  --font-mono: 'Fira Code', 'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace;
+  
+  /* Enterprise spacing and effects */
+  --radius: 0.5rem;
+  --enterprise-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --enterprise-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+.dark {
+  /* Dark Forest Green Enterprise Theme */
+  --background: hsl(150, 25%, 6%);
+  --foreground: hsl(150, 8%, 88%);
+  --card: hsl(150, 25%, 8%);
+  --card-foreground: hsl(150, 8%, 88%);
+  --popover: hsl(150, 25%, 8%);
+  --popover-foreground: hsl(150, 8%, 88%);
+  
+  /* Dark sophisticated forest green */
+  --primary: hsl(150, 45%, 48%);
+  --primary-foreground: hsl(150, 25%, 6%);
+  --secondary: hsl(150, 25%, 12%);
+  --secondary-foreground: hsl(150, 8%, 82%);
+  --muted: hsl(150, 25%, 10%);
+  --muted-foreground: hsl(150, 10%, 58%);
+  --accent: hsl(150, 25%, 12%);
+  --accent-foreground: hsl(150, 8%, 82%);
+  
+  /* Refined dark alert colors */
+  --destructive: hsl(5, 65%, 55%);
+  --destructive-foreground: hsl(150, 25%, 6%);
+  --warning: hsl(35, 75%, 58%);
+  --warning-foreground: hsl(150, 25%, 6%);
+  --success: hsl(150, 65%, 48%);
+  --success-foreground: hsl(150, 25%, 6%);
+  
+  /* Dark refined UI elements */
+  --border: hsl(150, 25%, 15%);
+  --input: hsl(150, 25%, 10%);
+  --ring: hsl(150, 45%, 48%);
+  
+  /* Sophisticated Dark Forest Sidebar */
+  --sidebar-bg: hsl(150, 25%, 6%);
+  --sidebar-foreground: hsl(150, 8%, 82%);
+  --sidebar-primary: hsl(150, 45%, 48%);
+  --sidebar-primary-foreground: hsl(150, 25%, 6%);
+  --sidebar-accent: hsl(150, 25%, 10%);
+  --sidebar-accent-foreground: hsl(150, 8%, 82%);
+  --sidebar-border: hsl(150, 25%, 15%);
+  --sidebar-muted: hsl(150, 10%, 58%);
+  
+  /* Dark forest theme charts */
+  --chart-1: hsl(150, 65%, 55%);
+  --chart-2: hsl(35, 75%, 58%);
+  --chart-3: hsl(220, 65%, 58%);
+  --chart-4: hsl(280, 55%, 58%);
+  --chart-5: hsl(200, 75%, 55%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply antialiased bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold;
+  }
+}
+
+/* Custom animations and transitions */
+.sidebar-transition {
+  transition: transform 0.3s ease-in-out;
+}
+
+.notification-enter {
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  background-size: 200px 100%;
+  animation: loading 1.2s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+/* Security-focused styling */
+.security-gradient {
+  background: linear-gradient(135deg, hsl(217, 91%, 60%) 0%, hsl(217, 91%, 50%) 100%);
+}
+
+.glass-effect {
+  backdrop-filter: blur(10px);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Status indicators */
+.status-indicator {
+  position: relative;
+}
+
+.status-indicator::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+/* Card hover effects */
+.card-hover {
+  transition: all 0.2s ease-in-out;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Utility classes for the design system */
+.text-security-primary {
+  color: hsl(217, 91%, 60%);
+}
+
+.bg-security-primary {
+  background-color: hsl(217, 91%, 60%);
+}
+
+.border-security-primary {
+  border-color: hsl(217, 91%, 60%);
+}
+
+/* Focus states for accessibility */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2;
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground));
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground));
+}

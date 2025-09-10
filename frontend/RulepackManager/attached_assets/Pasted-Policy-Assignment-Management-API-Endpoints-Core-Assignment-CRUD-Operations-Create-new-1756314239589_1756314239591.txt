@@ -1,0 +1,261 @@
+Policy Assignment Management API Endpoints:
+
+  Core Assignment CRUD Operations:
+
+  // Create new assignment - customer assigns their rulepack to their endpoint
+  POST /api/v1/assignments
+  {
+    "rulepack_id": "customer-rulepack-uuid",
+    "endpoint_pattern": "/v1/chat/completions",  // Customer's API endpoint pattern
+    "method": "POST",
+    "priority": 100,
+    "active": true
+  }
+
+  // List all assignments for customer's tenant
+  GET /api/v1/assignments
+
+  // Get specific assignment
+  GET /api/v1/assignments/{id}
+
+  // Update assignment (enable/disable, change priority)
+  PUT /api/v1/assignments/{id}
+  {
+    "active": false,
+    "priority": 50
+  }
+
+  // Delete assignment
+  DELETE /api/v1/assignments/{id}
+
+  Batch Operations:
+
+  // Assign rulepack to multiple endpoints at once
+  POST /api/v1/assignments/batch
+  {
+    "rulepack_id": "customer-rulepack-uuid",
+    "assignments": [
+      { "endpoint_pattern": "/v1/chat/completions", "method": "POST" },
+      { "endpoint_pattern": "/v1/embeddings", "method": "POST" },
+      { "endpoint_pattern": "/v1/fine-tuning/jobs", "method": "POST" }
+    ]
+  }
+
+  // Get assignment summary by endpoint
+  GET /api/v1/assignments/by-endpoint
+
+  Required Headers for All Requests:
+
+  const headers = {
+    'X-PS-Frontend-Auth': 'verified',
+    'X-PS-User-ID': user.id,
+    'X-PS-User-Name': user.name,
+    'X-Tenant-ID': selectedTenant,
+    'Content-Type': 'application/json'
+  };
+
+  Frontend Integration Classes:
+
+  class AssignmentManager {
+    constructor(apiBase, headers) {
+      this.apiBase = apiBase;
+      this.headers = headers;
+    }
+
+    // Create assignment
+    async assignRulepackToEndpoint(rulepackId, endpointPattern, method = "POST", priority = 100) {
+      const response = await fetch(`${this.apiBase}/assignments`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          rulepack_id: rulepackId,
+          endpoint_pattern: endpointPattern,
+          method: method,
+          priority: priority,
+          active: true
+        })
+      });
+      return response.json();
+    }
+
+    // List all assignments
+    async listAssignments() {
+      const response = await fetch(`${this.apiBase}/assignments`, {
+        headers: this.headers
+      });
+      return response.json();
+    }
+
+    // Toggle assignment on/off
+    async toggleAssignment(assignmentId, active) {
+      const response = await fetch(`${this.apiBase}/assignments/${assignmentId}`, {
+        method: 'PUT',
+        headers: this.headers,
+        body: JSON.stringify({ active })
+      });
+      return response.json();
+    }
+
+    // Update assignment priority
+    async updatePriority(assignmentId, priority) {
+      const response = await fetch(`${this.apiBase}/assignments/${assignmentId}`, {
+        method: 'PUT',
+        headers: this.headers,
+        body: JSON.stringify({ priority })
+      });
+      return response.json();
+    }
+
+    // Delete assignment
+    async deleteAssignment(assignmentId) {
+      const response = await fetch(`${this.apiBase}/assignments/${assignmentId}`, {
+        method: 'DELETE',
+        headers: this.headers
+      });
+      return response.ok;
+    }
+
+    // Batch assign to multiple endpoints
+    async batchAssign(rulepackId, endpoints) {
+      const response = await fetch(`${this.apiBase}/assignments/batch`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          rulepack_id: rulepackId,
+          assignments: endpoints.map(ep => ({
+            endpoint_pattern: ep.pattern,
+            method: ep.method || "POST"
+          }))
+        })
+      });
+      return response.json();
+    }
+
+    // Get assignments grouped by endpoint
+    async getAssignmentsByEndpoint() {
+      const response = await fetch(`${this.apiBase}/assignments/by-endpoint`, {
+        headers: this.headers
+      });
+      return response.json();
+    }
+  }
+
+  Frontend UI Components Structure:
+
+  1. Assignment Dashboard:
+
+  // Main assignments view
+  const AssignmentDashboard = () => {
+    const [assignments, setAssignments] = useState([]);
+    const [rulepacks, setRulepacks] = useState([]);
+
+    useEffect(() => {
+      loadAssignments();
+      loadRulepacks();
+    }, []);
+
+    return (
+      <div>
+        <h2>API Protection Settings</h2>
+        <EndpointAssignmentTable assignments={assignments} />
+        <AddAssignmentForm rulepacks={rulepacks} onAdd={handleAddAssignment} />
+      </div>
+    );
+  };
+
+  2. Assignment Table:
+
+  const EndpointAssignmentTable = ({ assignments }) => (
+    <table>
+      <thead>
+        <tr>
+          <th>API Endpoint</th>
+          <th>Method</th>
+          <th>Rulepack</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {assignments.map(assignment => (
+          <tr key={assignment.id}>
+            <td>{assignment.endpoint_pattern}</td>
+            <td>{assignment.method}</td>
+            <td>{assignment.rulepack_name}</td>
+            <td>{assignment.priority}</td>
+            <td>
+              <Toggle
+                checked={assignment.active}
+                onChange={(active) => toggleAssignment(assignment.id, active)}
+              />
+            </td>
+            <td>
+              <EditButton onClick={() => editAssignment(assignment)} />
+              <DeleteButton onClick={() => deleteAssignment(assignment.id)} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
+  3. Add Assignment Form:
+
+  const AddAssignmentForm = ({ rulepacks, onAdd }) => {
+    const [rulepackId, setRulepackId] = useState('');
+    const [endpointPattern, setEndpointPattern] = useState('/v1/chat/completions');
+    const [method, setMethod] = useState('POST');
+
+    const commonEndpoints = [
+      '/v1/chat/completions',
+      '/v1/embeddings',
+      '/v1/fine-tuning/jobs',
+      '/v1/assistants',
+      '*' // All endpoints
+    ];
+
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      onAdd({
+        rulepack_id: rulepackId,
+        endpoint_pattern: endpointPattern,
+        method: method
+      });
+    };
+
+    return (
+      <form onSubmit={handleSubmit}>
+        <select value={rulepackId} onChange={(e) => setRulepackId(e.target.value)}>
+          <option value="">Select Rulepack</option>
+          {rulepacks.map(pack => (
+            <option key={pack.id} value={pack.id}>{pack.name}</option>
+          ))}
+        </select>
+
+        <select value={endpointPattern} onChange={(e) => setEndpointPattern(e.target.value)}>
+          {commonEndpoints.map(ep => (
+            <option key={ep} value={ep}>{ep}</option>
+          ))}
+        </select>
+
+        <select value={method} onChange={(e) => setMethod(e.target.value)}>
+          <option value="POST">POST</option>
+          <option value="GET">GET</option>
+          <option value="*">Any Method</option>
+        </select>
+
+        <button type="submit">Add Assignment</button>
+      </form>
+    );
+  };
+
+  Customer Workflow:
+
+  1. Login → Select their tenant
+  2. Create Rulepacks → Define their security rules
+  3. Create Assignments → Apply rulepacks to their API endpoints
+  4. Monitor → See which endpoints are protected
+  5. Adjust → Enable/disable assignments, change priorities
+
+  This gives customers complete self-service control over which rules protect which of their API endpoints.
