@@ -1,13 +1,12 @@
 package api
 
 import (
-	"encoding/json"
-	"net/http"
-	"os"
-	"strings"
-	"time"
+    "net/http"
+    "os"
+    "strings"
+    "time"
 
-	"github.com/go-chi/chi/v5"
+    "github.com/go-chi/chi/v5"
 )
 
 // registerDebugEndpoints registers debugging endpoints for authentication troubleshooting

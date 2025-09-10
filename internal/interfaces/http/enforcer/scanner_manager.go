@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,10 +15,8 @@ import (
 	"github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
-	enc "github.com/promptshield/promptshield/internal/security/crypto"
-	semcomp "github.com/promptshield/promptshield/internal/semantic/composite"
-	semcustom "github.com/promptshield/promptshield/internal/semantic/custom"
-	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
+	semdeberta "github.com/promptshield/promptshield/internal/semantic/deberta"
+	semfake "github.com/promptshield/promptshield/internal/semantic/fake"
 	ckeys "github.com/promptshield/promptshield/internal/shared/contextkeys"
 	pkg "github.com/promptshield/promptshield/pkg/types"
 	"gopkg.in/yaml.v3"
@@ -58,57 +57,24 @@ func NewScannerManagerWithRulepackService(rulepackService *services.RulepackServ
 		cacheTTL:        60 * time.Second,
 	}
 
-	// Initialize semantic analyzers (omni + optional custom composite)
-	var omni scanner.SemanticAnalyzer
-	if apiKey := getenv("OPENAI_API_KEY"); apiKey != "" {
-		omni = semopenai.New(semopenai.Options{APIKey: apiKey})
-	}
-
-	var custom scanner.SemanticAnalyzer
-	if db != nil {
-		resolver := func(ctx context.Context, cfg rules.Semantic) (string, string, error) {
-			// tenant id from context (set by middleware)
-			var tenant string
-			if v := ctx.Value(ckeys.TenantID); v != nil {
-				if s, ok := v.(string); ok {
-					tenant = s
-				}
+	// Initialize semantic analyzer: DeBERTa (ProtectAI) by default.
+	// Local fake L3 analyzer for deterministic testing when PS_FAKE_L3 is enabled
+	if v := strings.ToLower(strings.TrimSpace(getenv("PS_FAKE_L3"))); v == "1" || v == "true" || v == "yes" {
+		var d time.Duration
+		if ms := strings.TrimSpace(getenv("PS_FAKE_L3_DELAY_MS")); ms != "" {
+			if n, err := strconv.Atoi(ms); err == nil && n > 0 {
+				d = time.Duration(n) * time.Millisecond
 			}
-			if tenant == "" {
-				if v := ctx.Value("tenant_id"); v != nil {
-					if s, ok := v.(string); ok {
-						tenant = s
-					}
-				}
-			}
-			if tenant == "" {
-				return "", "", fmt.Errorf("missing tenant in context")
-			}
-			if strings.TrimSpace(cfg.ProviderProfile) == "" {
-				return "", "", fmt.Errorf("missing provider_profile")
-			}
-			// Query provider_profiles
-			row := db.Raw().QueryRow(ctx, `SELECT api_key_encrypted, COALESCE(base_url,'') FROM provider_profiles WHERE tenant_id=$1 AND id=$2`, tenant, cfg.ProviderProfile)
-			var encKey, baseURL string
-			if err := row.Scan(&encKey, &baseURL); err != nil {
-				return "", "", err
-			}
-			key, err := enc.DecryptString(encKey)
-			if err != nil {
-				return "", "", err
-			}
-			return key, baseURL, nil
 		}
-		custom = semcustom.New(resolver)
-	}
-
-	if omni != nil || custom != nil {
-		if omni != nil && custom != nil {
-			manager.analyzer = semcomp.New(omni, custom)
-		} else if custom != nil {
-			manager.analyzer = custom
+		manager.analyzer = semfake.Analyzer{Delay: d}
+	} else {
+		endpoint := getenv("PS_DEBERTA_ENDPOINT")
+		apiKey := getenv("HF_TOKEN") // optional; not required for local servers
+		if endpoint != "" {
+			manager.analyzer = semdeberta.New(semdeberta.Options{Endpoint: endpoint, APIKey: apiKey})
 		} else {
-			manager.analyzer = omni
+			// As a safe default, no analyzer configured; L3 will be inert until endpoint is provided
+			manager.logger.Warn("No PS_DEBERTA_ENDPOINT configured; Level-3 semantic analysis disabled")
 		}
 	}
 

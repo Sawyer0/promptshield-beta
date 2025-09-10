@@ -27,9 +27,7 @@
 # 2. HTTP header: x-tenant-id
 
 # Protected endpoints requiring authentication:
-# - POST /v1/check - Security decision API
-# - POST /v1/scan - Batch scanning API  
-# - POST /v1/scan/async - Async job submission
+# - POST /v1/check - Security decision API (single payload, aggregate arrays, NDJSON streaming)
 
 # Admin endpoints (require PS_ENFORCER_ADMIN_TOKEN):
 # - GET /v1/license - License information

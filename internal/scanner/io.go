@@ -101,32 +101,13 @@ func (s *Scanner) ScanReader(ctx context.Context, r io.Reader, inputName string)
 
 // ScanContent scans the provided content string, applying agent hardening patterns
 func (s *Scanner) ScanContent(ctx context.Context, content string, inputName string) (types.ScanResult, error) {
-	result := types.ScanResult{Input: inputName}
 	if s.logger != nil {
 		s.logger.Debug("scan content begin", "input", inputName, "size", len(content))
 	}
 
-	// Apply context minimization if enabled
+	// Note: Context minimization is an agent-hardening pattern for downstream LLM calls.
+	// Scanning for security signals should evaluate the original content.
 	processedContent := content
-	if s.contextMinimizer != nil && s.contextMinimizer.IsEnabled() {
-		minimized, err := s.contextMinimizer.MinimizeContext(content, "")
-		if err != nil {
-			if s.quarantineOnError {
-				result.Violations = append(result.Violations, types.Violation{
-					RuleID:   "context_minimization_error",
-					Message:  "context minimization failed: " + err.Error(),
-					Severity: "HIGH"})
-				return result, nil
-			}
-			return types.ScanResult{}, fmt.Errorf("context minimization failed: %w", err)
-		}
-		processedContent = minimized
-		if s.logger != nil {
-			s.logger.Debug("applied context minimization",
-				"original_size", len(content),
-				"minimized_size", len(processedContent))
-		}
-	}
 
 	// Apply map-reduce processing for large documents if enabled
 	if s.mapReduceProcessor != nil && s.mapReduceProcessor.IsEnabled() {

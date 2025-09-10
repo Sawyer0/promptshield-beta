@@ -138,6 +138,48 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 					tenantScReq, tenantScResp = s.scReq, s.scResp
 				}
 
+// Overlay endpoint-assigned rulepacks when available
+                packs, rerr := s.resolveAssignedRulepacks(ctx, tenantID, endpoint, method)
+                if rerr == nil && len(packs) > 0 {
+                    // Ensure we do not mutate shared global scanners
+                    if tenantScReq == nil || tenantScReq == s.scReq {
+                        tenantScReq = scanner.ScanEngineCstor(0)
+                        tenantScReq.SetMaxStreamBytes(s.maxStreamBytes)
+                        tenantScReq.SetQuarantineOnTimeout(true)
+                        tenantScReq.SetQuarantineOnError(true)
+                    }
+                    if tenantScResp == nil || tenantScResp == s.scResp {
+                        tenantScResp = scanner.ScanEngineCstor(0)
+                        tenantScResp.SetMaxStreamBytes(s.maxStreamBytes)
+                        tenantScResp.SetQuarantineOnTimeout(true)
+                        tenantScResp.SetQuarantineOnError(true)
+                    }
+                    // Load the matched packs into both scanners
+                    tenantScReq.LoadRulePacks(packs)
+                    tenantScResp.LoadRulePacks(packs)
+
+                    // Explicit log for observability: which packs applied, endpoint, method
+                    {
+                        logger := slog.With("component", "grpc-enforcer")
+                        var ids []string
+                        for _, p := range packs {
+                            id := p.SourcePath
+                            if strings.HasPrefix(id, "db:rulepack:") {
+                                id = strings.TrimPrefix(id, "db:rulepack:")
+                            }
+                            if id == "" && p.Metadata.Name != "" {
+                                id = p.Metadata.Name
+                            }
+                            ids = append(ids, id)
+                        }
+                        logger.Info("Applied assignment-scoped rulepacks", "tenant_id", tenantID.String(), "endpoint", endpoint, "method", method, "rulepack_ids", ids, "count", len(packs))
+                    }
+                } else if s.assignmentRepo != nil && s.rulepackRepo != nil {
+                    // No matches found: log for diagnostics
+                    logger := slog.With("component", "grpc-enforcer")
+                    logger.Info("No assignment-scoped rulepacks matched", "tenant_id", tenantID.String(), "endpoint", endpoint, "method", method)
+                }
+
 				span.SetAttributes(attribute.String("ps.tenant_id", tenantID.String()))
 				span.SetAttributes(
 					attribute.String("http.method", method),

@@ -143,9 +143,9 @@ func (cm *ContextMinimizer) minimizeStepByStep(content string, maskToken string)
 	}
 
 	// More aggressive masking for later steps
-	if step > 3 {
+	if step >= 3 {
 		return cm.minimizeBeforeExecution(content, maskToken)
-	} else if step > 1 {
+	} else if step >= 2 {
 		return cm.minimizeAfterToolSelection(content, maskToken)
 	}
 

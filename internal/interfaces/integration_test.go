@@ -9,224 +9,23 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/services"
-	"github.com/promptshield/promptshield/internal/contracts"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/repository"
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-// MockRepository for testing without real database
-type MockRepository struct {
-	mock.Mock
-	mu           sync.RWMutex
-	rulepacks    map[uuid.UUID]*RulepackData
-	activeByPack map[uuid.UUID]uuid.UUID // packID -> versionID
-}
-
-type RulepackData struct {
-	ID          uuid.UUID
-	TenantID    uuid.UUID
-	Name        string
-	Description string
-	Versions    map[uuid.UUID]VersionData
-}
-
-type VersionData struct {
-	ID      uuid.UUID
-	Version int
-	DSL     json.RawMessage
-	Status  string
-}
-
-func NewMockRepository() *MockRepository {
-	return &MockRepository{
-		rulepacks:    make(map[uuid.UUID]*RulepackData),
-		activeByPack: make(map[uuid.UUID]uuid.UUID),
-	}
-}
-
-func (m *MockRepository) Create(ctx context.Context, tenantID uuid.UUID, name, desc string) (uuid.UUID, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	id := uuid.New()
-	m.rulepacks[id] = &RulepackData{
-		ID:          id,
-		TenantID:    tenantID,
-		Name:        name,
-		Description: desc,
-		Versions:    make(map[uuid.UUID]VersionData),
-	}
-
-	return id, nil
-}
-
-func (m *MockRepository) CreateVersion(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, status string, createdBy uuid.UUID) (uuid.UUID, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	pack, exists := m.rulepacks[packID]
-	if !exists {
-		return uuid.Nil, assert.AnError
-	}
-
-	versionID := uuid.New()
-	pack.Versions[versionID] = VersionData{
-		ID:      versionID,
-		Version: version,
-		DSL:     dsl,
-		Status:  status,
-	}
-
-	return versionID, nil
-}
-
-func (m *MockRepository) CreateVersionActivateTx(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, createdBy uuid.UUID) (uuid.UUID, error) {
-	versionID, err := m.CreateVersion(ctx, packID, version, dsl, "approved", createdBy)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	m.mu.Lock()
-	m.activeByPack[packID] = versionID
-	m.mu.Unlock()
-
-	return versionID, nil
-}
-
-func (m *MockRepository) GetActive(ctx context.Context, packID uuid.UUID) (json.RawMessage, int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	versionID, hasActive := m.activeByPack[packID]
-	if !hasActive {
-		return nil, 0, assert.AnError
-	}
-
-	pack, exists := m.rulepacks[packID]
-	if !exists {
-		return nil, 0, assert.AnError
-	}
-
-	version, exists := pack.Versions[versionID]
-	if !exists {
-		return nil, 0, assert.AnError
-	}
-
-	return version.DSL, version.Version, nil
-}
-
-func (m *MockRepository) Activate(ctx context.Context, packID, versionID uuid.UUID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.activeByPack[packID] = versionID
-	return nil
-}
-
-func (m *MockRepository) GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	pack, exists := m.rulepacks[packID]
-	if !exists {
-		return nil, "", assert.AnError
-	}
-
-	for _, v := range pack.Versions {
-		if v.Version == version {
-			return v.DSL, v.Status, nil
-		}
-	}
-
-	return nil, "", assert.AnError
-}
-
-func (m *MockRepository) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	pack, exists := m.rulepacks[packID]
-	if !exists {
-		return uuid.Nil, 0, assert.AnError
-	}
-
-	var latestID uuid.UUID
-	var latestVersion int
-
-	for id, v := range pack.Versions {
-		if v.Version > latestVersion {
-			latestVersion = v.Version
-			latestID = id
-		}
-	}
-
-	return latestID, latestVersion, nil
-}
-
-func (m *MockRepository) ActivateLatest(ctx context.Context, packID uuid.UUID) error {
-	latestID, _, err := m.GetLatestVersion(ctx, packID)
-	if err != nil {
-		return err
-	}
-
-	return m.Activate(ctx, packID, latestID)
-}
-
-func (m *MockRepository) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]contracts.RulepackInfo, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var result []contracts.RulepackInfo
-
-	for packID, pack := range m.rulepacks {
-		if pack.TenantID == tenantID {
-			activeID, hasActive := m.activeByPack[packID]
-			var activeVersion int
-
-			if hasActive {
-				if version, exists := pack.Versions[activeID]; exists {
-					activeVersion = version.Version
-				}
-			}
-
-			result = append(result, contracts.RulepackInfo{
-				ID:          pack.ID,
-				Name:        pack.Name,
-				Description: pack.Description,
-				Version:     activeVersion,
-				Active:      hasActive,
-			})
-		}
-	}
-
-	return result, nil
-}
-
-func (m *MockRepository) Delete(ctx context.Context, packID uuid.UUID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	delete(m.rulepacks, packID)
-	delete(m.activeByPack, packID)
-	return nil
-}
-
-func (m *MockRepository) PurgeOldVersions(ctx context.Context, packID uuid.UUID, keep int) error {
-	// No-op for mock
-	return nil
-}
 
 // TestIntegration_RulePropagation tests rule propagation without external dependencies
 func TestIntegration_RulePropagation(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
-	// Create mock repository
-	repo := NewMockRepository()
+	// Use the same in-memory repository used by the RulepackService
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	require.NoError(t, err)
+	repo := factory.Rulepack()
 
 	// Create publisher with no Redis (becomes no-op)
 	publisher, err := nats.NewPublisher("")
@@ -234,9 +33,7 @@ func TestIntegration_RulePropagation(t *testing.T) {
 
 	// Message tracking would require wrapping the publisher
 
-	// Create service
-	factory, err := repository.NewTestRepositoryFactory(nil, nil)
-	require.NoError(t, err)
+	// Create service using the same factory (shared repo)
 	service := services.RulepackServiceFromFactory(factory, publisher)
 
 	// Create rulepack
@@ -318,8 +115,10 @@ func TestIntegration_ConcurrentRuleUpdates(t *testing.T) {
 	ctx := context.Background()
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
-	// Create mock repository
-	repo := NewMockRepository()
+	// Use test factory in-memory repository
+	factory2, err := repository.NewTestRepositoryFactory(nil, nil)
+	require.NoError(t, err)
+	repo := factory2.Rulepack()
 
 	// Create enforcer
 	opts := grpcenforcer.Options{
@@ -334,7 +133,7 @@ func TestIntegration_ConcurrentRuleUpdates(t *testing.T) {
 	packID, _ := repo.Create(ctx, tenantID, "concurrent-test", "Test concurrent updates")
 
 	dsl := json.RawMessage(`{"metadata": {"name": "test"}, "rules": []}`)
-	_, err := repo.CreateVersionActivateTx(ctx, packID, 1, dsl, uuid.Nil)
+	_, err = repo.CreateVersionActivateTx(ctx, packID, 1, dsl, uuid.Nil)
 	require.NoError(t, err)
 
 	// Simulate concurrent rule reloads (like multiple Redis messages arriving)

@@ -30,7 +30,7 @@ import (
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
-	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
+	semdeberta "github.com/promptshield/promptshield/internal/semantic/deberta"
 	"github.com/promptshield/promptshield/internal/toolrunner"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/types"
@@ -262,21 +262,13 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 			sc.LoadRulePacks(preloadPacks)
 		}
 
-		// Initialize semantic analyzer if enabled
+		// Initialize semantic analyzer (DeBERTa) if enabled
 		if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
-			apiKey := os.Getenv("OPENAI_API_KEY")
-			if apiKey != "" {
-				analyzer := semopenai.New(semopenai.Options{
-					APIKey:            apiKey,
-					MaxConcurrency:    2,
-					CacheSize:         1000,
-					CacheTTL:          15 * time.Minute,
-					RequestsPerSecond: 10,
-					BurstSize:         20,
-				})
+			if ep := strings.TrimSpace(os.Getenv("PS_DEBERTA_ENDPOINT")); ep != "" {
+				analyzer := semdeberta.New(semdeberta.Options{Endpoint: ep, APIKey: strings.TrimSpace(os.Getenv("HF_TOKEN"))})
 				sc.SetSemanticAnalyzer(analyzer)
 				if logger := slog.With("component", "semantic"); logger != nil {
-					logger.Info("OpenAI semantic analyzer initialized")
+					logger.Info("DeBERTa semantic analyzer initialized")
 				}
 			}
 		}

@@ -389,22 +389,7 @@ func writeJWTError(w http.ResponseWriter, r *http.Request, jwtErr JWTValidationE
 	writeErrorJSON(w, http.StatusUnauthorized, jwtErr.Code, jwtErr.Message, jwtErr.Details, r)
 }
 
-// getCorrelationID extracts or generates a correlation ID for request tracing
-func getCorrelationID(r *http.Request) string {
-	// Try various common correlation ID headers
-	correlationID := r.Header.Get("X-Correlation-ID")
-	if correlationID == "" {
-		correlationID = r.Header.Get("X-Request-ID")
-	}
-	if correlationID == "" {
-		correlationID = r.Header.Get("X-Trace-ID")
-	}
-	if correlationID == "" {
-		// Generate a simple correlation ID if none exists
-		correlationID = fmt.Sprintf("req_%d", time.Now().UnixNano())
-	}
-	return correlationID
-}
+// getCorrelationID is defined in middleware_common.go and used across the API package
 
 func isJWTBypassPath(path string) bool {
     // Additional paths that should bypass JWT (e.g., static business demo)
@@ -475,7 +460,7 @@ func b64url(s string) ([]byte, error) {
 	case 3:
 		s += "="
 	}
-	return base64.RawURLEncoding.DecodeString(s)
+	return base64.URLEncoding.DecodeString(s)
 }
 
 func audMatches(aud interface{}, target string) bool {

@@ -24,6 +24,7 @@ import (
 	"github.com/promptshield/promptshield/internal/shared/severity"
 	pkgtypes "github.com/promptshield/promptshield/pkg/types"
 	"golang.org/x/time/rate"
+	"github.com/promptshield/promptshield/internal/domain"
 )
 
 // TelemetryCollector is a minimal, privacy-first event emitter used by the enforcer.
@@ -58,9 +59,10 @@ type Server struct {
 	inflightBackoff time.Duration
 
 	// runtime rule loading
-	rulepackRepo contracts.RulepackRepository
-	tenantID     uuid.UUID
-	rulesMutex   sync.RWMutex // protects rule reloading
+	rulepackRepo    contracts.RulepackRepository
+	assignmentRepo  domain.RulepackAssignmentRepository
+	tenantID        uuid.UUID
+	rulesMutex      sync.RWMutex // protects rule reloading
 
 	// live rule updates
 	subscriber *nats.Subscriber

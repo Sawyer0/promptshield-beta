@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/promptshield/promptshield/internal/application/services"
@@ -116,13 +115,4 @@ func TestLicenseEndpointsAndGating(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
-	// /v1/scan:async should be allowed when async_jobs is true
-	resp2, err := http.Post(ts.URL+"/v1/scan:async", "application/json", strings.NewReader("{}"))
-	if err != nil {
-		t.Fatalf("POST /v1/scan:async error: %v", err)
-	}
-	if resp2.StatusCode == http.StatusForbidden {
-		t.Fatalf("/v1/scan:async unexpectedly forbidden with licensed async_jobs")
-	}
-	_ = resp2.Body.Close()
 }

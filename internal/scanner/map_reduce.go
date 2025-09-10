@@ -17,7 +17,7 @@ type MapReduceProcessor struct {
 
 // NewMapReduceProcessor creates a new map-reduce processor with the given configuration
 func NewMapReduceProcessor(config *rules.MapReduce) *MapReduceProcessor {
-	if config == nil {
+	if config == nil || !config.Enabled {
 		return nil
 	}
 	return &MapReduceProcessor{config: config}
@@ -26,7 +26,8 @@ func NewMapReduceProcessor(config *rules.MapReduce) *MapReduceProcessor {
 // ProcessDocument applies map-reduce processing to large documents
 func (mrp *MapReduceProcessor) ProcessDocument(ctx context.Context, content string, scanner *Scanner) (types.ScanResult, error) {
 	if !mrp.config.Enabled {
-		return scanner.ScanReader(ctx, strings.NewReader(content), "direct")
+		// Bypass map-reduce entirely; process directly without any agent minimization mutations
+		return scanner.scanContentDirect(ctx, content, "direct")
 	}
 
 	// Determine chunking strategy based on map unit
@@ -36,14 +37,28 @@ func (mrp *MapReduceProcessor) ProcessDocument(ctx context.Context, content stri
 	}
 
 	if len(chunks) <= 1 {
-		// Small document, process directly
-		return scanner.ScanReader(ctx, strings.NewReader(content), "direct")
+		// Small document, process directly without any agent minimization mutations
+		res, err := scanner.scanContentDirect(ctx, content, "direct")
+		if err != nil {
+			return types.ScanResult{}, err
+		}
+		// Wrap into a reduce-style result with scan info populated
+		combined := types.ScanResult{
+			Violations: res.Violations,
+			Metrics:    res.Metrics,
+			ScanInfo: types.ScanInfo{
+				TotalViolations: len(res.Violations),
+				ScanStatus:      "success",
+			},
+		}
+		return combined, nil
 	}
 
 	// Map phase: process each chunk
 	mapResults := make([]types.ScanResult, len(chunks))
 	for i, chunk := range chunks {
-		result, err := scanner.ScanReader(ctx, strings.NewReader(chunk), fmt.Sprintf("chunk-%d", i))
+		// Process each chunk directly for security signal scanning (no agent minimization mutations)
+		result, err := scanner.scanContentDirect(ctx, chunk, fmt.Sprintf("chunk-%d", i))
 		if err != nil {
 			return types.ScanResult{}, fmt.Errorf("failed to process chunk %d: %w", i, err)
 		}

@@ -19,23 +19,20 @@ rules:
       action: warn
       message: "Potentially harmful keywords detected"
 
-  # Level 3: Semantic analysis with omni-moderation
+  # Level 3: Semantic analysis (DeBERTa risk-based)
   - id: universal-moderation-check
-    name: Check all content with omni-moderation
+    name: Check all content with DeBERTa risk classifier
     level: 3
     severity: HIGH
     semantic:
-      provider: openai
-      model: omni-moderation-latest
       confidence_threshold: 0.7  # Higher threshold to reduce false positives
-      timeout: 5000  # 5 seconds
       fallback_on_error: true
     fallback:
       patterns:
         - regex: '(?i)(harassment|hate|threat|harmful)'
     response:
       action: enforce
-      message: "Content flagged by OpenAI moderation"
+      message: "Content flagged by risk classifier"
 
 performance:
   per_rule_timeout: 10s

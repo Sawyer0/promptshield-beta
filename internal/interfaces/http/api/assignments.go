@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -49,6 +50,7 @@ func createAssignmentHandler(opt Options) http.HandlerFunc {
 		var req struct {
 			RulepackID  uuid.UUID `json:"rulepack_id"`
 			TargetScope string    `json:"target_scope"`
+			Method      string    `json:"method"` // GET|POST|PUT|PATCH|DELETE|* (ANY)
 			Priority    int       `json:"priority"`
 		}
 
@@ -69,6 +71,9 @@ func createAssignmentHandler(opt Options) http.HandlerFunc {
 		if req.TargetScope == "" {
 			req.TargetScope = "*" // Default to all scopes
 		}
+		if req.Method == "" {
+			req.Method = "*" // Default to any method
+		}
 		if req.Priority == 0 {
 			req.Priority = 100 // Default priority
 		}
@@ -88,6 +93,7 @@ func createAssignmentHandler(opt Options) http.HandlerFunc {
 			ID:          uuid.New(),
 			TenantID:    tenantID,
 			RulepackID:  req.RulepackID,
+			Method:      strings.ToUpper(strings.TrimSpace(req.Method)),
 			TargetScope: req.TargetScope,
 			Priority:    req.Priority,
 			Enabled:     true,
@@ -126,6 +132,7 @@ func createAssignmentHandler(opt Options) http.HandlerFunc {
 			"id":           assignment.ID,
 			"tenant_id":    assignment.TenantID,
 			"rulepack_id":  assignment.RulepackID,
+			"method":       assignment.Method,
 			"target_scope": assignment.TargetScope,
 			"priority":     assignment.Priority,
 			"enabled":      assignment.Enabled,

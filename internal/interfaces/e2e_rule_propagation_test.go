@@ -35,17 +35,17 @@ func TestE2E_HTTPAPIRulePropagation(t *testing.T) {
 
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
-	// Create shared persistence layer (mock repository)
-	repo := NewMockRepository()
+	// Create shared persistence layer using the same in-memory repository as the API service
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	require.NoError(t, err)
+	repo := factory.Rulepack()
 
 	// Create NATS publisher (no-op for this test, but tracks message publishing)
 	publisher, err := nats.NewPublisher("")
 	require.NoError(t, err)
 	defer publisher.Close()
 
-	// Create RulepackService with audit
-	factory, err := repository.NewTestRepositoryFactory(nil, nil)
-	require.NoError(t, err)
+	// Create RulepackService with audit using the same factory (shared repo)
 	rulepackService := services.RulepackServiceFromFactory(factory, publisher)
 
 	// Create HTTP API server
@@ -305,7 +305,9 @@ func TestE2E_ConcurrentRulePropagation(t *testing.T) {
 	defer cancel()
 
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	repo := NewMockRepository()
+	// Use test factory in-memory repository for concurrency test
+	factory2, _ := repository.NewTestRepositoryFactory(nil, nil)
+	repo := factory2.Rulepack()
 	publisher, _ := nats.NewPublisher("")
 	defer publisher.Close()
 

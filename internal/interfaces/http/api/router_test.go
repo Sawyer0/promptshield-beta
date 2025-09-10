@@ -174,7 +174,10 @@ func TestScanAggregateJSONAndNDJSON(t *testing.T) {
 	// Aggregate JSON array input
 	arr := []string{"hello", "world"}
 	b, _ := json.Marshal(arr)
-	resp, err := http.Post(srv.URL+"/scan", "application/json", bytes.NewReader(b))
+	req1, _ := http.NewRequest(http.MethodPost, srv.URL+"/check", bytes.NewReader(b))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	resp, err := http.DefaultClient.Do(req1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +199,8 @@ func TestScanAggregateJSONAndNDJSON(t *testing.T) {
 
 	// NDJSON streaming with aggregate=false
 	nd := "one\nsecond\n"
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/scan?aggregate=false", strings.NewReader(nd))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/check?aggregate=false", strings.NewReader(nd))
+	req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	sresp, err := http.DefaultClient.Do(req)
 	if err != nil {

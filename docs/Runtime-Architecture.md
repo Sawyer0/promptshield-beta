@@ -96,9 +96,7 @@ Two integration modes:
 - HTTP endpoints (for CI/batch/sidecarless)
   - `GET /healthz` (liveness), `GET /readyz` (readiness gated on rulepack/policy load)
   - Versioned API mounted under `/v1`:
-    - `POST /v1/check` → quick allow/deny using headers/context and optional small payload
-    - `POST /v1/scan` → full content scan; supports aggregate JSON and NDJSON streaming
-    - Async jobs: `POST /v1/scan/async`, `GET /v1/jobs`, `GET /v1/jobs/{jobID}`, `DELETE /v1/jobs/{jobID}`
+    - `POST /v1/check` → single payload decision; also supports aggregate JSON arrays and NDJSON streaming (aggregate=false)
     - Rulepack management: `GET/POST /v1/rulepacks*`
     - Runtime config: `GET/PUT/POST /v1/config*`
     - Admin: `POST /v1/admin/*`, `GET /v1/stats`, `GET /v1/usage`, `GET /v1/events`, `GET/POST /v1/license`
@@ -184,7 +182,7 @@ Note on regex engine: Go RE2 is used by default; an optional Hyperscan fast‑pa
 
 1) Sidecar in pod: Envoy + `ps-enforcer` alongside app for low latency
 2) Node or cluster service: central `ps-enforcer` with Envoy over mTLS
-3) CI/Batch: call HTTP `/scan` directly (no Envoy)
+3) CI/Batch: call HTTP `/check` directly (aggregate JSON arrays or NDJSON streaming)
 
 Scale horizontally; enforcer instances are stateless (policies cached; state in external stores).
 
