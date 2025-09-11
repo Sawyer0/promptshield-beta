@@ -19,6 +19,8 @@ func registerDebugEndpoints(r chi.Router, opt Options) {
 		dr.Get("/jwt-config", debugJWTConfigHandler(opt))
 		dr.Get("/tenant-context", debugTenantContextHandler(opt))
 		dr.Get("/headers", debugHeadersHandler())
+			// PDP config status (no network calls)
+			dr.Get("/pdp-config", debugPDPConfigHandler())
 	})
 }
 
@@ -91,6 +93,22 @@ func debugAuthHandler(opt Options) http.HandlerFunc {
 		}
 		
 		writeJSON(w, http.StatusOK, response, r)
+	}
+}
+
+// debugPDPConfigHandler shows PDP integration configuration
+func debugPDPConfigHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		endpoint := strings.TrimSpace(os.Getenv("PS_PDP_ENDPOINT"))
+		apiKeySet := strings.TrimSpace(os.Getenv("PS_PDP_API_KEY")) != ""
+		to := strings.TrimSpace(os.Getenv("PS_PDP_TIMEOUT_MS"))
+		status := map[string]any{
+			"configured": endpoint != "",
+			"endpoint":   endpoint,
+			"has_api_key": apiKeySet,
+			"timeout_ms": to,
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"pdp": status, "timestamp": time.Now().UTC().Format(time.RFC3339)}, r)
 	}
 }
 

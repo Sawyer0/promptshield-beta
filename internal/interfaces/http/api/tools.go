@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/pdp"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/redact"
 	ttypes "github.com/promptshield/promptshield/internal/shared/types"
@@ -44,6 +45,28 @@ func toolExecHandler(opt Options) http.HandlerFunc {
 			writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "tool_id and args are required", nil, r)
 			return
 		}
+		// PDP check: authorize tool invocation if PDP enabled
+		var pdpMeta map[string]any
+		if client, ok := GetPDPClient(r.Context()); ok {
+			sub := pdp.Subject{UserID: r.Header.Get("X-PS-User-ID"), TenantID: r.Header.Get("X-PS-Tenant-ID"), Roles: parseCSV(r.Header.Get("X-PS-User-Roles"))}
+			env := pdp.Environment{CorrelationID: getCorrelationID(r), Time: time.Now(), Attributes: map[string]any{"endpoint": body.Endpoint, "method": strings.ToUpper(body.Method)}}
+			reqP := pdp.Request{Subject: sub, Action: "tool.invoke", Resource: pdp.Resource{Type: "tool", ID: strings.TrimSpace(body.ToolID)}, Environment: env}
+			ctxEval, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
+			defer cancel()
+			respP, err := client.Evaluate(ctxEval, reqP)
+			pdpMeta = map[string]any{"decision": string(respP.Decision), "reason": respP.Reason, "provider": respP.Provider}
+			if err != nil {
+				// Fail-closed for tool.invoke unless explicitly overridden
+				if !strings.EqualFold(strings.TrimSpace(os.Getenv("PS_PDP_FAIL_OPEN_TOOL")), "true") {
+					writeErrorJSON(w, http.StatusForbidden, "PDP_ERROR", "authorization decision unavailable", map[string]any{"error": err.Error()}, r)
+					return
+				}
+			} else if respP.Decision == pdp.Deny {
+				writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", coalesce(respP.Reason, "not authorized"), map[string]any{"tool": body.ToolID}, r)
+				return
+			}
+		}
+
 		// Load preferences from settings (optional)
 		prefs := loadToolPrefs(opt, r)
 		// Resolve target endpoint/method (for policy match)
@@ -131,14 +154,14 @@ func toolExecHandler(opt Options) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		resExec, err := opt.ToolRunner.Execute(ctx, req)
-		dur := time.Since(start)
-		if err != nil {
-			auditToolExec(opt, tenantID, req, nil, dur, 500, r)
-			writeErrorJSON(w, http.StatusInternalServerError, "TOOL_EXEC_ERROR", err.Error(), nil, r)
-			return
-		}
-		auditToolExec(opt, tenantID, req, &resExec, dur, 200, r)
-		w.Header().Set("Content-Type", strings.TrimSpace(resExec.ContentType))
+			dur := time.Since(start)
+			if err != nil {
+				auditToolExec(opt, tenantID, req, nil, dur, 500, r, pdpMeta)
+				writeErrorJSON(w, http.StatusInternalServerError, "TOOL_EXEC_ERROR", err.Error(), nil, r)
+				return
+			}
+			auditToolExec(opt, tenantID, req, &resExec, dur, 200, r, pdpMeta)
+			w.Header().Set("Content-Type", strings.TrimSpace(resExec.ContentType))
 		if w.Header().Get("Content-Type") == "" {
 			w.Header().Set("Content-Type", "application/json")
 		}
@@ -146,7 +169,7 @@ func toolExecHandler(opt Options) http.HandlerFunc {
 	})
 }
 
-func auditToolExec(opt Options, tenantID uuid.UUID, req contracts.ToolExecRequest, res *contracts.ToolExecResult, dur time.Duration, status int, r *http.Request) {
+func auditToolExec(opt Options, tenantID uuid.UUID, req contracts.ToolExecRequest, res *contracts.ToolExecResult, dur time.Duration, status int, r *http.Request, pdpMeta map[string]any) {
 	if opt.AuditLogger == nil {
 		return
 	}
@@ -173,6 +196,9 @@ func auditToolExec(opt Options, tenantID uuid.UUID, req contracts.ToolExecReques
 		"plan_step":     req.PlanStep,
 		"status":        status,
 		"processing_ms": dur.Milliseconds(),
+	}
+	if pdpMeta != nil {
+		meta["pdp"] = pdpMeta
 	}
 	ev := ttypes.AuditEvent{
 		TenantID:   &tenantID,
@@ -352,6 +378,17 @@ func getEnv(k, def string) string {
 		return def
 	}
 	return v
+}
+
+// parseCSV converts a comma-separated string into a slice of trimmed strings
+func parseCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(strings.TrimSpace(s), ",") {
+		if t := strings.TrimSpace(part); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Endpoint-scoped tool policy spec for matching
