@@ -66,6 +66,10 @@ func TestScanThroughput(t *testing.T) {
 
 			// Performance threshold (conservative for CI)
 			minThroughputMBps := 0.8 // 0.8 MB/s minimum (CI-safe)
+			// Relax threshold on Windows runners which can be slower in CI/virtualized envs
+			if runtime.GOOS == "windows" {
+				minThroughputMBps = 0.2
+			}
 			if throughputMBps < minThroughputMBps {
 				t.Errorf("Throughput too low: %.2f MB/s < %.2f MB/s", throughputMBps, minThroughputMBps)
 			}
