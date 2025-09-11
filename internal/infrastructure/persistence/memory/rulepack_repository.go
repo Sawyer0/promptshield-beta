@@ -186,6 +186,18 @@ func (r *RulepackRepositoryImpl) GetVersion(ctx context.Context, packID uuid.UUI
 	return nil, "", fmt.Errorf("version %d not found for rulepack %s", version, packID)
 }
 
+// GetVersionIDByNumber returns the version row ID for a given version number
+func (r *RulepackRepositoryImpl) GetVersionIDByNumber(ctx context.Context, packID uuid.UUID, version int) (uuid.UUID, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, ver := range r.versions {
+		if ver.RulepackID == packID && ver.Version == version {
+			return ver.ID, nil
+		}
+	}
+	return uuid.Nil, fmt.Errorf("version %d not found for rulepack %s", version, packID)
+}
+
 // GetLatestVersion returns the latest version ID and number
 func (r *RulepackRepositoryImpl) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
 	r.mu.RLock()
