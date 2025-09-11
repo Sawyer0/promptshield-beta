@@ -21,7 +21,10 @@ func userSyncHandler(opt Options) http.HandlerFunc {
 		FirstName string `json:"first_name"`
 		LastName  string `json:"last_name"`
 	}
-	return func(w http.ResponseWriter, r *http.Request) {
+return func(w http.ResponseWriter, r *http.Request) {
+        if ok, reason := authorizePDP(r, "user.sync", "user", strings.TrimSpace(r.Header.Get("X-PS-User-ID")), nil, true); !ok {
+            writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+        }
 		if opt.DB == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "database not configured", nil, r)
 			return
