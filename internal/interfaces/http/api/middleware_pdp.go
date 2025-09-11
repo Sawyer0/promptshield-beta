@@ -84,6 +84,20 @@ func GetPDPClient(ctx context.Context) (pdp.Client, bool) {
 	return c, ok
 }
 
+// resolvePIPAttributes collects additional environment attributes (PIP) from the request.
+// This is a lightweight hook; extend as needed (e.g., org roles, device posture) with caching/timeouts.
+func resolvePIPAttributes(r *http.Request) map[string]any {
+	attrs := map[string]any{}
+	if v := strings.TrimSpace(r.Header.Get("X-PS-Device")); v != "" {
+		attrs["device"] = v
+	}
+	// client IP (best-effort)
+	if ip := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); ip != "" {
+		attrs["client_ip"] = ip
+	}
+	return attrs
+}
+
 // authorizePDP performs a PDP check for the given action/resource. If PDP is not configured
 // it allows by default. On PDP errors, it will deny when failClosed is true, otherwise allow.
 func authorizePDP(r *http.Request, action, resourceType, resourceID string, resourceAttrs map[string]any, failClosed bool) (bool, string) {
@@ -94,6 +108,11 @@ func authorizePDP(r *http.Request, action, resourceType, resourceID string, reso
 	// Build subject and environment
 	sub := pdp.Subject{UserID: r.Header.Get("X-PS-User-ID"), TenantID: r.Header.Get("X-PS-Tenant-ID"), Roles: parseCSV(r.Header.Get("X-PS-User-Roles"))}
 	env := pdp.Environment{CorrelationID: getCorrelationID(r), Time: time.Now(), Attributes: map[string]any{"path": r.URL.Path, "method": r.Method}}
+	// Merge additional PIP-derived attributes
+	if extra := resolvePIPAttributes(r); len(extra) > 0 {
+		if env.Attributes == nil { env.Attributes = map[string]any{} }
+		for k, v := range extra { env.Attributes[k] = v }
+	}
 	res := pdp.Resource{Type: resourceType, ID: strings.TrimSpace(resourceID), Attributes: resourceAttrs}
 	ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
 	defer cancel()

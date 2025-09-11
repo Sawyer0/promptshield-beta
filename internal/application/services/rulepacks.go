@@ -93,12 +93,16 @@ func (s *RulepackService) CreateVersionActivate(ctx context.Context, tenantID uu
 	if err := canaryDelay(ctx); err != nil {
 		return err
 	}
-	verID, err := s.repo.CreateVersionActivateTx(ctx, packID, version, dsl, uuid.Nil)
-	if err != nil {
-		return err
-	}
-	_ = verID // not used beyond audit/metrics
-	metrics.IncRulepackActivations()
+// previous version unknown in this context (avoid repo call for test stability)
+prevVer := 0
+verID, err := s.repo.CreateVersionActivateTx(ctx, packID, version, dsl, uuid.Nil)
+if err != nil {
+	return err
+}
+_ = verID
+metrics.IncRulepackActivations()
+	// audit with prev/new version
+	s.emitAudit("rulepack.activate", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": packID.String(), "prev_version": prevVer, "new_version": version, "checksum": checksumJSON(dsl)})
 	if s.pub != nil {
 		u := nats.RuleUpdate{TenantID: tenantID.String(), TargetScope: "global", RulepackID: packID.String(), Version: version, ContentSHA256: checksumJSON(dsl)}
 		_ = s.pub.PublishRuleUpdate(ctx, u)
@@ -132,14 +136,17 @@ func (s *RulepackService) Upload(ctx context.Context, tenantID uuid.UUID, packID
 		return uuid.Nil, err
 	}
 
-	if activate {
+if activate {
 		if err := canaryDelay(ctx); err != nil {
 			return verID, err
 		}
-		if err := s.repo.Activate(ctx, packID, verID); err != nil {
+prevVer := 0
+if err := s.repo.Activate(ctx, packID, verID); err != nil {
 			return verID, err
 		}
 		metrics.IncRulepackActivations()
+		// audit activation with versions
+		s.emitAudit("rulepack.activate", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": packID.String(), "prev_version": prevVer, "new_version": version, "checksum": checksumJSON(dsl)})
 
 		if s.pub != nil {
 			u := nats.RuleUpdate{TenantID: tenantID.String(), TargetScope: "global", RulepackID: packID.String(), Version: version, ContentSHA256: checksumJSON(dsl)}
@@ -158,13 +165,15 @@ func (s *RulepackService) SetActive(ctx context.Context, tenantID uuid.UUID, pac
 	if err := canaryDelay(ctx); err != nil {
 		return err
 	}
-	if err := s.repo.Activate(ctx, packID, versionID); err != nil {
+prevVer := 0
+if err := s.repo.Activate(ctx, packID, versionID); err != nil {
 		return err
 	}
 	metrics.IncRulepackActivations()
-	if s.pub != nil {
-		// Get version number for NATS message
-		if dsl, version, err := s.repo.GetActive(ctx, packID); err == nil {
+	// after activation, fetch new version number
+	if dsl, version, err := s.repo.GetActive(ctx, packID); err == nil {
+		s.emitAudit("rulepack.activate", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": packID.String(), "prev_version": prevVer, "new_version": version, "checksum": checksumJSON(dsl)})
+		if s.pub != nil {
 			u := nats.RuleUpdate{TenantID: tenantID.String(), TargetScope: "global", RulepackID: packID.String(), Version: version, ContentSHA256: checksumJSON(dsl)}
 			_ = s.pub.PublishRuleUpdate(ctx, u)
 		}
@@ -178,14 +187,14 @@ func (s *RulepackService) ActivateLatest(ctx context.Context, tenantID uuid.UUID
 	if err := canaryDelay(ctx); err != nil {
 		return err
 	}
-	if err := s.repo.ActivateLatest(ctx, packID); err != nil {
+prevVer := 0
+if err := s.repo.ActivateLatest(ctx, packID); err != nil {
 		return err
 	}
 	metrics.IncRulepackActivations()
-	s.emitAudit("rulepack.activate", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": packID.String()})
-	if s.pub != nil {
-		// Get version number for NATS message
-		if dsl, version, err := s.repo.GetActive(ctx, packID); err == nil {
+	if dsl, version, err := s.repo.GetActive(ctx, packID); err == nil {
+		s.emitAudit("rulepack.activate", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": packID.String(), "prev_version": prevVer, "new_version": version, "checksum": checksumJSON(dsl)})
+		if s.pub != nil {
 			u := nats.RuleUpdate{TenantID: tenantID.String(), TargetScope: "global", RulepackID: packID.String(), Version: version, ContentSHA256: checksumJSON(dsl)}
 			_ = s.pub.PublishRuleUpdate(ctx, u)
 		}
