@@ -50,6 +50,34 @@ This document describes the Policy Administration Point (PAP) responsibilities, 
 - Audit logs (by backend): ~$100–$500/month if logs are verbose and tenants are active
 - UI/API hosting: roughly one small container per environment
 
+## HTTP endpoints (admin, PDP-gated)
+
+- GET /v1/rulepacks/{id}/versions/{ver}/bundle
+  - Export a freshly signed bundle (not persisted)
+  - PDP action: rulepack.bundle.export
+- POST /v1/rulepacks/{id}/versions/{ver}/publish
+  - Sign and persist bundle to store (filesystem by default)
+  - PDP action: rulepack.bundle.publish
+  - Response: { status, path, checksum, key_id }
+- GET /v1/rulepacks/{id}/bundles
+  - List stored bundles for a rulepack and tenant
+  - PDP action: rulepack.bundle.list
+- GET /v1/rulepacks/{id}/bundles/{ver}
+  - Retrieve a stored bundle; server verifies signature before returning
+  - PDP action: rulepack.bundle.get
+- POST /v1/rulepacks/{id}/bundles/{ver}/activate
+  - Load stored bundle, verify, then activate (create-and-activate or fallback to activate existing version)
+  - PDP action: rulepack.bundle.activate
+- POST /v1/rulepacks/{id}/bundles/verify
+  - Verify posted bundle JSON without persisting/activating
+  - PDP action: rulepack.bundle.verify
+
+## Configuration
+
+- PS_RULEPACK_HMAC_KEY (base64): HMAC signing key required for bundle signing
+- PS_RULEPACK_HMAC_KEY_ID (optional): logical identifier for the key used (for rotation and audit)
+- PS_BUNDLE_DIR (optional): filesystem root for bundle store (default: ./bundles)
+
 ## Implementation notes for PromptShield
 
 - RulePack authoring already uses YAML; extend RulepackService to:
