@@ -56,3 +56,34 @@ func GetPDPClient(ctx context.Context) (pdp.Client, bool) {
 	c, ok := ctx.Value(pdpCtxKey{}).(pdp.Client)
 	return c, ok
 }
+
+// authorizePDP performs a PDP check for the given action/resource. If PDP is not configured
+// it allows by default. On PDP errors, it will deny when failClosed is true, otherwise allow.
+func authorizePDP(r *http.Request, action, resourceType, resourceID string, resourceAttrs map[string]any, failClosed bool) (bool, string) {
+	client, ok := GetPDPClient(r.Context())
+	if !ok || client == nil {
+		return true, "pdp_not_configured"
+	}
+	// Build subject and environment
+	sub := pdp.Subject{UserID: r.Header.Get("X-PS-User-ID"), TenantID: r.Header.Get("X-PS-Tenant-ID"), Roles: parseCSV(r.Header.Get("X-PS-User-Roles"))}
+	env := pdp.Environment{CorrelationID: getCorrelationID(r), Time: time.Now(), Attributes: map[string]any{"path": r.URL.Path, "method": r.Method}}
+	res := pdp.Resource{Type: resourceType, ID: strings.TrimSpace(resourceID), Attributes: resourceAttrs}
+	ctx, cancel := context.WithTimeout(r.Context(), 1500*time.Millisecond)
+	defer cancel()
+	resp, err := client.Evaluate(ctx, pdp.Request{Subject: sub, Action: action, Resource: res, Environment: env})
+	if err != nil {
+		if failClosed {
+			return false, "pdp_error"
+		}
+		return true, "pdp_error_allow"
+	}
+	switch resp.Decision {
+	case pdp.Permit, pdp.NotApplicable:
+		return true, resp.Reason
+	case pdp.Deny, pdp.Indeterminate:
+		return false, resp.Reason
+	default:
+		if failClosed { return false, "pdp_invalid_decision" }
+		return true, "pdp_invalid_decision_allow"
+	}
+}

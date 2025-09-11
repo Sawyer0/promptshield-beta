@@ -29,7 +29,10 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
         repo := pg.ProviderProfiles(opt.DB)
 
         // List
-        pr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+pr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            if ok, reason := authorizePDP(r, "provider.profile.list", "provider_profile", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
             items, err := repo.List(r.Context(), tenantID)
             if err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil, r); return }
             // Redact api_key
@@ -44,7 +47,10 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
         }))
 
         // Create
-        pr.Post("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+pr.Post("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            if ok, reason := authorizePDP(r, "provider.profile.create", "provider_profile", "", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
             var body struct { Provider, Label, APIKey, BaseURL string; ExtraHeaders json.RawMessage }
             _ = json.NewDecoder(r.Body).Decode(&body)
             if strings.TrimSpace(body.Provider) == "" || strings.TrimSpace(body.Label) == "" || strings.TrimSpace(body.APIKey) == "" {
@@ -64,7 +70,10 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
         }))
 
         // Get
-        pr.Get("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
+pr.Get("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
+            if ok, reason := authorizePDP(r, "provider.profile.read", "provider_profile", id.String(), map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
             p, err := repo.Get(r.Context(), tenantID, id); if err != nil { writeErrorJSON(w, http.StatusNotFound, "NOT_FOUND", "profile not found", nil, r); return }
             _ = json.NewEncoder(w).Encode(map[string]any{
                 "id": p.ID, "tenant_id": p.TenantID, "provider": p.Provider, "label": p.Label,
@@ -73,7 +82,10 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
         }))
 
         // Update (apiKey optional)
-        pr.Put("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
+pr.Put("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
+            if ok, reason := authorizePDP(r, "provider.profile.update", "provider_profile", id.String(), map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
             var body struct { Provider, Label, APIKey, BaseURL string; ExtraHeaders json.RawMessage }
             _ = json.NewDecoder(r.Body).Decode(&body)
             var encKey string
@@ -92,7 +104,10 @@ func registerProviderProfileHandlers(r chi.Router, opt Options) {
         }))
 
         // Delete
-        pr.Delete("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
+pr.Delete("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID) {
+            if ok, reason := authorizePDP(r, "provider.profile.delete", "provider_profile", id.String(), map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
             if err := repo.Delete(r.Context(), tenantID, id); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil, r); return }
             w.WriteHeader(http.StatusNoContent)
         }))

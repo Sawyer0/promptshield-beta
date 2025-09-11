@@ -35,6 +35,10 @@ func registerTenantHandlers(r chi.Router, opt Options) {
 // createTenantHandler handles POST /v1/admin/tenants
 func createTenantHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "tenant.create", "tenant", "", nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.TenantRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"domain.Tenant management not configured", nil, r)
@@ -108,6 +112,10 @@ func createTenantHandler(opt Options) http.HandlerFunc {
 // listTenantsHandler handles GET /v1/admin/tenants
 func listTenantsHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "tenant.list", "tenant", "*", nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.TenantRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"domain.Tenant management not configured", nil, r)
@@ -136,6 +144,10 @@ func listTenantsHandler(opt Options) http.HandlerFunc {
 // getTenantHandler handles GET /v1/admin/tenants/{id}
 func getTenantHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "tenant.read", "tenant", chi.URLParam(r, "id"), nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.TenantRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"domain.Tenant management not configured", nil, r)
@@ -164,6 +176,10 @@ func getTenantHandler(opt Options) http.HandlerFunc {
 // updateTenantHandler handles PUT /v1/admin/tenants/{id}
 func updateTenantHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "tenant.update", "tenant", chi.URLParam(r, "id"), nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.TenantRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"domain.Tenant management not configured", nil, r)
@@ -231,6 +247,10 @@ func updateTenantHandler(opt Options) http.HandlerFunc {
 // deleteTenantHandler handles DELETE /v1/admin/tenants/{id}
 func deleteTenantHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "tenant.delete", "tenant", chi.URLParam(r, "id"), nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.TenantRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"domain.Tenant management not configured", nil, r)
