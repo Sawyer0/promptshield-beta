@@ -14,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/promptshield/promptshield/internal/pap"
 )
 
 // idempotencyStore caches successful POST /rulepacks responses keyed by the
@@ -541,16 +543,51 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 
 				dsl, status, err := opt.RulepackService.GetVersion(r.Context(), packID, version)
 				if err != nil {
+					writeError(w, http.StatusNotFound, "NOT_FOUND", "rulepack not found", nil)
+					return
+				}
+
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"id":      packID.String(),
+					"version": version,
+					"status":  status,
+					"dsl":     dsl,
+				})
+			})
+
+			a.Get("/{id}/versions/{ver}/bundle", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+				ver, err := strconv.Atoi(chi.URLParam(r, "ver"))
+				if err != nil || ver <= 0 {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid version", nil)
+					return
+				}
+				// PDP gate: exporting a signed bundle
+				if ok, reason := authorizePDP(r, "rulepack.bundle.export", "rulepack", packID.String(), map[string]any{"version": ver}, true); !ok {
+					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+					return
+				}
+				dsl, _, err := opt.RulepackService.GetVersion(r.Context(), packID, ver)
+				if err != nil {
 					writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error(), nil)
 					return
 				}
-				
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"id": packID.String(), 
-					"version": version, 
-					"status": status, 
-					"dsl": dsl,
-				})
+				// Resolve tenant from header
+				tenantID, ok := getTenantID(w, r)
+				if !ok {
+					return
+				}
+				bundle, err := pap.BuildBundle(tenantID, packID, ver, dsl)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(bundle)
 			})
 
 			a.Post("/{id}/versions/{ver}/activate", func(w http.ResponseWriter, r *http.Request) {
