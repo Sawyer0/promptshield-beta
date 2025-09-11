@@ -1,0 +1,137 @@
+name: Docker Publish
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
+
+jobs:
+  build-and-push:
+    name: Build and publish Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare BFF build arg (VITE key)
+        id: bffkey
+        run: |
+          if [ -z "${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}" ]; then
+            echo "BFF_KEY=ci-placeholder" >> $GITHUB_ENV
+          else
+            echo "BFF_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}" >> $GITHUB_ENV
+          fi
+
+      - name: Login to Docker Hub (push only)
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker meta (enforcer)
+        id: meta_enf
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/promptshield-enforcer
+          tags: |
+            type=ref,event=tag
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha
+
+      - name: Build and push (enforcer)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.gateway
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta_enf.outputs.tags }}
+          labels: ${{ steps.meta_enf.outputs.labels }}
+          build-args: |
+            ENABLE_HYPERSCAN=0
+
+      - name: Docker meta (gateway)
+        id: meta_gw
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/promptshield-gateway
+          tags: |
+            type=ref,event=tag
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha
+
+      - name: Build and push (gateway)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.gateway
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta_gw.outputs.tags }}
+          labels: ${{ steps.meta_gw.outputs.labels }}
+          build-args: |
+            ENABLE_HYPERSCAN=0
+
+      - name: Docker meta (frontend)
+        id: meta_fe
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/promptshield-frontend
+          tags: |
+            type=ref,event=tag
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha
+
+      - name: Build and push (frontend)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend/RulepackManager
+          file: ./frontend/RulepackManager/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta_fe.outputs.tags }}
+          labels: ${{ steps.meta_fe.outputs.labels }}
+
+      - name: Docker meta (bff)
+        id: meta_bff
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/promptshield-bff
+          tags: |
+            type=ref,event=tag
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=sha
+
+      - name: Build and push (bff)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend/RulepackManager
+          file: ./frontend/RulepackManager/Dockerfile.bff
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta_bff.outputs.tags }}
+          labels: ${{ steps.meta_bff.outputs.labels }}
+          build-args: |
+            VITE_CLERK_PUBLISHABLE_KEY=${{ env.BFF_KEY }}
+
