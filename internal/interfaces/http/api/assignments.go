@@ -33,6 +33,11 @@ func registerAssignmentHandlers(r chi.Router, opt Options) {
 // createAssignmentHandler handles POST /v1/admin/tenants/{id}/assignments
 func createAssignmentHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// PDP gate
+		if ok, reason := authorizePDP(r, "assignment.create", "assignment", "", nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.AssignmentRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"Assignment management not configured", nil, r)
@@ -146,6 +151,10 @@ func createAssignmentHandler(opt Options) http.HandlerFunc {
 // listAssignmentsHandler handles GET /v1/admin/tenants/{id}/assignments
 func listAssignmentsHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "assignment.list", "assignment", "*", nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.AssignmentRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"Assignment management not configured", nil, r)
@@ -198,6 +207,10 @@ func listAssignmentsHandler(opt Options) http.HandlerFunc {
 // updateAssignmentHandler handles PUT /v1/admin/assignments/{assignmentId}
 func updateAssignmentHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "assignment.update", "assignment", chi.URLParam(r, "assignmentId"), nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.AssignmentRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"Assignment management not configured", nil, r)
@@ -273,6 +286,10 @@ func updateAssignmentHandler(opt Options) http.HandlerFunc {
 // deleteAssignmentHandler handles DELETE /v1/admin/assignments/{assignmentId}
 func deleteAssignmentHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "assignment.delete", "assignment", chi.URLParam(r, "assignmentId"), nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.AssignmentRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED",
 				"Assignment management not configured", nil, r)

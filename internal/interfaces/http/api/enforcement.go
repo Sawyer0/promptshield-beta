@@ -79,6 +79,14 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		} else {
 			w.Header().Set("X-PromptShield-License", "LICENSED")
 		}
+
+		// PDP gate for message scanning/sending
+		failClosed := !strings.EqualFold(strings.TrimSpace(os.Getenv("PS_PDP_FAIL_OPEN_CHECK")), "true")
+if ok, reason := authorizePDP(r, "message.send", "message", "", map[string]any{"endpoint": r.URL.Path, "method": r.Method}, failClosed); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
+
 		// tenant in context for downstream
 		ctx, cancel := context.WithTimeout(ctxSpan, 2*time.Second)
 		defer cancel()
