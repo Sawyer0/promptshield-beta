@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,7 @@ func toolExecHandler(opt Options) http.HandlerFunc {
 		}
 		// PDP check: authorize tool invocation if PDP enabled
 		var pdpMeta map[string]any
+		var pdpObligations []pdp.Obligation
 		if client, ok := GetPDPClient(r.Context()); ok {
 			sub := pdp.Subject{UserID: r.Header.Get("X-PS-User-ID"), TenantID: r.Header.Get("X-PS-Tenant-ID"), Roles: parseCSV(r.Header.Get("X-PS-User-Roles"))}
 			env := pdp.Environment{CorrelationID: getCorrelationID(r), Time: time.Now(), Attributes: map[string]any{"endpoint": body.Endpoint, "method": strings.ToUpper(body.Method)}}
@@ -55,6 +57,7 @@ func toolExecHandler(opt Options) http.HandlerFunc {
 			defer cancel()
 			respP, err := client.Evaluate(ctxEval, reqP)
 			pdpMeta = map[string]any{"decision": string(respP.Decision), "reason": respP.Reason, "provider": respP.Provider}
+			pdpObligations = respP.Obligations
 			if err != nil {
 				// Fail-closed for tool.invoke unless explicitly overridden
 				if !strings.EqualFold(strings.TrimSpace(os.Getenv("PS_PDP_FAIL_OPEN_TOOL")), "true") {
@@ -160,12 +163,14 @@ func toolExecHandler(opt Options) http.HandlerFunc {
 				writeErrorJSON(w, http.StatusInternalServerError, "TOOL_EXEC_ERROR", err.Error(), nil, r)
 				return
 			}
+			// Apply PDP obligations (mask/redact)
+			resExec.Result = applyObligationsToJSON(resExec.Result, pdpObligations)
 			auditToolExec(opt, tenantID, req, &resExec, dur, 200, r, pdpMeta)
 			w.Header().Set("Content-Type", strings.TrimSpace(resExec.ContentType))
-		if w.Header().Get("Content-Type") == "" {
-			w.Header().Set("Content-Type", "application/json")
-		}
-		_ = json.NewEncoder(w).Encode(resExec)
+			if w.Header().Get("Content-Type") == "" {
+				w.Header().Set("Content-Type", "application/json")
+			}
+			_ = json.NewEncoder(w).Encode(resExec)
 	})
 }
 
@@ -301,6 +306,40 @@ func strIn(s string, arr []string) bool {
 		}
 	}
 	return false
+}
+
+// applyObligationsToJSON applies simple mask/redactField obligations to JSON payloads.
+func applyObligationsToJSON(b json.RawMessage, obs []pdp.Obligation) json.RawMessage {
+	if len(b) == 0 || len(obs) == 0 { return b }
+	raw := string(b)
+	var obj map[string]any
+	isJSON := json.Unmarshal(b, &obj) == nil
+	// redactField: remove keys from top-level object (best-effort)
+	if isJSON {
+		changed := false
+		for _, o := range obs {
+			if strings.EqualFold(o.Type, "redactField") {
+				if key, ok := o.Value.(string); ok && key != "" {
+					if _, exists := obj[key]; exists {
+						delete(obj, key)
+						changed = true
+					}
+				}
+			}
+		}
+		if changed { if nb, err := json.Marshal(obj); err == nil { b = nb; raw = string(b) } }
+	}
+	// mask with regex pattern
+	for _, o := range obs {
+		if strings.EqualFold(o.Type, "mask") && (strings.EqualFold(o.Key, "pattern") || o.Key == "") {
+			if pat, ok := o.Value.(string); ok && strings.TrimSpace(pat) != "" {
+				if rx, err := regexp.Compile(pat); err == nil {
+					raw = rx.ReplaceAllString(raw, "[REDACTED]")
+				}
+			}
+		}
+	}
+	return json.RawMessage(raw)
 }
 
 func egressAllowed(raw string, p toolPrefs) bool {
