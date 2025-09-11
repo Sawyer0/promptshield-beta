@@ -41,6 +41,8 @@ func applyStandardMiddleware(r chi.Router, opt Options) {
 	// BFF JWT auth: trusts only tokens minted by the frontend service
 	r.Use(jwtAuthMiddleware)
 	r.Use(tenantContextMiddleware)
+	// Attach external PDP client (if configured) for authorization decisions
+	r.Use(pdpMiddleware)
 	r.Use(requestLoggerMiddleware)
 	// Enforce agent policies when tool calls are declared
 	r.Use(agentEnforcementMiddleware(opt))
