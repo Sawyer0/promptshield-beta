@@ -9,6 +9,7 @@ import (
 type InprocessConfig struct{
 	PolicyPath string
 	DataPath string
+	BundlePath string
 	EntryPoint string
 	Timeout time.Duration
 }
