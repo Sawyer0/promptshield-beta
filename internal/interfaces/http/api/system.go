@@ -21,11 +21,26 @@ func registerSystemHandlers(r chi.Router, opt Options) {
     r.Route("/admin/system", func(sr chi.Router) {
         sr.Use(adminAuth(opt))
 
-        sr.Get("/features", getFeaturesHandler(opt))
-        sr.Get("/stats", getSystemStatsHandler())
-        sr.Post("/drain", drainSystemHandler(opt))
-        sr.Post("/shutdown", shutdownSystemHandler(opt))
-        sr.Get("/info", getSystemInfoHandler(opt))
+sr.Get("/features", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.read", "system", "features", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            getFeaturesHandler(opt)(w,r)
+        })
+sr.Get("/stats", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.read", "system", "stats", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            getSystemStatsHandler()(w,r)
+        })
+sr.Post("/drain", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.drain", "system", "drain", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            drainSystemHandler(opt)(w,r)
+        })
+sr.Post("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.shutdown", "system", "shutdown", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            shutdownSystemHandler(opt)(w,r)
+        })
+sr.Get("/info", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.read", "system", "info", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            getSystemInfoHandler(opt)(w,r)
+        })
     })
 
 	// Debug and diagnostics endpoints (admin only)

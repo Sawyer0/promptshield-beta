@@ -21,7 +21,10 @@ func registerToolHandlers(r chi.Router, opt Options) {
             return
         }
 
-        tr.Get("/policies", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+tr.Get("/policies", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            if ok, reason := authorizePDP(r, "tool.policies.read", "tool_policies", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
             // Read from tenant_settings
             const q = `SELECT value FROM tenant_settings WHERE tenant_id=$1 AND key='tool_policies' LIMIT 1`
             var val sql.NullString
@@ -48,7 +51,10 @@ func registerToolHandlers(r chi.Router, opt Options) {
             _ = json.NewEncoder(w).Encode(map[string]any{"policies": []any{}})
         }))
 
-        tr.Put("/policies", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+tr.Put("/policies", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            if ok, reason := authorizePDP(r, "tool.policies.update", "tool_policies", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
             // Accept either { policies: [...] } or plain []
             var raw any
             if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {

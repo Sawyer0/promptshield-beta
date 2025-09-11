@@ -34,7 +34,10 @@ type RulepackMeta struct {
 
 func mountRulepacks(r chi.Router, opt Options) {
 	r.Route("/rulepacks", func(rr chi.Router) {
-		rr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+rr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            if ok, reason := authorizePDP(r, "rulepack.list", "rulepack", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
 			rulepacks, err := opt.RulepackService.List(r.Context(), tenantID)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
@@ -57,7 +60,10 @@ func mountRulepacks(r chi.Router, opt Options) {
 				slog.Error("Failed to encode rulepacks list response", "error", err)
 			}
 		}))
-		rr.Get("/active", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+rr.Get("/active", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            if ok, reason := authorizePDP(r, "rulepack.read_active", "rulepack", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
 			// Find the active rulepack from the list
 			rulepacks, err := opt.RulepackService.List(r.Context(), tenantID)
 			if err != nil {
@@ -88,7 +94,10 @@ func mountRulepacks(r chi.Router, opt Options) {
 		}))
 		rr.Group(func(a chi.Router) {
 			a.Use(adminAuth(opt))
-			a.Post("/validate", func(w http.ResponseWriter, r *http.Request) {
+a.Post("/validate", func(w http.ResponseWriter, r *http.Request) {
+                if ok, reason := authorizePDP(r, "rulepack.validate", "rulepack", "*", nil, true); !ok {
+                    writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+                }
 				body, err := io.ReadAll(r.Body)
 				if err != nil {
 					writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Failed to read request body", map[string]any{"error": err.Error()})
@@ -100,7 +109,10 @@ func mountRulepacks(r chi.Router, opt Options) {
 					slog.Error("Failed to encode validation response", "error", err)
 				}
 			})
-			a.Post("/", func(w http.ResponseWriter, r *http.Request) {
+a.Post("/", func(w http.ResponseWriter, r *http.Request) {
+                if ok, reason := authorizePDP(r, "rulepack.upload", "rulepack", "*", nil, true); !ok {
+                    writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+                }
 				// Idempotency handling
 				idemKey := r.Header.Get("Idempotency-Key")
 				if idemKey != "" {
@@ -295,7 +307,10 @@ func mountRulepacks(r chi.Router, opt Options) {
 				w.WriteHeader(http.StatusCreated)
 				_ = json.NewEncoder(w).Encode(meta)
 			})
-			a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
+a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
+                if ok, reason := authorizePDP(r, "rulepack.reload", "rulepack", "*", nil, true); !ok {
+                    writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+                }
 				path := r.URL.Query().Get("path")
 				if path == "" {
 					path = os.Getenv("PS_ENFORCER_RULEPACK")

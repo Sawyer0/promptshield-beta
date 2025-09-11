@@ -19,7 +19,14 @@ import (
 func registerAgentHandlers(r chi.Router, opt Options) {
 	r.Route("/api/agent", func(ar chi.Router) {
 		// Authorization for a tool action (Action-Selector, ArgContracts, RiskRules, Plan-Then-Execute)
-		ar.Post("/authorize", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+ar.Post("/authorize", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            var body struct{ ToolID string `json:"tool_id"` }
+            _ = json.NewDecoder(r.Body).Decode(&body)
+            // Allow if PDP not configured; fail-closed here
+            if ok, reason := authorizePDP(r, "tool.invoke", "tool", strings.TrimSpace(body.ToolID), map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                _ = json.NewEncoder(w).Encode(map[string]any{"allow": false, "reason": "pdp: "+reason})
+                return
+            }
 			if opt.RulepackService == nil || opt.DB == nil {
 				writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "service not available", nil, r)
 				return
@@ -166,7 +173,10 @@ func registerAgentHandlers(r chi.Router, opt Options) {
 		}))
 
 		// Context-Minimization policy endpoint for clients to fetch masking instructions
-		ar.Get("/context-policy", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+ar.Get("/context-policy", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+            if ok, reason := authorizePDP(r, "policy.read", "context_policy", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
+            }
 			if opt.RulepackService == nil {
 				writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "service not available", nil, r)
 				return
