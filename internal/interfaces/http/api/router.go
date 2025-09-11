@@ -17,6 +17,7 @@ import (
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/usage"
 	"github.com/promptshield/promptshield/internal/version"
+	"github.com/promptshield/promptshield/internal/pdp"
 )
 
 // Router
@@ -140,6 +141,28 @@ func registerStandardEndpoints(r chi.Router) {
 }
 
 // registerAdminEndpoints registers administrative endpoints with token auth
+
+// pdpEpochHandler updates the PDP cache epoch at runtime
+func pdpEpochHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Epoch string `json:"epoch"` }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if strings.TrimSpace(body.Epoch) == "" { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "epoch is required", nil, r); return }
+		pdp.SetPolicyEpoch(body.Epoch)
+		writeJSON(w, http.StatusNoContent, nil, r)
+	}
+}
+
+// pdpReloadHandler rebuilds the PDP client from current env (refresh mode/endpoint/policy)
+func pdpReloadHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Build a new client and swap it in
+		c := buildPDPClientForAdmin()
+		if c == nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to initialize PDP", nil, r); return }
+		pdpClient = c
+		writeJSON(w, http.StatusNoContent, nil, r)
+	}
+}
 func registerAdminEndpoints(r chi.Router, opt Options) {
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
@@ -148,6 +171,9 @@ func registerAdminEndpoints(r chi.Router, opt Options) {
 		a.Post("/admin/drain", drainHandler(opt))
 		a.Post("/admin/shutdown", shutdownHandler(opt))
 		a.Post("/admin/tool-policies/flush", toolPolicyFlushHandler(opt))
+		// PDP admin
+		a.Post("/admin/pdp/epoch", pdpEpochHandler())
+		a.Post("/admin/pdp/reload", pdpReloadHandler())
 	})
 }
 
