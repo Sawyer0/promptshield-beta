@@ -25,6 +25,7 @@ type RulepackRepository interface {
 	GetActive(ctx context.Context, packID uuid.UUID) (json.RawMessage, int, error)
 	Activate(ctx context.Context, packID, versionID uuid.UUID) error
 	GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error)
+	GetVersionIDByNumber(ctx context.Context, packID uuid.UUID, version int) (uuid.UUID, error)
 	GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error)
 	ActivateLatest(ctx context.Context, packID uuid.UUID) error
 	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]RulepackInfo, error)

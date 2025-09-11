@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/repository"
 )
 
 // mockRulepackRepo is a minimal mock for testing
@@ -66,8 +67,11 @@ func (m *mockRulepackRepo) PurgeOldVersions(ctx context.Context, packID uuid.UUI
 }
 
 func TestVersion(t *testing.T) {
-	mockRepo := &mockRulepackRepo{}
-	svc := services.RulepackServiceCstor(mockRepo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/version")
@@ -80,14 +84,18 @@ func TestVersion(t *testing.T) {
 }
 
 func TestRulepacksListEmpty(t *testing.T) {
-	// Create a mock service that returns empty list
-	mockRepo := &mockRulepackRepo{}
-	svc := &services.RulepackService{}
-	svc = services.RulepackServiceCstor(mockRepo, nil)
+	// Create a service that returns empty list
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/rulepacks/")
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rulepacks/", nil)
+	req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +105,11 @@ func TestRulepacksListEmpty(t *testing.T) {
 }
 
 func TestConfigGetPutReset(t *testing.T) {
-	mockRepo := &mockRulepackRepo{}
-	svc := services.RulepackServiceCstor(mockRepo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, AdminToken: "x", RulepackService: svc}))
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/config/")
@@ -133,11 +144,16 @@ func TestConfigGetPutReset(t *testing.T) {
 }
 
 func TestCheckAllow(t *testing.T) {
-	mockRepo := &mockRulepackRepo{}
-	svc := services.RulepackServiceCstor(mockRepo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
-	resp, err := http.Post(srv.URL+"/check", "text/plain", bytes.NewBufferString("hello"))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/check", bytes.NewBufferString("hello"))
+	req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,15 +163,21 @@ func TestCheckAllow(t *testing.T) {
 }
 
 func TestScanAggregateJSONAndNDJSON(t *testing.T) {
-	mockRepo := &mockRulepackRepo{}
-	svc := services.RulepackServiceCstor(mockRepo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
 
 	// Aggregate JSON array input
 	arr := []string{"hello", "world"}
 	b, _ := json.Marshal(arr)
-	resp, err := http.Post(srv.URL+"/scan", "application/json", bytes.NewReader(b))
+	req1, _ := http.NewRequest(http.MethodPost, srv.URL+"/check", bytes.NewReader(b))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	resp, err := http.DefaultClient.Do(req1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +199,8 @@ func TestScanAggregateJSONAndNDJSON(t *testing.T) {
 
 	// NDJSON streaming with aggregate=false
 	nd := "one\nsecond\n"
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/scan?aggregate=false", strings.NewReader(nd))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/check?aggregate=false", strings.NewReader(nd))
+	req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	sresp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -207,8 +230,11 @@ func TestScanAggregateJSONAndNDJSON(t *testing.T) {
 
 func TestSSEEventStreamingAndFiltering(t *testing.T) {
 	hub := NewEventHub()
-	mockRepo := &mockRulepackRepo{}
-	svc := services.RulepackServiceCstor(mockRepo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, Events: hub, RulepackService: svc}))
 	defer srv.Close()
 
@@ -250,9 +276,12 @@ func TestSSEEventStreamingAndFiltering(t *testing.T) {
 }
 
 func TestRulepacksUploadMultipart(t *testing.T) {
-	// Create a mock service
-	mockRepo := &mockRulepackRepo{}
-	svc := services.RulepackServiceCstor(mockRepo, nil)
+	// Create a service
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()
@@ -298,8 +327,11 @@ func TestRulepacksUploadMultipart(t *testing.T) {
 
 func TestAdminShutdownDelayHandling(t *testing.T) {
 	delays := make(chan time.Duration, 1)
-	mockRepo := &mockRulepackRepo{}
-	svc := services.RulepackServiceCstor(mockRepo, nil)
+	factory, err := repository.NewTestRepositoryFactory(nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create test repository factory: %v", err)
+	}
+	svc := services.RulepackServiceFromFactory(factory, nil)
 	srv := httptest.NewServer(NewMux(Options{
 		AllowInsecureAdmin: true,
 		RulepackService:    svc,

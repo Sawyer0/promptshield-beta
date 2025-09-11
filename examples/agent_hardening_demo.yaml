@@ -1,0 +1,108 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: "agent-hardening-demo"
+  version: "1.0.0"
+  description: "Complete demonstration of Agent Hardening Patterns"
+  author: "PromptShield Team"
+
+# Standard security rules
+rules:
+  - id: "prompt-injection"
+    level: 1
+    keywords: ["ignore previous instructions", "reveal system prompt", "bypass security"]
+    severity: "HIGH"
+    message: "Prompt injection attempt detected"
+
+  - id: "pii-ssn"
+    level: 2
+    patterns:
+      - regex: '\b\d{3}-\d{2}-\d{4}\b'
+    severity: "CRITICAL"
+    message: "Social Security Number detected"
+
+  - id: "api-key-leak"
+    level: 2
+    patterns:
+      - regex: 'sk-[A-Za-z0-9]{48}'
+    severity: "HIGH"
+    message: "API key detected in content"
+    response:
+      action: "redact"
+      replacement: "[REDACTED-API-KEY]"
+
+# Agent Hardening Patterns
+patterns:
+  # 1. Action Selector - Controls which tools agents can use
+  action_selector:
+    enabled: true
+    mode: "allowlist"
+    allowed_tool_query: "capability_tags:read OR data_domains:public"
+    per_action_timeout_ms: 5000
+    per_action_rate_limit: 10
+
+  # 2. Context Minimization - Strips sensitive context from requests
+  context_minimization:
+    enabled: true
+    strip_point: "after_tool_selection"  # when to apply minimization
+    step: 1
+    mask_token: "<CONTEXT_MASKED>"
+    retain:
+      - '\b\w+@\w+\.\w+\b'  # emails
+      - '\b\d{4}-\d{4}-\d{4}-\d{4}\b'  # credit cards (for specific use cases)
+
+  # 3. Plan-Then-Execute - Validates execution plans before action
+  plan_then_execute:
+    enabled: true
+    max_steps: 10
+    drift_policy: "strict"  # reject deviations from plan
+    plan_hash_header: "X-PS-Plan-Hash"
+    signature:
+      type: "hmac-sha256"
+      key_ref: "plan_signing_key"
+
+  # 4. Map-Reduce - Handles large document processing safely
+  map_reduce:
+    enabled: true
+    map_unit: "paragraph"  # chunk by: paragraph|sentence|line|token|semantic
+    map_output: "violations"
+    text_max_tokens: 2000  # max tokens per chunk
+    reduce_type: "union"   # combine strategy: union|intersection|highest_severity|count_based|consensus
+
+  # 5. Dual LLM - Separates privileged and quarantined execution lanes
+  dual_llm:
+    enabled: true
+    quarantined_tools_disabled: false  # allow read-only tools on quarantined lane
+    bridge_handles_only: true  # only bridge handles cross-lane communication
+
+# Preset configuration for common agent scenarios
+preset:
+  preset_id: "secure_research_agent"
+  mode: "strict"
+  arg_contracts:
+    - "ids_only_updates"      # only allow ID-based updates
+    - "free_text_limited_500" # limit free text to 500 chars
+    - "enum_only_templates"   # require enum values for templates
+  risk_rules:
+    approval_side_effect: "irreversible"  # require approval for irreversible actions
+    domain_allowlist:
+      - "wikipedia.org"
+      - "arxiv.org"
+      - "github.com"
+  overrides:
+    max_file_size_mb: 10
+    timeout_seconds: 30
+
+# Composition strategy
+composition:
+  strategy: "priority_order"
+  priority: 100
+
+# Performance settings
+performance:
+  timeout: "10s"
+  per_rule_timeout: "2s"
+  max_length: 100000
+  gate:
+    enabled: true
+    min_token_len: 3

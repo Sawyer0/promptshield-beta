@@ -2,9 +2,10 @@ package grpcenforcer_test
 
 import (
 	"context"
+	"io"
+	"net"
 	"testing"
 	"time"
-	"net"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproc "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
+	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/testutil/fixtures"
 )
 
@@ -29,9 +31,14 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         500 * time.Millisecond,
 		MaxStreamBytes:  1024 * 1024,
-		FailOn:          "HIGH",
+		FailOn:          "LOW",
 		EnforcementMode: "enforce",
 	})
+	// Load minimal rules for prompt injection detection
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "test-pack", Version: "1.0.0"},
+		Rules:    []rules.Rule{{ID: "test-prompt-injection", Level: 1, Severity: "HIGH", Keywords: []string{"ignore previous instructions", "reveal your system prompt"}}},
+	}})
 
 	// Set up in-memory gRPC server
 	lis := bufconn.Listen(1024 * 1024)
@@ -100,30 +107,33 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Expect blocking response
-		resp, err := stream.Recv()
-		require.NoError(t, err)
+		// Send request trailers to flush processing
+		_ = stream.Send(&extproc.ProcessingRequest{Request: &extproc.ProcessingRequest_RequestTrailers{RequestTrailers: &extproc.HttpTrailers{}}})
 
-		// Should receive immediate response (blocked)
-		if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
-			assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
-
-			// Check for detailed blocking response
-			body := string(immediateResp.Body)
-			assert.Contains(t, body, "blocked")
-			assert.Contains(t, body, "PromptShield")
-
-			// Check headers
-			headers := immediateResp.Headers.GetSetHeaders()
-			var hasDecisionHeader bool
-			for _, header := range headers {
-				if header.Header.Key == "x-ps-decision" {
-					hasDecisionHeader = true
-					break
+		// Consume responses until ImmediateResponse is observed
+		found := false
+		for i := 0; i < 10; i++ {
+			resp, err := stream.Recv()
+			require.NoError(t, err)
+			if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
+				assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
+				body := string(immediateResp.Body)
+				assert.Contains(t, body, "blocked")
+				assert.Contains(t, body, "PromptShield")
+				headers := immediateResp.Headers.GetSetHeaders()
+				var hasDecisionHeader bool
+				for _, header := range headers {
+					if header.Header.Key == "x-ps-decision" {
+						hasDecisionHeader = true
+						break
+					}
 				}
+				assert.True(t, hasDecisionHeader, "Should have x-ps-decision header")
+				found = true
+				break
 			}
-			assert.True(t, hasDecisionHeader, "Should have x-ps-decision header")
-		} else {
+		}
+		if !found {
 			t.Fatal("Expected immediate response for blocked request")
 		}
 	})
@@ -194,8 +204,18 @@ func TestIntegration_ResponseScanning(t *testing.T) {
 
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         500 * time.Millisecond,
+		FailOn:          "LOW",
 		EnforcementMode: "enforce",
 	})
+	// Load rule to redact API keys in responses
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "resp-pack", Version: "1.0.0"},
+		Rules: []rules.Rule{{
+			ID: "leak-api-key", Level: 2, Severity: "HIGH",
+			Patterns: []rules.Pattern{{Regex: "sk-proj-[A-Za-z0-9]+", Flags: []string{"ignorecase"}}},
+			Response: &rules.Response{Action: "redact", Message: "API key redacted"},
+		}},
+	}})
 
 	lis := bufconn.Listen(1024 * 1024)
 	s := grpc.NewServer()
@@ -284,8 +304,14 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:        2 * time.Second,
+		FailOn:         "LOW",
 		MaxStreamBytes: 64 * 1024, // 64KB limit
 	})
+	// Load minimal rules for prompt injection detection
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "test-pack", Version: "1.0.0"},
+		Rules:    []rules.Rule{{ID: "test-prompt-injection", Level: 1, Severity: "HIGH", Keywords: []string{"ignore previous instructions", "reveal your system prompt"}}},
+	}})
 
 	lis := bufconn.Listen(1024 * 1024)
 	s := grpc.NewServer()
@@ -353,35 +379,32 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-
-			// Check if we get an immediate response (blocked)
-			select {
-			case <-ctx.Done():
-				t.Fatal("Context timeout")
-			default:
-				// Try to receive (non-blocking)
-				resp, err := stream.Recv()
-				if err != nil {
-					// Expected for streaming - continue
-					continue
-				}
-
+			// Opportunistically check for an immediate response during streaming
+			if resp, err := stream.Recv(); err == nil {
 				if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
-					// Request was blocked due to malicious content
 					assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
 					return
 				}
 			}
 		}
-
-		// If we get here, the stream should have been blocked
-		// Try one more receive to get the final decision
-		resp, err := stream.Recv()
-		if err == nil {
+		// Flush processing and read until we see ImmediateResponse or EOF
+		_ = stream.Send(&extproc.ProcessingRequest{Request: &extproc.ProcessingRequest_RequestTrailers{RequestTrailers: &extproc.HttpTrailers{}}})
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			resp, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				// continue loop on transient errors
+				continue
+			}
 			if immediateResp := resp.GetImmediateResponse(); immediateResp != nil {
 				assert.Equal(t, typev3.StatusCode_Forbidden, immediateResp.Status.Code)
+				return
 			}
 		}
+		t.Fatalf("expected ImmediateResponse Forbidden for streamed malicious content")
 	})
 }
 
@@ -393,8 +416,14 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         1 * time.Second,
+		FailOn:          "LOW",
 		EnforcementMode: "enforce",
 	})
+	// Load minimal rules for prompt injection detection
+	server.LoadTestRules([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "test-pack", Version: "1.0.0"},
+		Rules:    []rules.Rule{{ID: "test-prompt-injection", Level: 1, Severity: "HIGH", Keywords: []string{"ignore previous instructions", "reveal your system prompt"}}},
+	}})
 
 	lis := bufconn.Listen(1024 * 1024)
 	s := grpc.NewServer()
@@ -473,21 +502,28 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 				return
 			}
 
-			// Receive response
-			resp, err := stream.Recv()
-			if err != nil {
-				results <- false
-				return
+			// Send trailers to flush
+			_ = stream.Send(&extproc.ProcessingRequest{Request: &extproc.ProcessingRequest_RequestTrailers{RequestTrailers: &extproc.HttpTrailers{}}})
+			// Read until EOF or ImmediateResponse
+			blocked := false
+			for {
+				resp, err := stream.Recv()
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					results <- false
+					return
+				}
+				if immediate := resp.GetImmediateResponse(); immediate != nil {
+					blocked = (immediate.Status.Code == typev3.StatusCode_Forbidden)
+					break
+				}
 			}
-
-			// Validate response based on content
 			if streamID%2 == 0 {
-				// Should be blocked
-				immediateResp := resp.GetImmediateResponse()
-				results <- immediateResp != nil && immediateResp.Status.Code == typev3.StatusCode_Forbidden
+				results <- blocked
 			} else {
-				// Should be allowed
-				results <- resp.GetImmediateResponse() == nil
+				results <- !blocked
 			}
 		}(i)
 	}

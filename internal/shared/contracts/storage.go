@@ -41,14 +41,14 @@ type PolicyRepository interface {
 	ListWithFilter(ctx context.Context, filter map[string]interface{}) ([]*types.Policy, int, error)
 }
 
-// PolicyAssignmentRepository defines operations for policy assignments
-type PolicyAssignmentRepository interface {
-	Create(ctx context.Context, assignment *types.PolicyAssignment) error
-	Get(ctx context.Context, id uuid.UUID) (*types.PolicyAssignment, error)
-	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*types.PolicyAssignment, error)
-	ListByPolicy(ctx context.Context, policyID uuid.UUID) ([]*types.PolicyAssignment, error)
-	ListByScope(ctx context.Context, tenantID uuid.UUID, scope string) ([]*types.PolicyAssignment, error)
-	Update(ctx context.Context, assignment *types.PolicyAssignment) error
+// RulepackAssignmentRepository defines operations for rulepack assignments
+type RulepackAssignmentRepository interface {
+	Create(ctx context.Context, assignment *types.RulepackAssignment) error
+	Get(ctx context.Context, id uuid.UUID) (*types.RulepackAssignment, error)
+	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*types.RulepackAssignment, error)
+	ListByPolicy(ctx context.Context, policyID uuid.UUID) ([]*types.RulepackAssignment, error)
+	ListByScope(ctx context.Context, tenantID uuid.UUID, scope string) ([]*types.RulepackAssignment, error)
+	Update(ctx context.Context, assignment *types.RulepackAssignment) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	DeleteByTenantAndPolicy(ctx context.Context, tenantID, policyID uuid.UUID) error
 }
@@ -111,4 +111,3 @@ type Migrator interface {
 	// Rollback to a specific migration version
 	RollbackTo(ctx context.Context, version string) error
 }
-

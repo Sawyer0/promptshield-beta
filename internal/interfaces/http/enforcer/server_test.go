@@ -25,7 +25,10 @@ func TestCheckDecisionHeadersAndBody(t *testing.T) {
 	srv := httptest.NewServer(NewMux())
 	defer srv.Close()
 	// Send a simple body with no violations expected
-	resp, err := http.Post(srv.URL+"/check", "text/plain", bytes.NewBufferString("hello world"))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/check", bytes.NewBufferString("hello world"))
+	req.Header.Set("X-Request-ID", "test-id-1234")
+	req.Header.Set("X-PS-Tenant-ID", "00000000-0000-0000-0000-000000000001")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

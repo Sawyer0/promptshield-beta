@@ -194,6 +194,36 @@ make tidy
 make test
 ```
 
+#### One-command Dev (UI + Gateway)
+
+Use the provided `.env.dev` (edit `PS_PG_DSN`) and run both services with auth bypass:
+
+```bash
+cp .env.dev .env.dev.local  # optional backup; edit .env.dev with your DB DSN
+make dev
+```
+
+What it does:
+- Starts the Go gateway on `127.0.0.1:8098` with `PS_DEV_BYPASS_AUTH=true`
+- Starts the Frontend BFF + Vite client on `http://localhost:3000` with `VITE_DEV_BYPASS_AUTH=true`
+- Synthesizes a “Dev Tenant” for the selector, or set `PS_DEV_TENANTS` to list multiple
+
+#### Dev Auth Bypass (for UI/backend iteration)
+
+To completely bypass authentication during local development, set:
+
+```bash
+export PS_DEV_BYPASS_AUTH=true
+# Optional overrides
+export PS_DEV_USER_ID=dev-user
+export PS_DEV_USER_NAME="Dev User"
+export PS_DEV_TENANT_ID=00000000-0000-0000-0000-000000000000  # if you want a fixed tenant id
+export PS_DEV_ROLES=admin                                   # comma-separated roles
+export PS_DEV_IS_ADMIN=true                                 # sets X-PS-User-Admin: true
+```
+
+With bypass enabled, the gateway injects a stub user/tenant into request headers and skips JWT validation. Admin endpoints remain accessible. If you hit `/v1/tenants/my` without memberships, the server will return all tenants to simplify UI work.
+
 ### License
 
 Copyright © 2025 PromptShield authors.

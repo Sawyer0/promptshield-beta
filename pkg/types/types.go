@@ -10,10 +10,14 @@ type Violation struct {
 	// Optional time budget applied to this rule during evaluation, in milliseconds
 	RuleTimeoutMs int64 `json:"rule_timeout_ms,omitempty"`
 	// Optional metadata from rule definition
-	Category            string `json:"category,omitempty"`
-	ResponseAction      string `json:"response_action,omitempty"`
-	ResponseMessage     string `json:"response_message,omitempty"`
-	ResponseReplacement string `json:"response_replacement,omitempty"`
+	Category            string                 `json:"category,omitempty"`
+	ResponseAction      string                 `json:"response_action,omitempty"`
+	ResponseMessage     string                 `json:"response_message,omitempty"`
+	ResponseReplacement string                 `json:"response_replacement,omitempty"`
+	// Extended fields for downstream policy bridges (non-breaking additions)
+	Level      int                    `json:"level,omitempty"`
+	Confidence float64                `json:"confidence,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // Metrics captures lightweight scan metrics for observability.

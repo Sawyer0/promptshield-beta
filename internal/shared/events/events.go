@@ -85,8 +85,8 @@ type PolicyUpdated struct {
 
 type PolicyAssigned struct {
 	BaseEvent
-	Assignment types.PolicyAssignment `json:"assignment"`
-	AssignedBy *uuid.UUID             `json:"assigned_by,omitempty"`
+	Assignment types.RulepackAssignment `json:"assignment"`
+	AssignedBy *uuid.UUID               `json:"assigned_by,omitempty"`
 }
 
 type PolicyUnassigned struct {
@@ -105,9 +105,9 @@ type PolicyDeleted struct {
 
 type PolicyActivated struct {
 	BaseEvent
-	PolicyID    uuid.UUID     `json:"policy_id"`
-	PolicyData  types.Policy  `json:"policy"`
-	ActivatedBy *uuid.UUID    `json:"activated_by,omitempty"`
+	PolicyID    uuid.UUID    `json:"policy_id"`
+	PolicyData  types.Policy `json:"policy"`
+	ActivatedBy *uuid.UUID   `json:"activated_by,omitempty"`
 }
 
 type PolicyDeactivated struct {
@@ -136,7 +136,7 @@ type ViolationDetected struct {
 	Violations []types.PolicyViolation `json:"violations"`
 	ScanResult types.ScanResult        `json:"scan_result"`
 	// Provider removed - Security Gateway doesn't manage providers
-	Endpoint   string                  `json:"endpoint,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 type RequestBlocked struct {
@@ -145,7 +145,7 @@ type RequestBlocked struct {
 	Reason     string                  `json:"reason"`
 	Violations []types.PolicyViolation `json:"violations,omitempty"`
 	// Provider removed - Security Gateway doesn't manage providers
-	Endpoint   string                  `json:"endpoint,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 type RequestAllowed struct {

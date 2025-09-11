@@ -82,9 +82,8 @@ type CompletionRequest struct {
 type Provider string
 
 const (
-	ProviderOpenAI    Provider = "openai"
-	ProviderAnthropic Provider = "anthropic"
-	ProviderAzure     Provider = "azure"
+	ProviderOpenAI Provider = "openai"
+	ProviderAzure  Provider = "azure"
 )
 
 // ProviderError represents structured errors from LLM providers

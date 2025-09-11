@@ -1,11 +1,13 @@
 package scanner
 
 import (
-	"context"
-	"time"
+    "context"
+    "os"
+    "strings"
+    "time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-	"github.com/promptshield/promptshield/internal/rules"
+    lru "github.com/hashicorp/golang-lru/v2"
+    "github.com/promptshield/promptshield/internal/rules"
 )
 
 // SemanticAnalyzer defines the minimal interface for level-3 rule evaluation.
@@ -22,14 +24,18 @@ type semanticCacheEntry struct {
 }
 
 // evaluateSemantic applies a semantic analyzer with proper timeouts and fallback regexes.
-func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) bool {
+// Returns (matched, confidence). Confidence is meaningful when matched via semantic L3.
+func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) (bool, float64) {
 	if cr.semantic == nil || s.semantic == nil {
-		return false
+		return false, 0
 	}
 	// License/feature gating is enforced at runtime layers (gateway/CLI).
 	// The core scanner remains feature-agnostic to preserve testability and OSS usability.
-	// Derive timeout
-	var timeout time.Duration
+    // Parent context for request-scoped values (tenant, tracing)
+    parent := context.Background()
+    if s.baseCtx != nil { parent = s.baseCtx }
+    // Derive timeout
+    var timeout time.Duration
 	if cr.timeoutMs > 0 {
 		timeout = time.Duration(cr.timeoutMs) * time.Millisecond
 	} else if s.fileTimeout > 0 {
@@ -45,23 +51,28 @@ func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) 
 	if cr.semantic != nil && s.semanticCaches != nil && cr.cacheEnabled {
 		if c, ok := s.semanticCaches[cr.id]; ok && c != nil {
 			key := line // simple key; upstream analyzers also normalize and include prompt
-			if ce, hit := c.Get(key); hit {
-				if time.Now().Before(ce.expiresAt) {
-					cachedOk = ce.ok
-					_ = ce.conf
+				if ce, hit := c.Get(key); hit {
+					if time.Now().Before(ce.expiresAt) {
+						cachedOk = ce.ok
+						conf := ce.conf
 					if s.logger != nil {
 						s.logger.Debug("semantic cache hit (rule)", "rule", cr.id)
 					}
-					if cachedOk {
-						return true
-					}
+						if cachedOk {
+							return true, conf
+						}
 				} else {
 					c.Remove(key)
 				}
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	// Global policy: require cache hit only (skip remote L3) when enabled
+	reqCache := strings.ToLower(strings.TrimSpace(os.Getenv("PS_SEMANTIC_REQUIRE_CACHE_HIT")))
+	if reqCache == "1" || reqCache == "true" || reqCache == "yes" {
+		return false, 0
+	}
+    ctx, cancel := context.WithTimeout(parent, timeout)
 	ok, conf, err := s.semantic.Analyze(ctx, line, *cr.semantic)
 	cancel()
 	if err == nil && ok {
@@ -87,7 +98,7 @@ func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) 
 		if s.logger != nil {
 			s.logger.Debug("semantic match", "rule", cr.id, "confidence", conf)
 		}
-		return true
+		return true, conf
 	}
 	// If API error and rule allows fallback_on_error, continue to fallback
 	if err != nil {
@@ -95,7 +106,7 @@ func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) 
 			s.logger.Debug("semantic error", "rule", cr.id, "err", err.Error())
 		}
 		if !cr.semantic.FallbackOnError {
-			return false
+			return false, 0
 		}
 	}
 	// Always evaluate fallback regexes even on SAFE to catch heuristic patterns
@@ -107,13 +118,13 @@ func (s *Scanner) evaluateSemantic(line string, cr compiledRule, matchCol *int) 
 			if s.logger != nil {
 				s.logger.Debug("semantic fallback matched", "rule", cr.id, "action", cr.fallbackAction)
 			}
-			return true
+			return true, 0
 		}
 	}
 	if s.logger != nil {
 		s.logger.Debug("semantic no match", "rule", cr.id, "err", err != nil)
 	}
-	return false
+	return false, 0
 }
 
 // SetSemanticAnalyzer injects a semantic analyzer implementation.

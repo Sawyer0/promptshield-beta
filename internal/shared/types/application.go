@@ -145,17 +145,21 @@ type RequestContext struct {
 // ValidationResult represents the result of validation
 type ValidationResult struct {
 	Valid   bool                   `json:"valid"`
-	Errors  []ValidationError      `json:"errors,omitempty"`
-	Warnings []ValidationWarning   `json:"warnings,omitempty"`
+	Errors  []*ValidationError      `json:"errors,omitempty"`
+	Warnings []*ValidationWarning   `json:"warnings,omitempty"`
 	Context map[string]interface{} `json:"context,omitempty"`
 }
 
 // ValidationError represents a validation error
 type ValidationError struct {
-	Field   string `json:"field"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Value   interface{} `json:"value,omitempty"`
+	Field       string      `json:"field"`
+	Code        string      `json:"code"`
+	Type        string      `json:"type"`
+	Message     string      `json:"message"`
+	Description string      `json:"description"`
+	Value       interface{} `json:"value,omitempty"`
+	Expected    interface{} `json:"expected,omitempty"`
+	Actual      interface{} `json:"actual,omitempty"`
 }
 
 // ValidationWarning represents a validation warning

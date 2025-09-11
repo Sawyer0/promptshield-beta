@@ -1,0 +1,184 @@
+here are the violation/dashboard endpoints available for users:
+
+  Audit Trail & Violation Tracking Endpoints:
+
+  Core Audit/Violation Endpoints:
+
+  // List audit events for tenant (includes violations)
+  GET /api/v1/admin/audits?tenant={tenant_id}&limit=100
+
+  // Search audit events with filters
+  POST /api/v1/admin/audits/search
+  {
+    "tenant_id": "tenant-uuid",
+    "actions": ["request.decision", "scan.decision"],  // Filter for violations
+    "start_time": "2024-01-01T00:00:00Z",
+    "end_time": "2024-01-31T23:59:59Z",
+    "limit": 100,
+    "offset": 0
+  }
+
+  // Export audit events (violations)
+  GET /api/v1/admin/audits/export?tenant={tenant_id}&format=json&limit=10000
+
+  // Get audit history for specific object (rulepack, policy, etc.)
+  GET /api/v1/admin/audits/object/{type}/{objectId}
+
+  Violation Data Structure:
+
+  // Audit events contain violation information
+  {
+    "events": [
+      {
+        "id": "uuid",
+        "tenant_id": "tenant-uuid",
+        "action": "request.decision",        // or "scan.decision"
+        "object_type": "request",
+        "object_id": "uuid",
+        "actor_id": "user-uuid",
+        "actor_email": "user@company.com",
+        "metadata": {
+          "path": "/v1/chat/completions",
+          "decision": "deny",               // "allow", "deny", "quarantine"
+          "reason": "prompt_injection",     // Rule that triggered
+          "violations": 3,                  // Number of violations
+          "status": 403
+        },
+        "created_at": "2024-01-15T10:30:00Z"
+      }
+    ]
+  }
+
+  Frontend Dashboard Integration:
+
+  class ViolationDashboard {
+    constructor(apiBase, headers) {
+      this.apiBase = apiBase;
+      this.headers = headers;
+    }
+
+    // Get recent violations for dashboard
+    async getRecentViolations(limit = 50) {
+      const response = await fetch(`${this.apiBase}/admin/audits/search`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          tenant_id: this.tenantId,
+          actions: ["request.decision", "scan.decision"],
+          limit: limit
+        })
+      });
+      return response.json();
+    }
+
+    // Get violation statistics
+    async getViolationStats(startDate, endDate) {
+      const response = await fetch(`${this.apiBase}/admin/audits/search`, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify({
+          tenant_id: this.tenantId,
+          actions: ["request.decision"],
+          start_time: startDate.toISOString(),
+          end_time: endDate.toISOString(),
+          limit: 10000  // Get all for stats
+        })
+      });
+
+      const data = await response.json();
+      return this.calculateStats(data.events);
+    }
+
+    // Calculate dashboard metrics
+    calculateStats(events) {
+      const stats = {
+        totalRequests: events.length,
+        blocked: 0,
+        quarantined: 0,
+        allowed: 0,
+        topRules: {},
+        hourlyBreakdown: {}
+      };
+
+      events.forEach(event => {
+        const decision = event.metadata?.decision || 'allow';
+        const reason = event.metadata?.reason;
+        const hour = new Date(event.created_at).getHours();
+
+        // Count decisions
+        stats[decision] = (stats[decision] || 0) + 1;
+
+        // Top triggered rules
+        if (reason && reason !== 'no_signals') {
+          stats.topRules[reason] = (stats.topRules[reason] || 0) + 1;
+        }
+
+        // Hourly breakdown
+        stats.hourlyBreakdown[hour] = (stats.hourlyBreakdown[hour] || 0) + 1;
+      });
+
+      return stats;
+    }
+
+    // Export violations for compliance
+    async exportViolations(format = 'json') {
+      const response = await fetch(
+        `${this.apiBase}/admin/audits/export?tenant=${this.tenantId}&format=${format}`,
+        { headers: this.headers }
+      );
+
+      if (format === 'json') {
+        return response.json();
+      } else {
+        return response.text(); // CSV
+      }
+    }
+  }
+
+  Dashboard UI Components:
+
+  // Violation dashboard showing key metrics
+  const ViolationDashboard = () => {
+    const [stats, setStats] = useState({});
+    const [recentViolations, setRecentViolations] = useState([]);
+
+    return (
+      <div>
+        <h2>Security Dashboard</h2>
+
+        {/* Key metrics */}
+        <div className="metrics-grid">
+          <MetricCard title="Total Requests" value={stats.totalRequests} />
+          <MetricCard title="Blocked" value={stats.blocked} color="red" />
+          <MetricCard title="Quarantined" value={stats.quarantined} color="yellow" />
+          <MetricCard title="Allowed" value={stats.allowed} color="green" />
+        </div>
+
+        {/* Top triggered rules */}
+        <TopRulesChart data={stats.topRules} />
+
+        {/* Recent violations table */}
+        <RecentViolationsTable violations={recentViolations} />
+
+        {/* Export button */}
+        <ExportButton onExport={handleExport} />
+      </div>
+    );
+  };
+
+  Real-time Violation Alerts:
+
+  The enforcement endpoints also publish events that can be used for real-time alerts:
+
+  // Listen for real-time violation events
+  const eventSource = new EventSource(`/api/v1/events?tenant=${tenantId}`);
+
+  eventSource.addEventListener('decision', (event) => {
+    const decision = JSON.parse(event.data);
+
+    if (decision.decision === 'deny' || decision.decision === 'quarantine') {
+      showViolationAlert(decision);
+    }
+  });
+
+  This gives customers a complete security dashboard showing violations, trends, top triggered rules, and compliance exports - all automatically filtered by their tenant.

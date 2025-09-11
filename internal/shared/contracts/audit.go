@@ -131,6 +131,9 @@ type AuditCompliance interface {
 
 	// ArchiveForCompliance archives data for compliance requirements
 	ArchiveForCompliance(ctx context.Context, timeRange types.TimeRange) error
+
+	// GenerateComplianceReport generates comprehensive compliance reports
+	GenerateComplianceReport(ctx context.Context, standard string, timeRange types.TimeRange) (*types.ComplianceReport, error)
 }
 
 // AuditNotifier defines the interface for audit-based notifications

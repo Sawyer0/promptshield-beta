@@ -1,24 +1,25 @@
 package api
 
 import (
-	"context"
-	"log/slog"
-	"net/http"
-	"time"
+    "context"
+    "log/slog"
+    "net/http"
+    "os"
+    "strings"
+    "time"
 
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
+    "github.com/go-chi/chi/v5/middleware"
+    "github.com/google/uuid"
+    "go.opentelemetry.io/otel/attribute"
+    "go.opentelemetry.io/otel/trace"
 )
 
 // Context keys
 type contextKey string
 
 const (
-	correlationIDKey contextKey = "correlation_id"
-	tenantIDKey      contextKey = "tenant_id"
-	userIDKey        contextKey = "user_id"
+    correlationIDKey contextKey = "correlation_id"
+    tenantIDKey      contextKey = "tenant_id"
 )
 
 // correlationIDMiddleware adds correlation ID to requests with tracing support
@@ -102,14 +103,81 @@ func requestLoggerMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// rateLimitMiddleware applies simple rate limiting for Security Gateway
-func rateLimitMiddleware(quotaStore interface{}) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Security Gateway uses simple environment-based rate limiting
-			// Rate limiting is handled by PS_ENFORCER_RPS environment variable
-			// Complex per-tenant quota management removed for simplicity
-			next.ServeHTTP(w, r)
-		})
+// Removed legacy rateLimitMiddleware (unused)
+
+// getCorrelationID extracts correlation ID from request context
+func getCorrelationID(r *http.Request) string {
+	if r == nil {
+		return ""
 	}
+	
+	if v := r.Context().Value(correlationIDKey); v != nil {
+		if id, ok := v.(string); ok {
+			return id
+		}
+	}
+	
+	// Fallback to header
+	if id := r.Header.Get("X-PS-Correlation-ID"); id != "" {
+		return id
+	}
+	
+	return ""
+}
+
+// corsMiddleware handles Cross-Origin Resource Sharing for frontend access
+func corsMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        origin := r.Header.Get("Origin")
+        
+        // Allow requests from frontend development server
+        allowedOrigins := []string{
+            // Common dev ports
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "https://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        }
+
+        // Allow override via env: PS_CORS_ALLOWED_ORIGINS=origin1,origin2
+        if v := strings.TrimSpace(os.Getenv("PS_CORS_ALLOWED_ORIGINS")); v != "" {
+            for _, o := range strings.Split(v, ",") {
+                if o = strings.TrimSpace(o); o != "" {
+                    allowedOrigins = append(allowedOrigins, o)
+                }
+            }
+        }
+		
+		// Check if origin is allowed
+		allowed := false
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == allowedOrigin {
+				allowed = true
+				break
+			}
+		}
+		
+        if allowed {
+            // Inform caches that response may vary by Origin
+            w.Header().Add("Vary", "Origin")
+            w.Header().Set("Access-Control-Allow-Origin", origin)
+        }
+        
+        // Set CORS headers
+        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, X-PS-Tenant-ID, X-PS-User-ID, X-PS-User-Name")
+        w.Header().Set("Access-Control-Allow-Credentials", "true")
+        w.Header().Set("Access-Control-Max-Age", "86400")
+		
+		// Handle preflight OPTIONS request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		next.ServeHTTP(w, r)
+	})
 }

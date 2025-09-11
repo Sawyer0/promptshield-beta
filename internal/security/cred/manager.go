@@ -10,18 +10,17 @@ import (
 )
 
 // Provider is a supported semantic provider name.
-// Valid values: "openai", "anthropic".
+// Valid value: "openai".
 type Provider string
 
 const (
-	ProviderOpenAI    Provider = "openai"
-	ProviderAnthropic Provider = "anthropic"
+	ProviderOpenAI Provider = "openai"
 )
 
 // SaveProviderAPIKey stores the API key for the given provider in the OS keyring.
 func SaveProviderAPIKey(_ context.Context, provider Provider, apiKey string) error {
 	p := strings.ToLower(string(provider))
-	if p != string(ProviderOpenAI) && p != string(ProviderAnthropic) {
+	if p != string(ProviderOpenAI) {
 		return fmt.Errorf("unsupported provider: %s", provider)
 	}
 	apiKey = strings.TrimSpace(apiKey)
@@ -43,7 +42,7 @@ func SaveProviderAPIKey(_ context.Context, provider Provider, apiKey string) err
 // GetProviderAPIKey retrieves the API key for the given provider from the OS keyring.
 func GetProviderAPIKey(_ context.Context, provider Provider) (string, error) {
 	p := strings.ToLower(string(provider))
-	if p != string(ProviderOpenAI) && p != string(ProviderAnthropic) {
+	if p != string(ProviderOpenAI) {
 		return "", fmt.Errorf("unsupported provider: %s", provider)
 	}
 	r, err := open()
@@ -71,8 +70,6 @@ func keyName(provider string) string {
 	switch provider {
 	case string(ProviderOpenAI):
 		return "openai_api_key"
-	case string(ProviderAnthropic):
-		return "anthropic_api_key"
 	default:
 		return provider + "_api_key"
 	}

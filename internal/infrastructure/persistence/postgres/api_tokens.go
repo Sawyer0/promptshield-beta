@@ -11,19 +11,9 @@ import (
 	"github.com/promptshield/promptshield/internal/domain"
 )
 
-type APITokenRepository interface {
-	Create(ctx context.Context, token *domain.APIToken) error
-	Get(ctx context.Context, id uuid.UUID) (*domain.APIToken, error)
-	GetByHash(ctx context.Context, tokenHash string) (*domain.APIToken, error)
-	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*domain.APIToken, error)
-	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
-	Revoke(ctx context.Context, id uuid.UUID) error
-	DeleteExpired(ctx context.Context) error
-}
-
 type pgAPITokenRepo struct{ db *Pool }
 
-func APITokenRepo(db *Pool) APITokenRepository { return &pgAPITokenRepo{db: db} }
+func APITokenRepo(db *Pool) domain.APITokenRepository { return &pgAPITokenRepo{db: db} }
 
 func (r *pgAPITokenRepo) Create(ctx context.Context, token *domain.APIToken) error {
 	q := `INSERT INTO api_tokens (id, tenant_id, token_hash, name, scopes, expires_at, created_at) 
@@ -129,6 +119,35 @@ func (r *pgAPITokenRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID) (
 	return tokens, rows.Err()
 }
 
+// Update updates an API token
+func (r *pgAPITokenRepo) Update(ctx context.Context, token *domain.APIToken) error {
+	q := `UPDATE api_tokens SET name = $2, scopes = $3, expires_at = $4, last_used = $5, revoked_at = $6 
+		WHERE id = $1`
+	
+	result, err := r.db.Raw().Exec(ctx, q,
+		token.ID,
+		token.Name,
+		pq.Array(token.Scopes),
+		token.ExpiresAt,
+		token.LastUsed,
+		token.RevokedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("update api token: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("api token not found")
+	}
+	return nil
+}
+
+// Rotate generates a new token hash for an existing API token
+func (r *pgAPITokenRepo) Rotate(ctx context.Context, id uuid.UUID) (string, error) {
+	// TODO: Implement token generation and hashing functions
+	// For now, return an error indicating this needs implementation
+	return "", fmt.Errorf("token rotation not yet implemented")
+}
+
 func (r *pgAPITokenRepo) UpdateLastUsed(ctx context.Context, id uuid.UUID) error {
 	q := `UPDATE api_tokens SET last_used = $2 WHERE id = $1`
 	_, err := r.db.Raw().Exec(ctx, q, id, time.Now())
@@ -162,7 +181,6 @@ func (r *pgAPITokenRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	return nil
 }
-
 
 func (r *pgAPITokenRepo) DeleteExpired(ctx context.Context) error {
 	q := `DELETE FROM api_tokens WHERE expires_at < NOW()`

@@ -136,68 +136,66 @@ func (l *Logger) extractContextAttrs(ctx context.Context) []slog.Attr {
 
 // Debug logs at debug level
 func (l *Logger) Debug(msg string, args ...interface{}) {
-	l.Logger.Debug(fmt.Sprintf(msg, args...))
+	l.Logger.Debug(msg, args...)
 }
 
 // DebugContext logs at debug level with context
 func (l *Logger) DebugContext(ctx context.Context, msg string, args ...interface{}) {
-	l.WithContext(ctx).Debug(msg, args...)
+	l.WithContext(ctx).Logger.Debug(msg, args...)
 }
 
 // Info logs at info level
 func (l *Logger) Info(msg string, args ...interface{}) {
-	l.Logger.Info(fmt.Sprintf(msg, args...))
+	l.Logger.Info(msg, args...)
 }
 
 // InfoContext logs at info level with context
 func (l *Logger) InfoContext(ctx context.Context, msg string, args ...interface{}) {
-	l.WithContext(ctx).Info(msg, args...)
+	l.WithContext(ctx).Logger.Info(msg, args...)
 }
 
 // Warn logs at warn level
 func (l *Logger) Warn(msg string, args ...interface{}) {
-	l.Logger.Warn(fmt.Sprintf(msg, args...))
+	l.Logger.Warn(msg, args...)
 }
 
 // WarnContext logs at warn level with context
 func (l *Logger) WarnContext(ctx context.Context, msg string, args ...interface{}) {
-	l.WithContext(ctx).Warn(msg, args...)
+	l.WithContext(ctx).Logger.Warn(msg, args...)
 }
 
 // Error logs at error level
 func (l *Logger) Error(msg string, args ...interface{}) {
-	l.Logger.Error(fmt.Sprintf(msg, args...))
+	l.Logger.Error(msg, args...)
 }
 
 // ErrorContext logs at error level with context
 func (l *Logger) ErrorContext(ctx context.Context, msg string, args ...interface{}) {
-	l.WithContext(ctx).Error(msg, args...)
+	l.WithContext(ctx).Logger.Error(msg, args...)
 }
 
 // Fatal logs at error level and exits
 func (l *Logger) Fatal(msg string, args ...interface{}) {
-	l.Logger.Error(fmt.Sprintf(msg, args...))
+	l.Logger.Error(msg, args...)
 	os.Exit(1)
 }
 
 // FatalContext logs at error level with context and exits
 func (l *Logger) FatalContext(ctx context.Context, msg string, args ...interface{}) {
-	l.WithContext(ctx).Error(msg, args...)
+	l.WithContext(ctx).Logger.Error(msg, args...)
 	os.Exit(1)
 }
 
 // Panic logs at error level and panics
 func (l *Logger) Panic(msg string, args ...interface{}) {
-	message := fmt.Sprintf(msg, args...)
-	l.Logger.Error(message)
-	panic(message)
+	l.Logger.Error(msg, args...)
+	panic(msg)
 }
 
 // PanicContext logs at error level with context and panics
 func (l *Logger) PanicContext(ctx context.Context, msg string, args ...interface{}) {
-	message := fmt.Sprintf(msg, args...)
-	l.WithContext(ctx).Error(message)
-	panic(message)
+	l.WithContext(ctx).Logger.Error(msg, args...)
+	panic(msg)
 }
 
 // LogRequest logs HTTP request information
@@ -212,7 +210,7 @@ func (l *Logger) LogRequest(ctx context.Context, method, path string, statusCode
 
 // LogError logs error with additional context
 func (l *Logger) LogError(ctx context.Context, err error, msg string, args ...interface{}) {
-	l.WithContext(ctx).WithError(err).Error(msg, args...)
+	l.WithContext(ctx).WithError(err).Logger.Error(msg, args...)
 }
 
 // LogPerformance logs performance metrics
@@ -396,7 +394,7 @@ func Fatal(msg string, args ...interface{}) {
 	defaultLogger.Fatal(msg, args...)
 }
 
-// FatalContext logs at error level with context and exits using default logger
+// FatalContext logs at error level with context using default logger
 func FatalContext(ctx context.Context, msg string, args ...interface{}) {
 	defaultLogger.FatalContext(ctx, msg, args...)
 }

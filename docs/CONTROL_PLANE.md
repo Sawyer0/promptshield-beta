@@ -31,9 +31,11 @@ export PS_CONTROL_PLANE_ADDR=":8085"   # Optional - defaults to :8085
 ### 3. Start Control Plane
 
 ```bash
-go build -o bin/ps-controlplane ./cmd/controlplane
-./bin/ps-controlplane
+go build -o bin/ps-gateway ./gateway
+./bin/ps-gateway
 ```
+
+The control plane functionality is now integrated into the main gateway service.
 
 ## API Reference
 

@@ -1,7 +1,3 @@
-### Providers
-
-- OpenAI L3 semantic adapter: see `docs/api/providers/openai.md`
-- Anthropic L3 semantic adapter: see `docs/api/providers/anthropic.md`
 # PromptShield Enforcer API Documentation
 
 This directory contains the API documentation for the PromptShield Enforcer (ps-enforcer).
@@ -18,7 +14,8 @@ Quick links:
 ## Overview
 
 The enforcer exposes:
-- HTTP endpoints under `/v1` for health, version, decisions (`/check`, `/scan`), async jobs, rulepacks/config/admin, events, stats, usage, and Prometheus metrics at `/metrics`.
+- HTTP endpoints under `/v1` for health, version, decisions (`/check`), rulepacks/config/admin, events, stats, usage, and Prometheus metrics at `/metrics`.
+  - `/check` supports single payloads, aggregate JSON arrays, and NDJSON streaming (aggregate=false).
 - gRPC service implementing Envoy's External Processing API (streaming) for body inspection and mutations.
 - Prometheus metrics for observability and SLOs.
 
@@ -31,5 +28,5 @@ npx redoc-cli serve docs/api/openapi.yaml --watch
 ```
 
 ## Compatibility
-- The HTTP API is stable for `/v1/healthz`, `/metrics`, `/v1/version`, `/v1/check`, `/v1/scan`, and associated admin endpoints.
+- The HTTP API is stable for `/v1/healthz`, `/metrics`, `/v1/version`, and `/v1/check` (including aggregate and NDJSON modes), plus associated admin endpoints.
 - The gRPC API leverages Envoy's `ext_proc` v3 interface and follows its contract.

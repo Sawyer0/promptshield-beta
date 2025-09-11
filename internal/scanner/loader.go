@@ -28,40 +28,40 @@ func (s *Scanner) LoadRulePacks(packs []rules.RulePack) {
 	case "first_match":
 		s.firstMatch = true
 	}
-    var merged []rules.Rule
+	var merged []rules.Rule
 	if usePriority {
 		merged = rules.MergePacksPriorityOrder(packs)
 	} else {
 		merged = rules.MergePacks(packs)
 	}
-    // Apply pattern length guard before compiling to avoid wasting CPU on extreme patterns
-    if s.maxPatternLength > 0 {
-        trimmed := make([]rules.Rule, 0, len(merged))
-        for _, r := range merged {
-            if len(r.Patterns) > 0 {
-                kept := make([]rules.Pattern, 0, len(r.Patterns))
-                for _, p := range r.Patterns {
-                    if len(p.Regex) <= s.maxPatternLength {
-                        kept = append(kept, p)
-                    }
-                }
-                r.Patterns = kept
-            }
-            if r.Fallback != nil && len(r.Fallback.Patterns) > 0 {
-                keptFb := make([]rules.Pattern, 0, len(r.Fallback.Patterns))
-                for _, p := range r.Fallback.Patterns {
-                    if len(p.Regex) <= s.maxPatternLength {
-                        keptFb = append(keptFb, p)
-                    }
-                }
-                r.Fallback.Patterns = keptFb
-            }
-            trimmed = append(trimmed, r)
-        }
-        merged = trimmed
-    }
-    compiled := compileRules(merged, s.defaultRuleTimeoutMs, s.defaultCaseSensitive, s.defaultWholeWord)
-	
+	// Apply pattern length guard before compiling to avoid wasting CPU on extreme patterns
+	if s.maxPatternLength > 0 {
+		trimmed := make([]rules.Rule, 0, len(merged))
+		for _, r := range merged {
+			if len(r.Patterns) > 0 {
+				kept := make([]rules.Pattern, 0, len(r.Patterns))
+				for _, p := range r.Patterns {
+					if len(p.Regex) <= s.maxPatternLength {
+						kept = append(kept, p)
+					}
+				}
+				r.Patterns = kept
+			}
+			if r.Fallback != nil && len(r.Fallback.Patterns) > 0 {
+				keptFb := make([]rules.Pattern, 0, len(r.Fallback.Patterns))
+				for _, p := range r.Fallback.Patterns {
+					if len(p.Regex) <= s.maxPatternLength {
+						keptFb = append(keptFb, p)
+					}
+				}
+				r.Fallback.Patterns = keptFb
+			}
+			trimmed = append(trimmed, r)
+		}
+		merged = trimmed
+	}
+	compiled := compileRules(merged, s.defaultRuleTimeoutMs, s.defaultCaseSensitive, s.defaultWholeWord)
+
 	// Atomic replacement: compile new rules first, then swap atomically
 	// This prevents race conditions during live rule updates
 	s.compiled = compiled
@@ -116,6 +116,57 @@ func (s *Scanner) LoadRulePacks(packs []rules.RulePack) {
 			if !p.Performance.Gate.Enabled {
 				s.ruleTokenAho = nil
 			}
+		}
+	}
+
+	// Configure agent hardening patterns from rulepacks
+	s.configureAgentPatterns(packs)
+}
+
+// configureAgentPatterns sets up agent hardening patterns from loaded rulepacks
+func (s *Scanner) configureAgentPatterns(packs []rules.RulePack) {
+	// Find the highest priority pack with patterns defined
+	var selectedPatterns *rules.Patterns
+	maxPriority := -1
+
+	for _, pack := range packs {
+		if pack.Patterns == nil {
+			continue
+		}
+
+		priority := 0
+		if pack.Composition != nil {
+			priority = pack.Composition.Priority
+		}
+
+		if priority > maxPriority {
+			maxPriority = priority
+			selectedPatterns = pack.Patterns
+		}
+	}
+
+	if selectedPatterns == nil {
+		return
+	}
+
+	// Configure context minimization
+	if selectedPatterns.ContextMinimization != nil && selectedPatterns.ContextMinimization.Enabled {
+		s.contextMinimizer = NewContextMinimizer(selectedPatterns.ContextMinimization)
+		if s.logger != nil {
+			s.logger.Debug("configured context minimization",
+				"strip_point", selectedPatterns.ContextMinimization.StripPoint,
+				"mask_token", selectedPatterns.ContextMinimization.MaskToken)
+		}
+	}
+
+	// Configure map-reduce processing
+	if selectedPatterns.MapReduce != nil && selectedPatterns.MapReduce.Enabled {
+		s.mapReduceProcessor = NewMapReduceProcessor(selectedPatterns.MapReduce)
+		if s.logger != nil {
+			s.logger.Debug("configured map-reduce processing",
+				"map_unit", selectedPatterns.MapReduce.MapUnit,
+				"reduce_type", selectedPatterns.MapReduce.ReduceType,
+				"max_tokens", selectedPatterns.MapReduce.TextMaxTokens)
 		}
 	}
 }

@@ -28,12 +28,12 @@ const (
 	PolicyTypeManaged PolicyType = "managed"
 )
 
-// PolicyAssignment represents assignment of a policy to a tenant/route
-// From domain/models.go
-type PolicyAssignment struct {
+// RulepackAssignment represents assignment of a rulepack to a tenant/route
+// Replaces PolicyAssignment
+type RulepackAssignment struct {
 	ID          uuid.UUID `json:"id"`
 	TenantID    uuid.UUID `json:"tenant_id"`
-	PolicyID    uuid.UUID `json:"policy_id"`
+	RulepackID  uuid.UUID `json:"rulepack_id"`
 	TargetScope string    `json:"target_scope"` // /v1/openai/*, /v1/anthropic/*
 	Priority    int       `json:"priority"`     // Higher priority wins
 	Enabled     bool      `json:"enabled"`

@@ -45,6 +45,11 @@ func (m *MockRulepackRepository) GetVersion(ctx context.Context, packID uuid.UUI
 	return args.Get(0).(json.RawMessage), args.String(1), args.Error(2)
 }
 
+func (m *MockRulepackRepository) GetVersionIDByNumber(ctx context.Context, packID uuid.UUID, version int) (uuid.UUID, error) {
+	args := m.Called(ctx, packID, version)
+	return args.Get(0).(uuid.UUID), args.Error(1)
+}
+
 func (m *MockRulepackRepository) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
 	args := m.Called(ctx, packID)
 	return args.Get(0).(uuid.UUID), args.Int(1), args.Error(2)

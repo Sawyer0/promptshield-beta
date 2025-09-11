@@ -47,6 +47,8 @@ type AuditEvent struct {
 	ObjectID   uuid.UUID              `json:"object_id"`
 	Before     map[string]interface{} `json:"before,omitempty"`
 	After      map[string]interface{} `json:"after,omitempty"`
+	Hash       string                 `json:"hash,omitempty"`
+	PrevHash   string                 `json:"prev_hash,omitempty"`
 	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 	Timestamp  time.Time              `json:"timestamp"`
 	RequestID  string                 `json:"request_id,omitempty"`
@@ -208,11 +210,18 @@ type AuditReport struct {
 // ComplianceReport represents a compliance-specific audit report
 type ComplianceReport struct {
 	ID               string                   `json:"id"`
+	TenantID         string                   `json:"tenant_id"`
 	Standard         string                   `json:"standard"` // "SOC2", "HIPAA", "GDPR", etc.
 	TimeRange        TimeRange                `json:"time_range"`
 	GeneratedAt      time.Time                `json:"generated_at"`
 	GeneratedBy      string                   `json:"generated_by"`
 	ComplianceStatus string                   `json:"compliance_status"` // "compliant", "non-compliant", "partial"
+	ComplianceScore  float64                  `json:"compliance_score"`
+	TotalEvents      int64                    `json:"total_events"`
+	EventsByType     map[string]int64         `json:"events_by_type,omitempty"`
+	PolicyChangeCount int64                   `json:"policy_change_count"`
+	DataAccessCount  int64                    `json:"data_access_count"`
+	UserActivityCount int64                   `json:"user_activity_count"`
 	Requirements     []*ComplianceRequirement `json:"requirements"`
 	Violations       []*ComplianceViolation   `json:"violations,omitempty"`
 	Recommendations  []string                 `json:"recommendations,omitempty"`
@@ -296,6 +305,7 @@ type AuditTrend struct {
 // AuditTrendAnalysis represents analysis of trends in audit data
 type AuditTrendAnalysis struct {
 	TimeRange   TimeRange              `json:"time_range"`
+	Granularity string                 `json:"granularity"`
 	Trends      []*AuditTrend          `json:"trends"`
 	Summary     map[string]interface{} `json:"summary"`
 	GeneratedAt time.Time              `json:"generated_at"`
@@ -308,7 +318,9 @@ type RiskAssessment struct {
 	EntityType      string                 `json:"entity_type"`
 	RiskScore       float64                `json:"risk_score"`
 	RiskLevel       string                 `json:"risk_level"` // "low", "medium", "high", "critical"
+	OverallRisk     string                 `json:"overall_risk"`
 	Factors         []*RiskFactor          `json:"factors"`
+	RiskFactors     []*RiskFactor          `json:"risk_factors"`
 	Recommendations []string               `json:"recommendations,omitempty"`
 	AssessedAt      time.Time              `json:"assessed_at"`
 	ValidUntil      time.Time              `json:"valid_until"`
@@ -317,14 +329,17 @@ type RiskAssessment struct {
 
 // EventCorrelation represents correlation between related audit events
 type EventCorrelation struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Confidence float64                `json:"confidence"`
-	Events     []*AuditEvent          `json:"events"`
-	Pattern    string                 `json:"pattern,omitempty"`
-	TimeWindow time.Duration          `json:"time_window"`
-	DetectedAt time.Time              `json:"detected_at"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	ID           string                 `json:"id"`
+	Type         string                 `json:"type"`
+	Description  string                 `json:"description"`
+	Severity     string                 `json:"severity"`
+	Confidence   float64                `json:"confidence"`
+	Events       []*AuditEvent          `json:"events"`
+	Pattern      string                 `json:"pattern,omitempty"`
+	TimeWindow   time.Duration          `json:"time_window"`
+	DetectedAt   time.Time              `json:"detected_at"`
+	CorrelatedAt time.Time              `json:"correlated_at"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // BehaviorBaseline represents a behavioral baseline for a user
@@ -332,6 +347,7 @@ type BehaviorBaseline struct {
 	UserID           string                 `json:"user_id"`
 	TimeRange        TimeRange              `json:"time_range"`
 	Patterns         map[string]interface{} `json:"patterns"`
+	NormalPatterns   map[string]interface{} `json:"normal_patterns"`
 	Frequencies      map[string]float64     `json:"frequencies"`
 	TimePatterns     map[string]interface{} `json:"time_patterns,omitempty"`
 	ResourcePatterns map[string]interface{} `json:"resource_patterns,omitempty"`
@@ -339,6 +355,7 @@ type BehaviorBaseline struct {
 	RiskIndicators   []*RiskIndicator       `json:"risk_indicators,omitempty"`
 	CreatedAt        time.Time              `json:"created_at"`
 	UpdatedAt        time.Time              `json:"updated_at"`
+	EstablishedAt    time.Time              `json:"established_at"`
 	Metadata         map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -347,7 +364,8 @@ type BaselineComparison struct {
 	UserID          string                 `json:"user_id"`
 	CurrentActivity []*AuditEvent          `json:"current_activity"`
 	Baseline        *BehaviorBaseline      `json:"baseline"`
-	Deviations      []*BehaviorDeviation   `json:"deviations,omitempty"`
+	Deviations      []*Deviation           `json:"deviations,omitempty"`
+	OverallMatch    string                 `json:"overall_match"`
 	RiskScore       float64                `json:"risk_score"`
 	RiskLevel       string                 `json:"risk_level"`
 	Anomalies       []*AuditAnomaly        `json:"anomalies,omitempty"`
@@ -357,90 +375,157 @@ type BaselineComparison struct {
 
 // ComplianceValidation represents compliance validation results
 type ComplianceValidation struct {
-	Standard     string                   `json:"standard"`
-	TimeRange    TimeRange                `json:"time_range"`
-	IsCompliant  bool                     `json:"is_compliant"`
-	Requirements []*ComplianceRequirement `json:"requirements"`
-	Violations   []*ComplianceViolation   `json:"violations,omitempty"`
-	ValidatedAt  time.Time                `json:"validated_at"`
-	ValidatedBy  string                   `json:"validated_by"`
-	Metadata     map[string]interface{}   `json:"metadata,omitempty"`
+	Standard        string                   `json:"standard"`
+	Status          string                   `json:"status"`
+	ComplianceScore float64                  `json:"compliance_score"`
+	TimeRange       TimeRange                `json:"time_range"`
+	IsCompliant     bool                     `json:"is_compliant"`
+	Requirements    []*ComplianceRequirement `json:"requirements"`
+	Violations      []*ComplianceViolation   `json:"violations,omitempty"`
+	ValidatedAt     time.Time                `json:"validated_at"`
+	ValidatedBy     string                   `json:"validated_by"`
+	Metadata        map[string]interface{}   `json:"metadata,omitempty"`
+}
+
+// RequirementStatus represents the status of a compliance requirement
+type RequirementStatus struct {
+	RequirementID   string                 `json:"requirement_id"`
+	Description     string                 `json:"description"`
+	Status          string                 `json:"status"` // "compliant", "non-compliant", "partial", "pending"
+	ViolationCount  int                    `json:"violation_count"`
+	LastChecked     time.Time              `json:"last_checked"`
+	Evidence        []*ComplianceEvidence  `json:"evidence,omitempty"`
+	Violations      []*ComplianceViolation `json:"violations,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ComplianceStatus represents current compliance status
 type ComplianceStatus struct {
-	Standard     string                 `json:"standard"`
-	Status       string                 `json:"status"` // "compliant", "non-compliant", "partial"
-	LastChecked  time.Time              `json:"last_checked"`
-	NextCheck    time.Time              `json:"next_check"`
-	Requirements int                    `json:"requirements"`
-	Compliant    int                    `json:"compliant"`
-	NonCompliant int                    `json:"non_compliant"`
-	Violations   []*ComplianceViolation `json:"violations,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	Standard        string                 `json:"standard"`
+	Status          string                 `json:"status"` // "compliant", "non-compliant", "partial"
+	OverallStatus   string                 `json:"overall_status"`
+	ComplianceScore float64                `json:"compliance_score"`
+	LastChecked     time.Time              `json:"last_checked"`
+	LastValidated   time.Time              `json:"last_validated"`
+	NextCheck       time.Time              `json:"next_check"`
+	Requirements    []*RequirementStatus   `json:"requirements"`
+	Compliant       int                    `json:"compliant"`
+	NonCompliant    int                    `json:"non_compliant"`
+	Violations      []*ComplianceViolation `json:"violations,omitempty"`
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ComplianceEvidence represents evidence of compliance
+type ComplianceEvidence struct {
+	ID            string                 `json:"id"`
+	Type          string                 `json:"type"`
+	Standard      string                 `json:"standard"`
+	Requirement   string                 `json:"requirement"`
+	Description   string                 `json:"description"`
+	Source        string                 `json:"source"`
+	TimeRange     TimeRange              `json:"time_range"`
+	EventCount    int64                  `json:"event_count"`
+	CollectedAt   time.Time              `json:"collected_at"`
+	GeneratedAt   time.Time              `json:"generated_at"`
+	GeneratedBy   string                 `json:"generated_by"`
+	IntegrityHash string                 `json:"integrity_hash"`
+	Events        []*AuditEvent          `json:"events,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ComplianceViolation represents a compliance violation
 type ComplianceViolation struct {
-	ID          string                 `json:"id"`
-	Standard    string                 `json:"standard"`
-	Requirement string                 `json:"requirement"`
-	Severity    string                 `json:"severity"`
-	Description string                 `json:"description"`
-	DetectedAt  time.Time              `json:"detected_at"`
-	Events      []*AuditEvent          `json:"events,omitempty"`
-	Status      string                 `json:"status"` // "open", "mitigated", "accepted"
-	Mitigation  string                 `json:"mitigation,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ID            string                 `json:"id"`
+	Standard      string                 `json:"standard"`
+	RequirementID string                 `json:"requirement_id"`
+	Requirement   string                 `json:"requirement"`
+	Severity      string                 `json:"severity"`
+	Description   string                 `json:"description"`
+	DetectedAt    time.Time              `json:"detected_at"`
+	Event         *AuditEvent            `json:"event,omitempty"`
+	Events        []*AuditEvent          `json:"events,omitempty"`
+	Status        string                 `json:"status"` // "open", "mitigated", "accepted"
+	Mitigation    string                 `json:"mitigation,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // RetentionStatus represents data retention status
 type RetentionStatus struct {
-	TotalRecords    int64                  `json:"total_records"`
-	RetainedRecords int64                  `json:"retained_records"`
-	ExpiredRecords  int64                  `json:"expired_records"`
-	Policies        []*RetentionPolicy     `json:"policies"`
-	LastCleanup     *time.Time             `json:"last_cleanup,omitempty"`
-	NextCleanup     *time.Time             `json:"next_cleanup,omitempty"`
-	Status          string                 `json:"status"` // "healthy", "warning", "critical"
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	TotalEvents           int64                  `json:"total_events"`
+	TotalRecords          int64                  `json:"total_records"`
+	RetainedRecords       int64                  `json:"retained_records"`
+	ExpiredRecords        int64                  `json:"expired_records"`
+	EventsOlderThan1Year  int64                  `json:"events_older_than_1_year"`
+	EventsOlderThan7Years int64                  `json:"events_older_than_7_years"`
+	Policies              []*RetentionPolicy     `json:"policies"`
+	RetentionPolicies     []*RetentionPolicy     `json:"retention_policies"`
+	Violations            []*RetentionViolation  `json:"violations,omitempty"`
+	AssessedAt            time.Time              `json:"assessed_at"`
+	LastCleanup           *time.Time             `json:"last_cleanup,omitempty"`
+	NextCleanup           *time.Time             `json:"next_cleanup,omitempty"`
+	Status                string                 `json:"status"` // "healthy", "warning", "critical"
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// RetentionViolation represents a data retention policy violation
+type RetentionViolation struct {
+	ID             string                 `json:"id"`
+	PolicyID       string                 `json:"policy_id"`
+	Policy         string                 `json:"policy"`
+	Type           string                 `json:"type"` // "over_retention", "under_retention", "missing_data"
+	Description    string                 `json:"description"`
+	Severity       string                 `json:"severity"`
+	EventCount     int64                  `json:"event_count"`
+	RequiredAction string                 `json:"required_action"`
+	DetectedAt     time.Time              `json:"detected_at"`
+	Status         string                 `json:"status"` // "open", "resolved", "ignored"
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // RetentionPolicy represents a data retention policy
 type RetentionPolicy struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Description     string                 `json:"description,omitempty"`
-	EntityType      string                 `json:"entity_type"`
-	RetentionPeriod time.Duration          `json:"retention_period"`
-	ArchiveAfter    time.Duration          `json:"archive_after,omitempty"`
-	DeleteAfter     time.Duration          `json:"delete_after,omitempty"`
-	Enabled         bool                   `json:"enabled"`
-	CreatedAt       time.Time              `json:"created_at"`
-	UpdatedAt       time.Time              `json:"updated_at"`
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	ID                    string                 `json:"id"`
+	Name                  string                 `json:"name"`
+	Description           string                 `json:"description,omitempty"`
+	EntityType            string                 `json:"entity_type"`
+	RetentionPeriod       time.Duration          `json:"retention_period"`
+	MaxAge                time.Duration          `json:"max_age"`
+	ArchiveAfter          time.Duration          `json:"archive_after,omitempty"`
+	ArchiveBeforeDelete   time.Duration          `json:"archive_before_delete,omitempty"`
+	DeleteAfter           time.Duration          `json:"delete_after,omitempty"`
+	Enabled               bool                   `json:"enabled"`
+	CreatedAt             time.Time              `json:"created_at"`
+	UpdatedAt             time.Time              `json:"updated_at"`
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // RetentionReport represents a data retention compliance report
 type RetentionReport struct {
-	ID              string                 `json:"id"`
-	GeneratedAt     time.Time              `json:"generated_at"`
-	Policies        []*RetentionPolicy     `json:"policies"`
-	Status          *RetentionStatus       `json:"status"`
-	Compliance      map[string]interface{} `json:"compliance"`
-	Recommendations []string               `json:"recommendations,omitempty"`
-	Metadata        map[string]interface{} `json:"metadata,omitempty"`
+	ID               string                 `json:"id"`
+	GeneratedAt      time.Time              `json:"generated_at"`
+	GeneratedBy      string                 `json:"generated_by"`
+	Policies         []*RetentionPolicy     `json:"policies"`
+	Status           *RetentionStatus       `json:"status"`
+	RetentionStatus  *RetentionStatus       `json:"retention_status"`
+	ComplianceStatus *ComplianceStatus      `json:"compliance_status"`
+	Compliance       map[string]interface{} `json:"compliance"`
+	Recommendations  []string               `json:"recommendations,omitempty"`
+	Metadata         map[string]interface{} `json:"metadata,omitempty"`
 }
+
 
 // AuditAlert represents an audit-based alert configuration
 type AuditAlert struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
+	Type        string                 `json:"type"`
 	Description string                 `json:"description,omitempty"`
 	Enabled     bool                   `json:"enabled"`
 	Severity    string                 `json:"severity"`
+	Condition   string                 `json:"condition,omitempty"`
 	Conditions  []*AlertCondition      `json:"conditions"`
 	Actions     []*AlertAction         `json:"actions"`
+	Recipients  []string               `json:"recipients,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
@@ -474,20 +559,40 @@ type ChainVerification struct {
 
 // ChainInfo represents information about a hash chain
 type ChainInfo struct {
-	ChainID     string                 `json:"chain_id"`
-	StartHash   string                 `json:"start_hash"`
-	EndHash     string                 `json:"end_hash"`
-	TotalEvents int64                  `json:"total_events"`
-	StartTime   time.Time              `json:"start_time"`
-	EndTime     time.Time              `json:"end_time"`
-	IsValid     bool                   `json:"is_valid"`
-	LastUpdated time.Time              `json:"last_updated"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ChainID      string                 `json:"chain_id"`
+	StartHash    string                 `json:"start_hash"`
+	EndHash      string                 `json:"end_hash"`
+	CurrentHash  string                 `json:"current_hash"`
+	TotalEvents  int64                  `json:"total_events"`
+	FirstEvent   *AuditEvent            `json:"first_event,omitempty"`
+	LastEvent    *AuditEvent            `json:"last_event,omitempty"`
+	StartTime    time.Time              `json:"start_time"`
+	EndTime      time.Time              `json:"end_time"`
+	GeneratedAt  time.Time              `json:"generated_at"`
+	IsValid      bool                   `json:"is_valid"`
+	LastUpdated  time.Time              `json:"last_updated"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
+
+// ChainExport represents an exported hash chain
+type ChainExport struct {
+	ChainInfo    *ChainInfo             `json:"chain_info"`
+	TimeRange    TimeRange              `json:"time_range"`
+	Events       []*AuditEvent          `json:"events"`
+	TotalEvents  int64                  `json:"total_events"`
+	FirstHash    string                 `json:"first_hash"`
+	LastHash     string                 `json:"last_hash"`
+	ExportedAt   time.Time              `json:"exported_at"`
+	ExportedBy   string                 `json:"exported_by"`
+	Signature    string                 `json:"signature"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
+
 
 // EventValidation represents validation of an event against the hash chain
 type EventValidation struct {
 	EventID      string                 `json:"event_id"`
+	EventHash    string                 `json:"event_hash"`
 	IsValid      bool                   `json:"is_valid"`
 	Position     int64                  `json:"position"`
 	Hash         string                 `json:"hash"`
@@ -507,12 +612,15 @@ type ReportChart struct {
 
 type UserActivity struct {
 	UserID       string    `json:"user_id"`
+	UserEmail    string    `json:"user_email,omitempty"`
 	EventCount   int64     `json:"event_count"`
 	LastActivity time.Time `json:"last_activity"`
 }
 
 type ResourceActivity struct {
 	Resource     string    `json:"resource"`
+	ResourceID   string    `json:"resource_id,omitempty"`
+	ResourceType string    `json:"resource_type,omitempty"`
 	EventCount   int64     `json:"event_count"`
 	LastActivity time.Time `json:"last_activity"`
 }
@@ -525,6 +633,7 @@ type ActionActivity struct {
 
 type RiskMetrics struct {
 	OverallRisk      float64 `json:"overall_risk"`
+	TotalRiskScore   float64 `json:"total_risk_score"`
 	HighRiskEvents   int64   `json:"high_risk_events"`
 	MediumRiskEvents int64   `json:"medium_risk_events"`
 	LowRiskEvents    int64   `json:"low_risk_events"`
@@ -533,7 +642,11 @@ type RiskMetrics struct {
 type AuditPattern struct {
 	Type        string                 `json:"type"`
 	Description string                 `json:"description"`
+	Severity    string                 `json:"severity"`
 	Confidence  float64                `json:"confidence"`
+	Users       []string               `json:"users,omitempty"`
+	Actions     []string               `json:"actions,omitempty"`
+	Resources   []string               `json:"resources,omitempty"`
 	Events      []*AuditEvent          `json:"events"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
@@ -544,6 +657,7 @@ type TrendDataPoint struct {
 }
 
 type RiskFactor struct {
+	Name        string  `json:"name"`
 	Factor      string  `json:"factor"`
 	Weight      float64 `json:"weight"`
 	Score       float64 `json:"score"`
@@ -552,7 +666,9 @@ type RiskFactor struct {
 
 type RiskIndicator struct {
 	Type        string  `json:"type"`
+	Severity    string  `json:"severity"`
 	Value       float64 `json:"value"`
+	Score       float64 `json:"score"`
 	Threshold   float64 `json:"threshold"`
 	Description string  `json:"description"`
 }
@@ -568,6 +684,7 @@ type BehaviorDeviation struct {
 type ComplianceRequirement struct {
 	ID          string `json:"id"`
 	Standard    string `json:"standard"`
+	Category    string `json:"category"`
 	Requirement string `json:"requirement"`
 	Description string `json:"description"`
 	IsCompliant bool   `json:"is_compliant"`
@@ -585,4 +702,69 @@ type BrokenLink struct {
 	ExpectedHash string `json:"expected_hash"`
 	ActualHash   string `json:"actual_hash"`
 	EventID      string `json:"event_id"`
+}
+
+// Missing types that were referenced in the error messages
+
+// Deviation represents a behavioral deviation
+type Deviation struct {
+	Type        string                 `json:"type"`
+	Description string                 `json:"description"`
+	Severity    string                 `json:"severity"`
+	Confidence  float64                `json:"confidence"`
+	UserID      string                 `json:"user_id,omitempty"`
+	Resource    string                 `json:"resource,omitempty"`
+	Action      string                 `json:"action,omitempty"`
+	Event       *AuditEvent            `json:"event,omitempty"`
+	DetectedAt  time.Time              `json:"detected_at"`
+	Baseline    map[string]interface{} `json:"baseline,omitempty"`
+	Current     map[string]interface{} `json:"current,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+
+// HashChain represents a hash chain structure
+type HashChain struct {
+	ID          string                 `json:"id"`
+	StartHash   string                 `json:"start_hash"`
+	EndHash     string                 `json:"end_hash"`
+	Events      []*AuditEvent          `json:"events"`
+	EventCount  int64                  `json:"event_count"`
+	FirstHash   string                 `json:"first_hash"`
+	LastHash    string                 `json:"last_hash"`
+	IsValid     bool                   `json:"is_valid"`
+	Length      int                    `json:"length"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// AuditSystemHealth represents the health status of the audit system
+type AuditSystemHealth struct {
+	Status           string                 `json:"status"` // "healthy", "degraded", "unhealthy"
+	OverallStatus    string                 `json:"overall_status"`
+	CheckedAt        time.Time              `json:"checked_at"`
+	Services         []*ServiceHealth       `json:"services"`
+	TotalEvents      int64                  `json:"total_events"`
+	EventsToday      int64                  `json:"events_today"`
+	EventsLastHour   int64                  `json:"events_last_hour"`
+	ChainIntegrity   bool                   `json:"chain_integrity"`
+	StorageHealth    string                 `json:"storage_health"`
+	ReplicationLag   time.Duration          `json:"replication_lag,omitempty"`
+	PendingEvents    int64                  `json:"pending_events"`
+	FailedEvents     int64                  `json:"failed_events"`
+	LastHealthCheck  time.Time              `json:"last_health_check"`
+	Issues           []string               `json:"issues,omitempty"`
+	Warnings         []string               `json:"warnings,omitempty"`
+	Metadata         map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// ServiceHealth represents health status of an individual service
+type ServiceHealth struct {
+	Name     string    `json:"name"`
+	Status   string    `json:"status"` // "healthy", "degraded", "unhealthy"
+	LastSeen time.Time `json:"last_seen"`
+	Version  string    `json:"version,omitempty"`
+	Error    string    `json:"error,omitempty"`
+	Errors   []string  `json:"errors,omitempty"`
 }

@@ -15,6 +15,9 @@ type TenantRepository interface {
 	List(ctx context.Context, offset, limit int) ([]*Tenant, int, error)
 	Update(ctx context.Context, tenant *Tenant) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	// External organization mapping helpers (e.g., Clerk org -> tenant)
+	GetByExternalOrg(ctx context.Context, provider string, externalOrgID string) (*Tenant, error)
+	LinkExternalOrg(ctx context.Context, provider string, externalOrgID string, tenantID uuid.UUID) error
 }
 
 // AuditRepository defines operations for audit trail management
@@ -26,14 +29,14 @@ type AuditRepository interface {
 	ListByAction(ctx context.Context, action string, offset, limit int) ([]*AuditEntry, int, error)
 }
 
-// PolicyAssignmentRepository defines operations for policy assignments
-type PolicyAssignmentRepository interface {
-	Create(ctx context.Context, assignment *PolicyAssignment) error
-	Get(ctx context.Context, id uuid.UUID) (*PolicyAssignment, error)
-	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*PolicyAssignment, error)
-	ListByPolicy(ctx context.Context, policyID uuid.UUID) ([]*PolicyAssignment, error)
-	ListByScope(ctx context.Context, tenantID uuid.UUID, scope string) ([]*PolicyAssignment, error)
-	Update(ctx context.Context, assignment *PolicyAssignment) error
+// RulepackAssignmentRepository defines operations for rulepack assignments
+type RulepackAssignmentRepository interface {
+	Create(ctx context.Context, assignment *RulepackAssignment) error
+	Get(ctx context.Context, id uuid.UUID) (*RulepackAssignment, error)
+	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*RulepackAssignment, error)
+	ListByPolicy(ctx context.Context, policyID uuid.UUID) ([]*RulepackAssignment, error)
+	ListByScope(ctx context.Context, tenantID uuid.UUID, scope string) ([]*RulepackAssignment, error)
+	Update(ctx context.Context, assignment *RulepackAssignment) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	DeleteByTenantAndPolicy(ctx context.Context, tenantID, policyID uuid.UUID) error
 }
@@ -52,12 +55,35 @@ type APITokenRepository interface {
 	Update(ctx context.Context, token *APIToken) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	Rotate(ctx context.Context, id uuid.UUID) (string, error)
+	// Additional utility methods
+	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
+	Revoke(ctx context.Context, id uuid.UUID) error
+	DeleteExpired(ctx context.Context) error
+}
+
+// SettingsRepository defines operations for platform settings management
+type SettingsRepository interface {
+	Get(ctx context.Context) (*PlatformSettings, error)
+	Update(ctx context.Context, settings interface{}) (*PlatformSettings, error)
+	GetHistory(ctx context.Context, limit int, offset int) ([]*PlatformSettings, int, error)
+	Delete(ctx context.Context) error
+	Backup(ctx context.Context) ([]byte, error)
+	Restore(ctx context.Context, backupData []byte) error
+	ValidateConnection(ctx context.Context) error
+}
+
+// PlatformSettings represents the platform configuration stored in database
+type PlatformSettings struct {
+	ID        uuid.UUID `json:"id" db:"id"`
+	Settings  []byte    `json:"settings" db:"settings"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	UpdatedBy string    `json:"updated_by" db:"updated_by"`
 }
 
 // RateLimitResult represents the result of a rate limit check
 type RateLimitResult struct {
-	Allowed                     bool
-	RequestsPerMinuteRemaining  int
-	RequestsPerHourRemaining    int
-	RetryAfter                  time.Duration
+	Allowed                    bool
+	RequestsPerMinuteRemaining int
+	RequestsPerHourRemaining   int
+	RetryAfter                 time.Duration
 }

@@ -131,71 +131,95 @@ paths:
           description: Unauthorized (missing/invalid token)
         '500':
           description: Internal Error
-  /v1/scan:
+  /v1/check: # augmented modes
     post:
-      summary: Scan larger payloads; aggregate JSON or NDJSON stream
+      summary: Evaluate payload(s) and return decisions (single, aggregate, or NDJSON stream)
       description: |
-        Accepts application/json (aggregate) or application/x-ndjson (stream). When aggregate=true (default),
-        returns a JSON report of per-record decisions. For NDJSON, the response is an event stream.
-      operationId: postScan
+        The /v1/check endpoint supports three modes:
+        - Single payload (default): returns { decision, reason, violations }
+        - Aggregate JSON array: returns { decisions: [...], summary: { total, violations } }
+        - NDJSON stream (when content-type=application/x-ndjson and aggregate=false): returns one JSON object per line
+        Endpoint-scoped assignments can be applied via X-PS-Endpoint or ?endpoint=/path.
+      operationId: postCheck
       parameters:
         - in: query
           name: aggregate
           schema:
             type: boolean
             default: true
-          description: Return aggregate JSON when true; NDJSON stream when false
+          description: When false and input is application/x-ndjson, stream per-line results
       security:
         - bearerAuth: []
         - xPSToken: []
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              oneOf:
+                - type: object
+                  additionalProperties: true
+                - type: array
+                  items:
+                    oneOf:
+                      - type: object
+                        additionalProperties: true
+                      - type: string
           application/x-ndjson:
             schema:
               type: string
-              description: NDJSON input stream
+              description: NDJSON input stream (aggregate must be false)
       responses:
         '200':
-          description: Scan report (aggregate) or NDJSON stream
+          description: Allowed or aggregate/stream response
+          headers:
+            x-ps-request-id:
+              schema:
+                type: string
+            x-ps-decision:
+              schema:
+                type: string
+                enum: [allow, quarantine, deny]
+            x-ps-reason:
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ScanReport'
+                oneOf:
+                  - $ref: '#/components/schemas/Decision'
+                  - $ref: '#/components/schemas/ScanReport'
             application/x-ndjson:
               schema:
                 type: string
                 description: NDJSON stream of decision events
-  /v1/scan/async:
-    post:
-      summary: Start an async scan job (licensed feature)
-      description: |
-        Starts an asynchronous scan job. Requires a license with the `async_jobs` feature.
-        Returns a job identifier if accepted.
-      operationId: postScanAsync
-      security:
-        - bearerAuth: []
-        - xPSToken: []
-      responses:
-        '202':
-          description: Accepted
+        '403':
+          description: Quarantine or Deny
+          headers:
+            x-ps-request-id:
+              schema:
+                type: string
+            x-ps-decision:
+              schema:
+                type: string
+                enum: [quarantine, deny]
+            x-ps-reason:
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  job_id:
-                    type: string
-        '403':
-          description: Feature not available
+                $ref: '#/components/schemas/Decision'
+        '400':
+          description: Bad Request (body too large or invalid)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized (missing/invalid token)
+        '500':
+          description: Internal Error
   /v1/rulepacks:
     get:
       summary: List available rulepacks
@@ -337,6 +361,192 @@ paths:
       responses:
         '204':
           description: Deleted
+
+  /v1/rulepacks/{id}/versions/{ver}/bundle:
+    get:
+      summary: Export a freshly signed bundle (not persisted)
+      operationId: getRulepackVersionBundle
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Signed bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RulepackBundle'
+        '404':
+          description: Rulepack version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/versions/{ver}/publish:
+    post:
+      summary: Sign and persist a bundle to the store (admin)
+      operationId: postRulepackVersionPublish
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '201':
+          description: Bundle published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleRef'
+        '404':
+          description: Rulepack version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/bundles:
+    get:
+      summary: List stored bundles for a rulepack
+      operationId: listRulepackBundles
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Stored bundles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleList'
+
+  /v1/rulepacks/{id}/bundles/{ver}:
+    get:
+      summary: Retrieve stored bundle with server-side verification
+      operationId: getRulepackBundle
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Verified bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RulepackBundle'
+        '404':
+          description: Bundle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/bundles/{ver}/activate:
+    post:
+      summary: Activate stored bundle version (verify then activate)
+      operationId: postRulepackBundleActivate
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Activation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivationResult'
+        '404':
+          description: Bundle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/bundles/verify:
+    post:
+      summary: Verify bundle JSON without persisting or activating
+      operationId: postRulepackBundleVerify
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RulepackBundle'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleVerifyResult'
+        '400':
+          description: Invalid bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/config:
     get:
       summary: Get runtime configuration snapshot
@@ -689,4 +899,78 @@ components:
           type: integer
         bytes:
           type: integer
+    RulepackBundle:
+      type: object
+      description: A signed rulepack bundle containing payload and signature metadata
+      properties:
+        rulepack_id:
+          type: string
+        version:
+          type: integer
+          format: int32
+        version_id:
+          type: string
+          description: UUID of the specific rulepack version
+        tenant_id:
+          type: string
+          description: Tenant identifier (if multi-tenant)
+        signed_at:
+          type: string
+          format: date-time
+        sig_alg:
+          type: string
+          example: HMAC-SHA256
+        sig:
+          type: string
+          description: Base64-encoded signature of the payload
+        payload:
+          type: object
+          description: The signed rulepack payload
+          additionalProperties: true
+    BundleRef:
+      type: object
+      description: Metadata reference to a stored bundle
+      properties:
+        rulepack_id:
+          type: string
+        version:
+          type: integer
+          format: int32
+        version_id:
+          type: string
+        signed_at:
+          type: string
+          format: date-time
+        sig_alg:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+    BundleList:
+      type: object
+      properties:
+        bundles:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleRef'
+    ActivationResult:
+      type: object
+      properties:
+        activated:
+          type: boolean
+        previous:
+          $ref: '#/components/schemas/RulepackMeta'
+        current:
+          $ref: '#/components/schemas/RulepackMeta'
+        request_id:
+          type: string
+    BundleVerifyResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        reason:
+          type: string
+        sig_alg:
+          type: string
 

@@ -50,8 +50,8 @@ func RecordDuration(histogram prometheus.Observer, duration time.Duration) {
 	timeutil.ObserveDuration(histogram, duration)
 }
 
-
 func init() {
-	prometheus.MustRegister(RequestsTotal, RequestQueueDepth, CacheOperations)
-	prometheus.MustRegister(ResourceUtilization, TimeToFirstDecision)
+	if Enabled() {
+		prometheus.MustRegister(RequestsTotal, RequestQueueDepth, CacheOperations, ResourceUtilization, TimeToFirstDecision)
+	}
 }

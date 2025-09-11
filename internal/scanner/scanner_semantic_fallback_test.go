@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
@@ -96,5 +97,60 @@ func TestSemanticLevel3_Error_WithFallbackOnError(t *testing.T) {
 	}
 	if res.Violations[0].RuleID != "err-with-fallback" {
 		t.Fatalf("unexpected rule id: %s", res.Violations[0].RuleID)
+	}
+}
+
+// L3 -> L2 -> L1 path: if semantic fails (timeout) and fallback patterns miss, keyword should still match
+func TestEscalation_L3TimeoutThenL2MissThenL1Match(t *testing.T) {
+	sc := scanner.ScanEngineCstor(0)
+	// Configure semantic to timeout beyond rule timeout
+	sc.SetSemanticAnalyzer(semfake.Analyzer{Delay: 200 * time.Millisecond})
+	// One pack with all three: L3 semantic with fallback regex not present, plus a keyword rule
+	sc.LoadRulePacks([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "combo"},
+		Rules: []rules.Rule{
+			{ID: "l3", Level: 3, Severity: "ERROR", Timeout: "50ms", Semantic: &rules.Semantic{Model: "fake", AnalysisPrompt: "Detect: {input}", FallbackOnError: true}, Fallback: &rules.Fallback{Patterns: []rules.Pattern{{Regex: "present-only-in-alt"}}}},
+			{ID: "l2", Level: 2, Severity: "WARNING", Patterns: []rules.Pattern{{Regex: "nope-not-here"}}},
+			{ID: "l1", Level: 1, Severity: "INFO", Keywords: []string{"keyword"}},
+		},
+	}})
+
+	res, err := sc.ScanReader(context.Background(), strings.NewReader("this has a keyword"), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Violations) != 1 || res.Violations[0].RuleID != "l1" {
+		t.Fatalf("expected fallback to L1 keyword only, got %v", res.Violations)
+	}
+}
+
+// L3 success in first_match mode with no L1 trigger; should include an L3 violation
+func TestEscalation_L3SuccessWithFirstMatchIncludesL3(t *testing.T) {
+	sc := scanner.ScanEngineCstor(0)
+	sc.SetSemanticAnalyzer(semfake.Analyzer{}) // immediate success
+	sc.SetCompositionStrategy("first_match")
+	// Include an L3 gating token in a regex so L3 is evaluated
+	sc.LoadRulePacks([]rules.RulePack{{
+		Metadata: rules.Metadata{Name: "combo"},
+		Rules: []rules.Rule{
+			{ID: "l3", Level: 3, Severity: "ERROR", Patterns: []rules.Pattern{{Regex: "FAKE_MATCH"}}, Semantic: &rules.Semantic{Model: "fake", AnalysisPrompt: "Detect: {input}"}},
+			{ID: "l2", Level: 2, Severity: "WARNING", Patterns: []rules.Pattern{{Regex: "keyword"}}},
+			{ID: "l1", Level: 1, Severity: "INFO", Keywords: []string{"keyword"}},
+		},
+	}})
+	// Do NOT include the 'keyword' token; only FAKE_MATCH
+	res, err := sc.ScanReader(context.Background(), strings.NewReader("contains [FAKE_MATCH] token"), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundL3 := false
+	for _, v := range res.Violations {
+		if v.RuleID == "l3" {
+			foundL3 = true
+			break
+		}
+	}
+	if !foundL3 {
+		t.Fatalf("expected L3 violation present, got %v", res.Violations)
 	}
 }

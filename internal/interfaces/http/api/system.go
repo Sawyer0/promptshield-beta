@@ -18,30 +18,44 @@ import (
 // registerSystemHandlers registers all system management and diagnostics endpoints
 func registerSystemHandlers(r chi.Router, opt Options) {
 	// System management endpoints (admin only)
-	r.Route("/v1/admin/system", func(sr chi.Router) {
-		sr.Use(adminAuth(opt))
+    r.Route("/admin/system", func(sr chi.Router) {
+        sr.Use(adminAuth(opt))
 
-		sr.Get("/features", getFeaturesHandler(opt))
-		sr.Get("/stats", getSystemStatsHandler(opt))
-		sr.Post("/drain", drainSystemHandler(opt))
-		sr.Post("/shutdown", shutdownSystemHandler(opt))
-		sr.Get("/info", getSystemInfoHandler(opt))
-	})
+sr.Get("/features", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.read", "system", "features", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            getFeaturesHandler(opt)(w,r)
+        })
+sr.Get("/stats", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.read", "system", "stats", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            getSystemStatsHandler()(w,r)
+        })
+sr.Post("/drain", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.drain", "system", "drain", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            drainSystemHandler(opt)(w,r)
+        })
+sr.Post("/shutdown", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.shutdown", "system", "shutdown", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            shutdownSystemHandler(opt)(w,r)
+        })
+sr.Get("/info", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "system.read", "system", "info", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            getSystemInfoHandler(opt)(w,r)
+        })
+    })
 
 	// Debug and diagnostics endpoints (admin only)
-	r.Route("/debug", func(dr chi.Router) {
-		dr.Use(adminAuth(opt))
+    r.Route("/debug", func(dr chi.Router) {
+        dr.Use(adminAuth(opt))
 
-		dr.Get("/status", getSystemStatusHandler(opt))
-		dr.Get("/goroutines", getGoroutinesHandler(opt))
-		dr.Get("/memory", getMemoryStatsHandler(opt))
-		dr.Get("/health", getHealthCheckHandler(opt))
-	})
+        dr.Get("/status", getSystemStatusHandler(opt))
+        dr.Get("/goroutines", getGoroutinesHandler(opt))
+        dr.Get("/memory", getMemoryStatsHandler(opt))
+        dr.Get("/health", getHealthCheckHandler(opt))
+    })
 }
 
 // SystemFeatures represents available features and their status
 type SystemFeatures struct {
-	AsyncJobs        bool `json:"async_jobs"`
 	L3Semantic       bool `json:"l3_semantic"`
 	TenantManagement bool `json:"tenant_management"`
 	AuditLogging     bool `json:"audit_logging"`
@@ -111,7 +125,6 @@ func getFeaturesHandler(opt Options) http.HandlerFunc {
 		_ = license.IsLicensed()
 
 		features := SystemFeatures{
-			AsyncJobs:        license.HasFeature("async_jobs"),
 			L3Semantic:       license.HasFeature("l3_semantic"),
 			TenantManagement: opt.TenantRepository != nil,
 			AuditLogging:     opt.AuditRepository != nil,
@@ -125,8 +138,8 @@ func getFeaturesHandler(opt Options) http.HandlerFunc {
 }
 
 // getSystemStatsHandler handles GET /v1/admin/system/stats
-func getSystemStatsHandler(opt Options) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func getSystemStatsHandler() http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
 		// This would normally pull from Prometheus metrics
 		// For now, return basic stats
 		stats := SystemStats{
@@ -142,8 +155,8 @@ func getSystemStatsHandler(opt Options) http.HandlerFunc {
 			Version:       version.Version,
 		}
 
-		writeJSON(w, http.StatusOK, stats, r)
-	}
+        writeJSON(w, http.StatusOK, stats, r)
+    }
 }
 
 // drainSystemHandler handles POST /v1/admin/system/drain
@@ -215,8 +228,7 @@ func getSystemInfoHandler(opt Options) http.HandlerFunc {
 				"entitlements": entitlements,
 			},
 			Features: SystemFeatures{
-				AsyncJobs:        license.HasFeature("async_jobs"),
-				L3Semantic:       license.HasFeature("l3_semantic"),
+					L3Semantic:       license.HasFeature("l3_semantic"),
 				TenantManagement: opt.TenantRepository != nil,
 				AuditLogging:     opt.AuditRepository != nil,
 				UsageTracking:    opt.UsageStore != nil,
@@ -365,12 +377,15 @@ func getSystemStatusHandler(opt Options) http.HandlerFunc {
 		}
 
 		// Set appropriate HTTP status code
-		statusCode := http.StatusOK
-		if overallStatus == "degraded" {
-			statusCode = http.StatusPartialContent
-		} else if overallStatus == "unhealthy" {
-			statusCode = http.StatusServiceUnavailable
-		}
+        var statusCode int
+        switch overallStatus {
+        case "degraded":
+            statusCode = http.StatusPartialContent
+        case "unhealthy":
+            statusCode = http.StatusServiceUnavailable
+        default:
+            statusCode = http.StatusOK
+        }
 
 		writeJSON(w, statusCode, status, r)
 	}

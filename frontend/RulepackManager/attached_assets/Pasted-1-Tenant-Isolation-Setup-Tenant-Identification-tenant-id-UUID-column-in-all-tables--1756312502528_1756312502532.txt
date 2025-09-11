@@ -1,0 +1,70 @@
+1. Tenant Isolation Setup
+
+  Tenant Identification:
+  - tenant_id UUID column in all tables
+  - RLS policies implemented in migrations/0009_rls_policies.sql
+  - Tenant context set via set_tenant_context(tenant_id UUID) function
+
+  Tenant Context Flow:
+  -- Database function sets context per request
+  SELECT set_tenant_context('tenant-uuid-here'::uuid);
+
+  -- RLS policies automatically filter by current tenant
+  CREATE POLICY tenant_isolation ON rulepacks
+    FOR ALL TO authenticated
+    USING (tenant_id = get_current_tenant_id());
+
+  2. Database Schema
+
+  Tenant Columns: ✅ All tables have tenant_id UUID NOT NULL
+  - tenants, rulepacks, rulepack_versions, policies, audits, etc.
+
+  RLS Policies: ✅ Applied to 13+ tables in migrations/0009_rls_policies.sql
+
+  User-Tenant Association:
+  -- Users belong to tenants
+  CREATE TABLE tenant_users (
+      user_id UUID REFERENCES auth.users,
+      tenant_id UUID REFERENCES tenants,
+      role tenant_user_role
+  );
+
+  3. Authentication Flow
+
+  Using Custom Auth (not Supabase Auth):
+  - internal/interfaces/http/api/middleware_tenant.go - Tenant middleware
+  - X-Tenant-ID header required on requests
+  - JWT validation in middleware
+
+  Tenant Information Flow:
+  // Middleware extracts tenant ID from header/JWT
+  func (m *TenantMiddleware) ValidateTenant(ctx context.Context, tenantID string) error {
+      // Sets tenant context in database
+      return setTenantContextInDB(m.db, uuid.MustParse(tenantID))
+  }
+
+  4. Current API Structure
+
+  Existing Tenant Endpoints: ✅
+  - internal/interfaces/http/api/tenants.go - Tenant management
+  - internal/interfaces/http/api/rulepacks.go - Tenant-scoped rulepacks
+  - internal/interfaces/http/api/middleware_tenant.go - Tenant middleware
+
+  Headers/Parameters:
+  - X-Tenant-ID header (required)
+  - Authorization: Bearer <jwt> header
+  - All responses automatically filtered by tenant via RLS
+
+  5. Frontend Integration Points
+
+  API Base: All endpoints under /api/v1/
+  Tenant Context: Every request needs X-Tenant-ID header
+  RLS Automatic: Database automatically filters by tenant
+
+  Example API calls:
+  fetch('/api/v1/rulepacks', {
+    headers: {
+      'Authorization': 'Bearer <jwt>',
+      'X-Tenant-ID': 'tenant-uuid-here'
+    }
+  })

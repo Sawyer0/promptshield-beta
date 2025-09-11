@@ -20,6 +20,7 @@ type RulepackRepository interface {
 	Activate(ctx context.Context, packID, versionID uuid.UUID) error
 	ApproveVersion(ctx context.Context, packID uuid.UUID, version int) error
 	GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error)
+	GetVersionIDByNumber(ctx context.Context, packID uuid.UUID, version int) (uuid.UUID, error)
 	GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error)
 	ActivateLatest(ctx context.Context, packID uuid.UUID) error
 	ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]contracts.RulepackInfo, error)
@@ -123,7 +124,20 @@ func (r *pgRulepackRepo) GetVersion(ctx context.Context, packID uuid.UUID, versi
 		}
 		return nil, "", err
 	}
-	return dsl, status, nil
+return dsl, status, nil
+}
+
+// GetVersionIDByNumber returns the version row ID for a given version number.
+func (r *pgRulepackRepo) GetVersionIDByNumber(ctx context.Context, packID uuid.UUID, version int) (uuid.UUID, error) {
+	var id uuid.UUID
+	q := `SELECT id FROM rulepack_versions WHERE rulepack_id=$1 AND version=$2`
+	if err := r.db.Raw().QueryRow(ctx, q, packID, version).Scan(&id); err != nil {
+		if err == pgx.ErrNoRows {
+			return uuid.Nil, fmt.Errorf("not found")
+		}
+		return uuid.Nil, err
+	}
+	return id, nil
 }
 
 // ApproveVersion sets status='approved' when currently 'draft'.

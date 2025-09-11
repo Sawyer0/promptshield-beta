@@ -17,6 +17,9 @@ type TenantRepository interface {
 	List(ctx context.Context, offset, limit int) ([]*domain.Tenant, int, error)
 	Update(ctx context.Context, tenant *domain.Tenant) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	// External organization mapping helpers (e.g., Clerk org -> tenant)
+	GetByExternalOrg(ctx context.Context, provider string, externalOrgID string) (*domain.Tenant, error)
+	LinkExternalOrg(ctx context.Context, provider string, externalOrgID string, tenantID uuid.UUID) error
 }
 
 type pgTenantRepo struct{ db *Pool }
@@ -39,9 +42,9 @@ func (r *pgTenantRepo) Create(ctx context.Context, tenant *domain.Tenant) error 
 
 	q := `INSERT INTO tenants (id, name, status, metadata, created_at, updated_at) 
 		VALUES ($1, $2, $3, $4, $5, $6)`
-	
-	_, err := r.db.Raw().Exec(ctx, q, 
-		tenant.ID, tenant.Name, tenant.Status, tenant.Metadata, 
+
+	_, err := r.db.Raw().Exec(ctx, q,
+		tenant.ID, tenant.Name, tenant.Status, tenant.Metadata,
 		tenant.CreatedAt, tenant.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create tenant: %w", err)
@@ -53,7 +56,7 @@ func (r *pgTenantRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Tenant, e
 	var t domain.Tenant
 	q := `SELECT id, name, status, metadata, created_at, updated_at 
 		FROM tenants WHERE id = $1`
-	
+
 	err := r.db.Raw().QueryRow(ctx, q, id).Scan(
 		&t.ID, &t.Name, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -69,7 +72,7 @@ func (r *pgTenantRepo) GetByName(ctx context.Context, name string) (*domain.Tena
 	var t domain.Tenant
 	q := `SELECT id, name, status, metadata, created_at, updated_at 
 		FROM tenants WHERE name = $1`
-	
+
 	err := r.db.Raw().QueryRow(ctx, q, name).Scan(
 		&t.ID, &t.Name, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -96,7 +99,7 @@ func (r *pgTenantRepo) List(ctx context.Context, offset, limit int) ([]*domain.T
 	// Get paginated results
 	q := `SELECT id, name, status, metadata, created_at, updated_at 
 		FROM tenants ORDER BY name LIMIT $1 OFFSET $2`
-	
+
 	rows, err := r.db.Raw().Query(ctx, q, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list tenants: %w", err)
@@ -117,11 +120,11 @@ func (r *pgTenantRepo) List(ctx context.Context, offset, limit int) ([]*domain.T
 
 func (r *pgTenantRepo) Update(ctx context.Context, tenant *domain.Tenant) error {
 	tenant.UpdatedAt = time.Now()
-	
+
 	q := `UPDATE tenants SET name = $2, status = $3, metadata = $4, updated_at = $5 
 		WHERE id = $1`
-	
-	result, err := r.db.Raw().Exec(ctx, q, 
+
+	result, err := r.db.Raw().Exec(ctx, q,
 		tenant.ID, tenant.Name, tenant.Status, tenant.Metadata, tenant.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("update tenant: %w", err)
@@ -140,6 +143,36 @@ func (r *pgTenantRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	if result.RowsAffected() == 0 {
 		return fmt.Errorf("tenant not found")
+	}
+	return nil
+}
+
+// GetByExternalOrg resolves a tenant via external organization mapping
+func (r *pgTenantRepo) GetByExternalOrg(ctx context.Context, provider string, externalOrgID string) (*domain.Tenant, error) {
+	var t domain.Tenant
+	q := `SELECT t.id, t.name, t.status, t.metadata, t.created_at, t.updated_at
+	      FROM tenant_org_links l
+	      JOIN tenants t ON t.id = l.tenant_id
+	      WHERE l.provider = $1 AND l.external_org_id = $2`
+	err := r.db.Raw().QueryRow(ctx, q, provider, externalOrgID).Scan(
+		&t.ID, &t.Name, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("no mapping")
+		}
+		return nil, fmt.Errorf("get by external org: %w", err)
+	}
+	return &t, nil
+}
+
+// LinkExternalOrg creates or updates a mapping from external org to tenant
+func (r *pgTenantRepo) LinkExternalOrg(ctx context.Context, provider string, externalOrgID string, tenantID uuid.UUID) error {
+	q := `INSERT INTO tenant_org_links(provider, external_org_id, tenant_id, created_at)
+	      VALUES ($1,$2,$3,NOW())
+	      ON CONFLICT (provider, external_org_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id`
+	if _, err := r.db.Raw().Exec(ctx, q, provider, externalOrgID, tenantID); err != nil {
+		return fmt.Errorf("link external org: %w", err)
 	}
 	return nil
 }

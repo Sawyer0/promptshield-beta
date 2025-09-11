@@ -14,7 +14,7 @@ import (
 
 // registerAuditHandlers registers all audit trail endpoints
 func registerAuditHandlers(r chi.Router, opt Options) {
-	r.Route("/v1/admin/audits", func(ar chi.Router) {
+	r.Route("/admin/audits", func(ar chi.Router) {
 		ar.Use(adminAuth(opt))
 		
 		ar.Get("/", listAuditEventsHandler(opt))
@@ -57,6 +57,10 @@ type Pagination struct {
 // listAuditEventsHandler handles GET /v1/admin/audits
 func listAuditEventsHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "audit.list", "audit", "*", nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.AuditRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", 
 				"Audit management not configured", nil, r)
@@ -126,6 +130,10 @@ func listAuditEventsHandler(opt Options) http.HandlerFunc {
 // searchAuditEventsHandler handles POST /v1/admin/audits/search
 func searchAuditEventsHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "audit.search", "audit", "*", nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.AuditRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", 
 				"Audit management not configured", nil, r)
@@ -200,6 +208,10 @@ func searchAuditEventsHandler(opt Options) http.HandlerFunc {
 // exportAuditEventsHandler handles GET /v1/admin/audits/export
 func exportAuditEventsHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if ok, reason := authorizePDP(r, "audit.export", "audit", "*", nil, true); !ok {
+			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+			return
+		}
 		if opt.AuditRepository == nil {
 			writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", 
 				"Audit management not configured", nil, r)

@@ -1,0 +1,100 @@
+Looking at the rulepack management endpoints in my backend, here are the available endpoints for the frontend:
+
+  Rulepack Management API Endpoints:
+
+  Core CRUD Operations:
+
+  // Create new rulepack
+  POST /api/v1/rulepacks
+  {
+    "name": "Anti-Injection Rules",
+    "description": "Prevents prompt injection attacks"
+  }
+
+  // List all rulepacks for tenant
+  GET /api/v1/rulepacks
+
+  // Get specific rulepack
+  GET /api/v1/rulepacks/{id}
+
+  // Delete rulepack
+  DELETE /api/v1/rulepacks/{id}
+
+  Version Management:
+
+  // Create new version with DSL content
+  POST /api/v1/rulepacks/{id}/versions
+  {
+    "dsl": "rules:\n  - id: 'injection-check'\n    patterns:\n      - regex: 'ignore.*instructions'",
+    "status": "draft"  // or "approved"
+  }
+
+  // Get specific version
+  GET /api/v1/rulepacks/{id}/versions/{version_number}
+
+  // List all versions for a rulepack
+  GET /api/v1/rulepacks/{id}/versions
+
+  Activation Control:
+
+  // Activate a specific version (makes it live in enforcer)
+  POST /api/v1/rulepacks/{id}/versions/{version_id}/activate
+
+  // Activate latest version
+  POST /api/v1/rulepacks/{id}/activate-latest
+
+  // Deactivate rulepack (stops enforcement)
+  POST /api/v1/rulepacks/{id}/deactivate
+
+  Management Operations:
+
+  // Cleanup old versions (keep only recent N versions)
+  POST /api/v1/rulepacks/{id}/purge-versions
+  {
+    "keep": 5  // Keep 5 most recent versions
+  }
+
+  Required Headers for All Requests:
+
+  const headers = {
+    'X-PS-Frontend-Auth': 'verified',
+    'X-PS-User-ID': user.id,
+    'X-PS-User-Name': user.name,
+    'X-Tenant-ID': selectedTenant,
+    'Content-Type': 'application/json'
+  };
+
+  Example Frontend Integration:
+
+  class RulepackManager {
+    async createRulepack(name, description) {
+      const response = await fetch('/api/v1/rulepacks', {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ name, description })
+      });
+      return response.json();
+    }
+
+    async createVersion(rulepackId, dslContent) {
+      const response = await fetch(`/api/v1/rulepacks/${rulepackId}/versions`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({
+          dsl: dslContent,
+          status: 'approved'
+        })
+      });
+      return response.json();
+    }
+
+    async activateVersion(rulepackId, versionId) {
+      const response = await fetch(`/api/v1/rulepacks/${rulepackId}/versions/${versionId}/activate`, {
+        method: 'POST',
+        headers: this.getHeaders()
+      });
+      return response.json();
+    }
+  }
+
+  All these endpoints automatically respect tenant isolation through RLS - users only see/manage rulepacks for their tenant. The enforcer picks up changes immediately when versions are activated.

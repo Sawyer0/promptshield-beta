@@ -189,8 +189,7 @@ PromptShield uses environment-first configuration (no CLI flags):
 - `PS_ENFORCER_REDACTION_MUTATION=true` — Enable body mutation in ext_proc
 
 #### Semantic Analysis (Level 3)
-- `PS_SEMANTIC_ENABLED=true` — Enable Level 3 rules
-- `PS_SEMANTIC_PROVIDER=openai|anthropic` — Select provider
+- `PS_SEMANTIC_ENABLED=true` — Enable Level 3 rules (uses OpenAI)
 - `PS_SEMANTIC_TIMEOUT=100ms` — LLM call timeout
 - `PS_SEMANTIC_CACHE_TTL=15m` — Response cache duration
 

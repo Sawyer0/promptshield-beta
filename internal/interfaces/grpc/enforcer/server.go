@@ -14,12 +14,17 @@ import (
 	"github.com/google/uuid"
 	health "google.golang.org/grpc/health"
 
+	"bytes"
+
 	"github.com/promptshield/promptshield/internal/contracts"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
+	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
+	enc "github.com/promptshield/promptshield/internal/security/crypto"
 	"github.com/promptshield/promptshield/internal/shared/severity"
 	pkgtypes "github.com/promptshield/promptshield/pkg/types"
 	"golang.org/x/time/rate"
+	"github.com/promptshield/promptshield/internal/domain"
 )
 
 // TelemetryCollector is a minimal, privacy-first event emitter used by the enforcer.
@@ -45,9 +50,6 @@ type Server struct {
 	// streaming performance controls
 	windowLimit int
 	overlap     int
-	// tails for cross-chunk matching
-	tailReq  []byte
-	tailResp []byte
 	// basic rate limiter (global)
 	limiter *rate.Limiter
 	// global concurrency & memory budgets
@@ -57,12 +59,19 @@ type Server struct {
 	inflightBackoff time.Duration
 
 	// runtime rule loading
-	rulepackRepo contracts.RulepackRepository
-	tenantID     uuid.UUID
-	rulesMutex   sync.RWMutex // protects rule reloading
+	rulepackRepo    contracts.RulepackRepository
+	assignmentRepo  domain.RulepackAssignmentRepository
+	tenantID        uuid.UUID
+	rulesMutex      sync.RWMutex // protects rule reloading
 
 	// live rule updates
 	subscriber *nats.Subscriber
+
+	// audit logging for decisions (sink chosen via env in ctor)
+	// kept minimal to avoid import cycles; we adapt internal/audit.Logger at construction time
+	audit struct {
+		logf func(eventType string, data map[string]any)
+	}
 }
 
 // constructor moved to constructor.go
@@ -71,6 +80,34 @@ type Server struct {
 func (s *Server) Process(streamParam extproc.ExternalProcessor_ProcessServer) error {
 	// Delegate to extracted implementation in process_stream.go
 	return s.processStream(streamParam)
+}
+
+// auditDecision sends a structured decision event to the configured audit sink (if any).
+func (s *Server) auditDecision(eventType string, data map[string]any) {
+	if s.audit.logf != nil {
+		// Attach optional signature over canonical data
+		if _, ok := data["signed_hmac"]; !ok {
+			if sig, err := enc.SignHMAC256(data); err == nil {
+				data["signed_hmac"] = sig
+			}
+		}
+		s.audit.logf(eventType, data)
+	}
+}
+
+// currentRulepackIDs returns identifiers for the rulepacks currently loaded into the scanners.
+// The RulePack.SourcePath is populated with the rulepack UUID string during DB load.
+func (s *Server) currentRulepackIDs() []string {
+	s.rulesMutex.RLock()
+	defer s.rulesMutex.RUnlock()
+	// Attempt to reflect identifiers from scanner state if available
+	var ids []string
+	// The scanner does not expose packs directly; we rely on RulePack.SourcePath carried into compiled rules
+	// As a pragmatic approach, include the server tenantID (single-tenant instance) when explicit IDs are not accessible.
+	if s.tenantID != uuid.Nil {
+		ids = append(ids, s.tenantID.String())
+	}
+	return ids
 }
 
 // Run wrapper removed; use internal/enforcergrpc helpers instead.
@@ -89,7 +126,7 @@ func sendImmediateResponseWithDetails(stream extproc.ExternalProcessor_ProcessSe
 	var body []byte
 
 	// Debug logging
-	logger := slog.With("component","grpc-enforcer")
+	logger := slog.With("component", "grpc-enforcer")
 	if scanResult != nil {
 		logger.Debug("sendImmediateResponseWithDetails called", "violations", len(scanResult.Violations))
 	} else {
@@ -192,13 +229,11 @@ func (s *Server) ReloadRules(ctx context.Context) error {
 		return err
 	}
 
-	// Reload rules into scanners
-	if len(packs) > 0 {
-		s.scReq.LoadRulePacks(packs)
-		s.scResp.LoadRulePacks(packs)
-		logger := slog.With("component","grpc-enforcer")
-		logger.Info("Reloaded rulepacks from database", "count", len(packs))
-	}
+	// Reload rules into scanners (also clears prior rules when empty)
+	s.scReq.LoadRulePacks(packs)
+	s.scResp.LoadRulePacks(packs)
+	logger := slog.With("component", "grpc-enforcer")
+	logger.Info("Reloaded rulepacks from database", "count", len(packs))
 
 	return nil
 }
@@ -217,3 +252,37 @@ func isLoopbackAddr(addr string) bool { return false }
 */
 
 /* metrics moved to metrics.go */
+
+// LoadTestRules loads the provided rulepacks into both request/response scanners (test helper)
+func (s *Server) LoadTestRules(packs []rules.RulePack) {
+	s.rulesMutex.Lock()
+	defer s.rulesMutex.Unlock()
+	if s.scReq != nil {
+		s.scReq.LoadRulePacks(packs)
+	}
+	if s.scResp != nil {
+		s.scResp.LoadRulePacks(packs)
+	}
+}
+
+// TestScanRequest scans the provided request payload using the request scanner and returns the result (test helper)
+func (s *Server) TestScanRequest(ctx context.Context, data []byte) (*pkgtypes.ScanResult, error) {
+	s.rulesMutex.RLock()
+	sc := s.scReq
+	s.rulesMutex.RUnlock()
+	if sc == nil {
+		res := pkgtypes.ScanResult{}
+		return &res, nil
+	}
+	res, err := sc.ScanReader(ctx, bytes.NewReader(data), "test:request")
+	if err != nil {
+		return nil, err
+	}
+	// Populate decision fields for tests based on server threshold
+	if hasThresholdHit(res, s.failOn) {
+		res.ScanInfo.ShouldBlock = true
+		res.ScanInfo.BlockReason = firstReason(res)
+	}
+	res.ScanInfo.TotalViolations = len(res.Violations)
+	return &res, nil
+}

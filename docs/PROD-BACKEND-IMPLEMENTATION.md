@@ -15,10 +15,10 @@
 ### Repo Structure (additions)
 - `internal/infrastructure/persistence/postgres/` — PG adapters (rulepacks, versions, assignments, audits).
 - `internal/application/services/` — RulepackService (validate, version, assign).
-- `internal/interfaces/http/controlplane/` — REST/JSON (and SSE) endpoints for rule lifecycle.
+- `internal/interfaces/http/api/` — REST/JSON (and SSE) endpoints for rule lifecycle and enforcement.
 - `internal/infrastructure/messaging/` — NATS/Redis publisher/subscriber.
 - `migrations/` — SQL migrations.
-- `cmd/controlplane/main.go` — control plane binary.
+- `gateway/main.go` — unified gateway binary (control plane + enforcement).
 - `configs/` — config files (env, DSN, NATS/Redis URLs).
 
 ### Data Model (PostgreSQL)
@@ -83,7 +83,7 @@ Optional: PostgreSQL Row-Level Security templates for tenant isolation.
 
 ### Control Plane API (HTTP)
 
-Endpoints (to be implemented under `internal/interfaces/http/controlplane/`):
+Endpoints (implemented under `internal/interfaces/http/api/`):
 - `POST /v1/rulepacks` — create rulepack (tenant_id, name, description)
 - `POST /v1/rulepacks/{id}/versions` — upload DSL (YAML/JSON), validate against schema, create new version (status=draft)
 - `POST /v1/rulepacks/{id}/versions/{ver}/approve` — approval flow
@@ -132,7 +132,7 @@ func (g *Gateway) startRuleUpdates(ctx context.Context) error {
 }
 
 func (g *Gateway) fetchAndApply(ctx context.Context, u RuleUpdate) {
-  dsl, checksum := g.controlPlaneClient.GetRulepack(ctx, u.RulepackID, u.Version)
+  dsl, checksum := g.gatewayClient.GetRulepack(ctx, u.RulepackID, u.Version)
   if checksum == g.cacheChecksum { return }
   cr, err := CompileRules(dsl) // reuse engine from `tools/demos/mockgateway/main.go`
   if err != nil { g.logger.Error("compile", "err", err); return }
@@ -199,7 +199,7 @@ func (r *pgRulepackRepo) CreateVersion(ctx context.Context, packID uuid.UUID, ve
 - Example rulepacks: `docs/examples/rulepacks/*.yaml`
 - New persistence: `internal/infrastructure/persistence/postgres/` (to implement)
 - New services: `internal/application/services/` (to implement)
-- New HTTP control plane: `internal/interfaces/http/controlplane/` + `cmd/controlplane/main.go` (to implement)
+- Unified HTTP API: `internal/interfaces/http/api/` + `gateway/main.go` (implemented)
 - Messaging: `internal/infrastructure/messaging/` (to implement)
 - Migrations: `migrations/*.sql` (to add)
 

@@ -12,7 +12,7 @@ Key packages:
 
 - `internal/rules`: YAML schema types and loader for RulePacks (imports, extends/overrides, composition)
 - `internal/scanner`: Streaming scanner and rule compilation/evaluation (configurable buffer/overlap; global regex cache for L2). Regex engine defaults to Go's RE2-compatible `regexp`; optional Hyperscan path is gated behind a build tag.
-- `internal/interfaces/http/enforcer`: HTTP runtime `/healthz`, `/readyz`, `/metrics` and mounts versioned API under `/v1` including `/v1/check`, `/v1/scan`, async job endpoints, rulepack/config management, and admin endpoints. Legacy root `/check` remains supported for compatibility.
+- `internal/interfaces/http/enforcer`: HTTP runtime `/healthz`, `/readyz`, `/metrics` and mounts versioned API under `/v1` including `/v1/check` (single, aggregate JSON, NDJSON) plus rulepack/config management and admin endpoints. Legacy root `/check` remains supported for compatibility.
 - `internal/interfaces/grpc/enforcer`: Envoy `ext_proc` gRPC server with streaming decisions, budgets, and metrics
 - `internal/observability/telemetry`: Opt-in OpenTelemetry exporter; Prometheus registries
 - `internal/audit`: File and rotating audit loggers with SHA‑256 hash chaining

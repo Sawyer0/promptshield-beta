@@ -31,14 +31,14 @@ const (
 
 // Policy represents a security policy/rulepack
 type Policy struct {
-	ID        uuid.UUID        `json:"id"`
-	Name      string           `json:"name"`
-	Version   int              `json:"version"`
-	Content   string           `json:"content"` // YAML/JSON rules
-	Type      PolicyType       `json:"type"`
-	CreatedBy *uuid.UUID       `json:"created_by,omitempty"`
-	CreatedAt time.Time        `json:"created_at"`
-	UpdatedAt time.Time        `json:"updated_at"`
+	ID        uuid.UUID  `json:"id"`
+	Name      string     `json:"name"`
+	Version   int        `json:"version"`
+	Content   string     `json:"content"` // YAML/JSON rules
+	Type      PolicyType `json:"type"`
+	CreatedBy *uuid.UUID `json:"created_by,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 // PolicyType represents the type of policy
@@ -57,6 +57,19 @@ type PolicyAssignment struct {
 	PolicyID    uuid.UUID `json:"policy_id"`
 	TargetScope string    `json:"target_scope"` // /v1/openai/*, /v1/anthropic/*
 	Priority    int       `json:"priority"`     // Higher priority wins
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// RulepackAssignment represents assignment of a rulepack to a tenant/route
+type RulepackAssignment struct {
+	ID          uuid.UUID `json:"id"`
+	TenantID    uuid.UUID `json:"tenant_id"`
+	RulepackID  uuid.UUID `json:"rulepack_id"`
+	Method      string    `json:"method"`        // HTTP method: GET|POST|PUT|PATCH|DELETE|* (ANY)
+	TargetScope string    `json:"target_scope"` // Path pattern: "/", exact, or "/prefix/*"
+	Priority    int       `json:"priority"`
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -91,21 +104,21 @@ const (
 
 // UsageMetric represents aggregated usage data
 type UsageMetric struct {
-	ID                uuid.UUID     `json:"id"`
-	TenantID          uuid.UUID     `json:"tenant_id"`
-	Timestamp         time.Time     `json:"timestamp"`
-	Window            TimeWindow    `json:"window"`
+	ID        uuid.UUID  `json:"id"`
+	TenantID  uuid.UUID  `json:"tenant_id"`
+	Timestamp time.Time  `json:"timestamp"`
+	Window    TimeWindow `json:"window"`
 	// Provider removed - Security Gateway doesn't manage providers
-	Endpoint          string        `json:"endpoint,omitempty"`
-	RequestCount      int64         `json:"request_count"`
-	TokenCount        int64         `json:"token_count"`
-	PromptTokens      int64         `json:"prompt_tokens"`
-	CompletionTokens  int64         `json:"completion_tokens"`
-	Violations        int           `json:"violations"`
-	BlockedRequests   int           `json:"blocked_requests"`
-	LatencyP50        float64       `json:"latency_p50"`
-	LatencyP95        float64       `json:"latency_p95"`
-	LatencyP99        float64       `json:"latency_p99"`
+	Endpoint         string  `json:"endpoint,omitempty"`
+	RequestCount     int64   `json:"request_count"`
+	TokenCount       int64   `json:"token_count"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	Violations       int     `json:"violations"`
+	BlockedRequests  int     `json:"blocked_requests"`
+	LatencyP50       float64 `json:"latency_p50"`
+	LatencyP95       float64 `json:"latency_p95"`
+	LatencyP99       float64 `json:"latency_p99"`
 }
 
 // TimeWindow represents aggregation window
@@ -122,15 +135,15 @@ const (
 
 // APIToken represents authentication tokens for API access
 type APIToken struct {
-	ID        uuid.UUID    `json:"id"`
-	TenantID  uuid.UUID    `json:"tenant_id"`
-	TokenHash string       `json:"-"` // Never expose
-	Name      string       `json:"name"`
-	Scopes    []string     `json:"scopes"` // Permissions
-	ExpiresAt *time.Time   `json:"expires_at,omitempty"`
-	LastUsed  *time.Time   `json:"last_used,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
-	RevokedAt *time.Time   `json:"revoked_at,omitempty"`
+	ID        uuid.UUID  `json:"id"`
+	TenantID  uuid.UUID  `json:"tenant_id"`
+	TokenHash string     `json:"-"` // Never expose
+	Name      string     `json:"name"`
+	Scopes    []string   `json:"scopes"` // Permissions
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	LastUsed  *time.Time `json:"last_used,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
 
 // EnforcementDecision represents the result of policy enforcement
@@ -145,12 +158,12 @@ type EnforcementDecision struct {
 
 // Violation represents a policy violation
 type Violation struct {
-	Type        string    `json:"type"`
-	Severity    Severity  `json:"severity"`
-	Rule        string    `json:"rule"`
-	Message     string    `json:"message"`
-	Location    string    `json:"location,omitempty"`
-	Evidence    string    `json:"evidence,omitempty"`
+	Type     string   `json:"type"`
+	Severity Severity `json:"severity"`
+	Rule     string   `json:"rule"`
+	Message  string   `json:"message"`
+	Location string   `json:"location,omitempty"`
+	Evidence string   `json:"evidence,omitempty"`
 }
 
 // Severity represents violation severity levels

@@ -1,5 +1,9 @@
 # RulePacks – composition, imports, options, and performance
 
+### Tenant resolution with Clerk Organizations
+
+When using Clerk Organizations, the frontend BFF calls `POST /v1/tenants/resolve` with `{ provider: "clerk", external_org_id, fallback_name }`. The backend maps that external organization to a tenant and returns `tenant_id`. All rulepack operations must include `X-PS-Tenant-ID` (propagated automatically from the BFF JWT claim `tenant_id`).
+
 This document describes the RulePack schema used by PromptShield and how rules are evaluated.
 
 ## Composition
@@ -106,7 +110,7 @@ These checks also apply during scanner rule compilation; overly complex patterns
 
 ## Semantic rules (level 3)
 
-Level‑3 evaluation is a last‑resort semantic classifier used only when L1/L2 do not match the line. It is opt‑in and requires explicit configuration:
+Level‑3 evaluation is a last‑resort semantic classifier used only when L1/L2 do not match the line. It is opt‑in and uses a risk score (0–1) mapped by `confidence_threshold`:
 
 ```yaml
 rules:
@@ -114,9 +118,7 @@ rules:
     level: 3
     severity: ERROR
     semantic:
-      model: gpt-4o-mini           # required
-      analysis_prompt: |
-        Respond VIOLATION or SAFE for: {input}   # required; {input} is replaced with line text
+      confidence_threshold: 0.70    # risk >= threshold → violation
 ### Response Actions
 
 Rules may specify response mapping to control runtime behavior when a violation is detected on responses:
@@ -139,22 +141,16 @@ response:
           flags: [ignorecase]
 ```
 
-Enable semantic evaluation with environment variables (no defaults, explicit provider required):
+Enable semantic evaluation with environment variables:
 
 ```bash
 export PS_SEMANTIC_ENABLED=true
-export PS_SEMANTIC_PROVIDER=openai   # or 'anthropic'
-export OPENAI_API_KEY=...            # or PS_OPENAI_API_KEY for openai
-# for anthropic instead: ANTHROPIC_API_KEY or PS_ANTHROPIC_API_KEY
+export PS_DEBERTA_ENDPOINT=http://localhost:8089/infer
+# Optional when using HuggingFace Inference
+export HF_TOKEN=...
 ```
 
-Provider adapter respects per‑rule timeouts, global defaults, concurrency and caching:
-- Budget: `rule.timeout` or `performance.per_rule_timeout`
-- Concurrency: `PS_SEMANTIC_MAX_CONCURRENCY` (default 2)
-- Cache: `PS_SEMANTIC_CACHE_SIZE` (default 1000), `PS_SEMANTIC_CACHE_TTL` (default 15m)
-- Privacy: adapter redacts likely tokens and truncates payloads before send
- - Tracing: if `telemetry.endpoint` is configured, provider HTTP spans are emitted via OpenTelemetry
- - Logging: when `debug` is enabled (env/config), providers emit structured request/response summaries (no payloads); cache hits are logged
+Adapter respects per‑rule timeouts and caches results with TTL. See docs/DeBERTa.md for configuration and policy bridge details.
 
 ## Imports and Extends
 

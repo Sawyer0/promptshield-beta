@@ -1,0 +1,78 @@
+Violations Page Purpose                                                                                                              
+                                                                                                                     
+- Provide clear, filterable visibility into blocked/denied/quarantined traffic and why it happened, with lightweight 
+triage and export.                                                                                                   
+                                                                                                                     
+List View                                                                                                            
+                                                                                                                     
+- Columns: timestamp, decision (allow/deny/quarantine), rule/reason, endpoint path, HTTP status, user/email (if      
+present), tenant (admin only), violations count.                                                                     
+- Badges: decision color tags; quick-glance status.                                                                  
+- Pagination: server-side with page size selector.                                                                   
+                                                                                                                     
+Filters                                                                                                              
+                                                                                                                     
+- Time range: last 1h, 24h, 7d, custom.                                                                              
+- Decision: allow, deny, quarantine.                                                                                 
+- Endpoint: substring or prefix match (e.g., /v1/chat/completions).                                                  
+- Rule/Reason: substring match (e.g., prompt_injection, pii_detected).                                               
+- Status code: 2xx/4xx/5xx or exact.                                                                                 
+- Tenant: admin-only multi-select.                                                                                   
+                                                                                                                     
+Row Data                                                                                                             
+                                                                                                                     
+- Derived from audit events metadata:                                                                                
+    - metadata.decision (allow|deny|quarantine)                                                                      
+    - metadata.reason (rule identifier or category)                                                                  
+    - metadata.status (HTTP status)                                                                                  
+    - metadata.path (endpoint path)                                                                                  
+    - violations (count if provided)                                                                                 
+    - Actor fields when available (user id/email)                                                                    
+                                                                                                                     
+Details Drawer                                                                                                       
+                                                                                                                     
+- Summary: decision, rulepack hint/reason, endpoint, status, timestamp, duration if available.                       
+- Request context: method, path, headers (redacted), basic body snippet (redacted), client IP if present.            
+- Matched signals: show which rule(s) contributed (from reason and any extra fields).                                
+- JSON: full raw event JSON for copy/download.                                                                       
+- Links:                                                                                                             
+    - “Open in Audits” (narrowed to this object/action).                                                             
+    - “Related Rulepack” (if ID/version present in metadata; otherwise explain not available).                       
+    - “Scope Assignments” (deep-link to Assignments filtered by this path prefix).                                   
+                                                                                                                     
+Actions                                                                                                              
+                                                                                                                     
+- Export: JSON or CSV for current filter (uses backend export; cap max rows if needed).                              
+- Copy event ID and permalink (adds current filters + event anchor).                                                 
+- Admin-only: quick button to view system stats/health for the same time window.                                     
+                                                                                                                     
+Triage UX                                                                                                            
+                                                                                                                     
+- Quick filters: buttons for Deny, Quarantine, PII, Injection.                                                       
+- Save view: persist a filter preset per user (localStorage MVP).                                                    
+- Empty states: friendly guidance to adjust filters/time range.                                                      
+                                                                                                                     
+Performance                                                                                                          
+                                                                                                                     
+- Virtualized rows for large result sets.                                                                            
+- Debounced search; server-side pagination; show total (approximate if backend returns it).                          
+                                                                                                                     
+Backend Endpoints                                                                                                    
+                                                                                                                     
+- Search: POST /admin/audits/search                                                                                  
+    - Body: actions: ["request.decision","scan.decision"], time range, filters, limit/offset.                        
+- Export: GET /admin/audits/export?format=json|csv&limit=...                                                         
+- Object history (deep link): GET /admin/audits/object/{type}/{id}                                                   
+                                                                                                                     
+Permissions                                                                                                          
+                                                                                                                     
+- Tenant users: see only their tenant’s events (RLS enforced).                                                       
+- Admin/Owner: multi-tenant filter; export larger windows.                                                           
+                                                                                                                     
+MVP Acceptance                                                                                                       
+                                                                                                                     
+- List renders with time/decision/path/reason/status.                                                                
+- Filters work and persist in URL.                                                                                   
+- Details drawer shows metadata and raw JSON with sensitive fields redacted.                                         
+- Export honors current filters.                                                                                     
+- No edits to events; view-only with links to Rulepacks/Assignments for remediation. 

@@ -38,5 +38,7 @@ func RecordScanDuration(mode string, duration time.Duration) {
 }
 
 func init() {
-	prometheus.MustRegister(HTTPBytesTotal, ScanRequestDuration, ScanEventsTotal)
+	if Enabled() {
+		prometheus.MustRegister(HTTPBytesTotal, ScanRequestDuration, ScanEventsTotal)
+	}
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/contracts"
+	domain "github.com/promptshield/promptshield/internal/domain"
 )
 
 // Options represents runtime tunables for the gRPC enforcer server.
@@ -22,8 +23,13 @@ type Options struct {
 	EnforcementMode string
 	// RulepackRepo enables loading rules from persistence layer
 	RulepackRepo contracts.RulepackRepository
+	// AssignmentRepo enables endpoint-scoped rulepack resolution
+	AssignmentRepo domain.RulepackAssignmentRepository
 	// TenantID for loading tenant-specific rulepacks
 	TenantID uuid.UUID
 	// RedisAddr for live rule updates (if empty, live updates disabled)
 	RedisAddr string
+	// DLQ options for blocked/errored streams
+	DLQRedisAddr string
+	DLQStream    string
 }
