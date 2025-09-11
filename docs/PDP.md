@@ -83,6 +83,15 @@ The gateway wraps the PDP client with a TTL cache. It keys decisions by (tenant,
 - Sidecar OPA keeps PDP calls local. No external egress is required.
 - For stricter setups, use in-process evaluation (future option) or block egress at the network layer.
 
+## PIP (Policy Information Point)
+The gateway augments PDP environment with additional attributes derived from the request:
+- device: from X-PS-Device
+- client_ip: from X-Forwarded-For (best-effort)
+These are merged into environment.attributes before the Evaluate call.
+
+## Obligations and redaction
+If the PDP returns mask obligations (type=mask, key=pattern, value=regex), the /check handler applies them to the reason string before returning to clients, and includes X-PS-Obligations-Count header with the number of obligations observed. This helps redact sensitive content from human-facing reasons while preserving full logs/audit.
+
 ## Metrics
 - ps_gateway_cache_operations_total{operation=hit|miss|error,cache_type=pdp}
 - ps_time_to_first_decision_seconds

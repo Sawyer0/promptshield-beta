@@ -185,6 +185,22 @@ func NewMux(opt Options) http.Handler {
     r.Use(versionHeader("1"))
 
     r.Route("/rulepacks", func(r chi.Router) {
+        // New bundle endpoints (admin)
+        r.Group(func(a chi.Router) {
+            a.Use(adminAuth(opt))
+            // Export a freshly signed bundle (not persisted)
+            a.Get("/{id}/versions/{ver}/bundle", exportBundle(opt))
+            // Persist a signed bundle to store
+            a.Post("/{id}/versions/{ver}/publish", publishBundle(opt))
+            // List stored bundles
+            a.Get("/{id}/bundles", listBundles(opt))
+            // Get stored bundle (server verifies signature before returning)
+            a.Get("/{id}/bundles/{ver}", getBundle(opt))
+            // Activate from stored bundle (verify -> create+activate or activate existing)
+            a.Post("/{id}/bundles/{ver}/activate", activateBundle(opt))
+            // Verify-only posted bundle JSON
+            a.Post("/{id}/bundles/verify", verifyBundle(opt))
+        })
         r.Get("/", listRulepacks(opt))
         r.Get("/active", getActiveRulepack(opt))
         r.Group(func(a chi.Router) {
@@ -293,6 +309,7 @@ func versionHeader(v string) func(http.Handler) http.Handler {
 ---
 
 ### OpenAPI & Documentation
+- Bundle endpoints are available under /v1/rulepacks as listed above. Update your client to include the following PDP actions in policy: rulepack.bundle.export|publish|list|get|activate|verify.
 - `docs/api/openapi.yaml` is updated to reflect implemented `/v1/*` endpoints (healthz, readyz, version, check, scan, async jobs, jobs, rulepacks, config, events, stats, usage, license, admin).
 - See `docs/api/grpc.md` for Envoy ext_proc; includes redaction/replacement guidance.
 - See `docs/api/security.md` for auth, OIDC, mTLS, tenancy, and quotas.
