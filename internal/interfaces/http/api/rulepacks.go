@@ -35,9 +35,6 @@ type RulepackMeta struct {
 func mountRulepacks(r chi.Router, opt Options) {
 	r.Route("/rulepacks", func(rr chi.Router) {
 rr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
-            if ok, reason := authorizePDP(r, "rulepack.list", "rulepack", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
-                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
-            }
 			rulepacks, err := opt.RulepackService.List(r.Context(), tenantID)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
@@ -61,9 +58,6 @@ rr.Get("/", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uui
 			}
 		}))
 rr.Get("/active", withTenant(func(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
-            if ok, reason := authorizePDP(r, "rulepack.read_active", "rulepack", "*", map[string]any{"tenant_id": tenantID.String()}, true); !ok {
-                writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return
-            }
 			// Find the active rulepack from the list
 			rulepacks, err := opt.RulepackService.List(r.Context(), tenantID)
 			if err != nil {
@@ -389,6 +383,12 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
+				// PDP: activating latest version is a sensitive operation
+				if ok, reason := authorizePDP(r, "rulepack.activate_latest", "rulepack", packID.String(), nil, true); !ok {
+					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+					return
+				}
+
 				// Fetch the currently active version
 				curDSL, curVer, _ := opt.RulepackService.GetActive(r.Context(), packID)
 				_ = curDSL
@@ -440,6 +440,11 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, "NOT_FOUND", "rulepack not found", nil)
 			})
 			a.Delete("/{id}", withTenantAndID("id", func(w http.ResponseWriter, r *http.Request, tenantID, packID uuid.UUID) {
+				// PDP: deleting a rulepack
+				if ok, reason := authorizePDP(r, "rulepack.delete", "rulepack", packID.String(), map[string]any{"tenant_id": tenantID.String()}, true); !ok {
+					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+					return
+				}
 				if err := opt.RulepackService.Delete(r.Context(), tenantID, packID); err != nil {
 					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 					return
@@ -472,6 +477,12 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 				packID, err := uuid.Parse(chi.URLParam(r, "id"))
 				if err != nil {
 					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+
+				// PDP: creating a new version of a rulepack
+				if ok, reason := authorizePDP(r, "rulepack.version.create", "rulepack", packID.String(), nil, true); !ok {
+					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
 					return
 				}
 
@@ -546,6 +557,12 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 				packID, err := uuid.Parse(chi.URLParam(r, "id"))
 				if err != nil {
 					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+
+				// PDP: activating a specific version
+				if ok, reason := authorizePDP(r, "rulepack.version.activate", "rulepack", packID.String(), nil, true); !ok {
+					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
 					return
 				}
 

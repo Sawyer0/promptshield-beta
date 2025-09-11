@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	semfake "github.com/promptshield/promptshield/internal/semantic/fake"
 	ckeys "github.com/promptshield/promptshield/internal/shared/contextkeys"
 	"github.com/promptshield/promptshield/internal/shared/types"
+	"github.com/promptshield/promptshield/internal/pdp"
 	pkg "github.com/promptshield/promptshield/pkg/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -80,11 +82,32 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			w.Header().Set("X-PromptShield-License", "LICENSED")
 		}
 
-		// PDP gate for message scanning/sending
+		// PDP integration: gate by default (fail-closed unless PS_PDP_FAIL_OPEN_CHECK=true) and capture obligations
+		var pdpObligations []pdp.Obligation
 		failClosed := !strings.EqualFold(strings.TrimSpace(os.Getenv("PS_PDP_FAIL_OPEN_CHECK")), "true")
-if ok, reason := authorizePDP(r, "message.send", "message", "", map[string]any{"endpoint": r.URL.Path, "method": r.Method}, failClosed); !ok {
-			writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
-			return
+		if client, ok := GetPDPClient(r.Context()); ok {
+			// Evaluate to capture obligations and potential decision
+			sub := pdp.Subject{UserID: r.Header.Get("X-PS-User-ID"), TenantID: r.Header.Get("X-PS-Tenant-ID"), Roles: parseCSV(r.Header.Get("X-PS-User-Roles"))}
+			env := pdp.Environment{CorrelationID: getCorrelationID(r), Time: time.Now(), Attributes: map[string]any{"endpoint": r.URL.Path, "method": r.Method}}
+			reqP := pdp.Request{Subject: sub, Action: "message.send", Resource: pdp.Resource{Type: "message"}, Environment: env}
+			ctxEval, cancel := context.WithTimeout(r.Context(), 800*time.Millisecond)
+			resp, errEval := client.Evaluate(ctxEval, reqP)
+			cancel()
+			if errEval == nil {
+				pdpObligations = resp.Obligations
+			}
+			// Enforce deny when fail-closed and PDP denies/indeterminate (skip gating in insecure-admin test mode)
+			if failClosed && !opt.AllowInsecureAdmin {
+				okP := errEval == nil && (resp.Decision == pdp.Permit || resp.Decision == pdp.NotApplicable)
+				if !okP {
+					reason := strings.TrimSpace(resp.Reason)
+					if reason == "" {
+						if errEval != nil { reason = "pdp_error" } else { reason = "pdp_denied" }
+					}
+					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+					return
+				}
+			}
 		}
 
 		// tenant in context for downstream
@@ -259,6 +282,8 @@ packs, perr := resolveApplicableRulepacks(ctx, opt, endpoint, r.Method)
 			return
 		}
 		decision := "allow"; reason := "no_signals"; total := len(res.Violations)
+		// Apply mask obligations to reason (best-effort)
+		reason = applyMaskToString(reason, pdpObligations)
 		anyQuarantine := false; anyDeny := false; firstRule := ""
 		for _, v := range res.Violations {
 			if firstRule == "" { firstRule = v.RuleID }
@@ -273,6 +298,7 @@ packs, perr := resolveApplicableRulepacks(ctx, opt, endpoint, r.Method)
 		statusCode := http.StatusOK; if decision != "allow" { statusCode = http.StatusForbidden }
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(decisionResponse{Decision: decision, Reason: reason, Violations: total, RequestID: r.Header.Get("X-Request-ID")})
+		if n := len(pdpObligations); n > 0 { w.Header().Set("X-PS-Obligations-Count", strconv.Itoa(n)) }
 		respMap := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": r.Header.Get("X-Request-ID")}
 		// Span + publish + audit
 		ev := "ps.decision.allow"; if decision == "quarantine" || decision == "deny" { ev = "ps.decision.block" }
@@ -282,6 +308,18 @@ packs, perr := resolveApplicableRulepacks(ctx, opt, endpoint, r.Method)
 		if opt.AuditLogger != nil { _ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{Action: "request.decision", ObjectType: "request", ObjectID: uuid.New(), Metadata: map[string]any{"path": r.URL.Path, "status": statusCode, "decision": decision, "reason": reason, "violations": total}, Timestamp: time.Now().UTC()}) }
 		if store := getUsageStoreFromCtx(r.Context()); store != nil { var bytesN int64; if cl := r.Header.Get("Content-Length"); cl != "" { if n, err := strconv.ParseInt(cl, 10, 64); err == nil { bytesN = n } }; _ = store.Record(r.Context(), r.Header.Get("x-tenant-id"), r.URL.Path, decision, bytesN, time.Now()) }
 	}
+}
+
+func applyMaskToString(s string, obs []pdp.Obligation) string {
+	out := s
+	for _, o := range obs {
+		if strings.EqualFold(o.Type, "mask") && (strings.EqualFold(o.Key, "pattern") || o.Key == "") {
+			if pat, ok := o.Value.(string); ok && strings.TrimSpace(pat) != "" {
+				if rx, err := regexp.Compile(pat); err == nil { out = rx.ReplaceAllString(out, "[REDACTED]") }
+			}
+		}
+	}
+	return out
 }
 
 func runScanLine(ctx context.Context, data []byte, convID string, opt Options, endpoint, method string) map[string]any {
