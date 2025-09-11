@@ -34,7 +34,8 @@ func initPDP() {
 		slog.Info("PDP disabled: PS_PDP_ENDPOINT not set")
 		return
 	}
-	pdpClient = pdphttp.New(pdphttp.Config{Endpoint: endpoint, APIKey: apiKey, Timeout: to})
+base := pdphttp.New(pdphttp.Config{Endpoint: endpoint, APIKey: apiKey, Timeout: to})
+	pdpClient = pdp.NewCached(base)
 	slog.Info("PDP enabled", "endpoint", endpoint, "timeout_ms", to.Milliseconds())
 }
 
