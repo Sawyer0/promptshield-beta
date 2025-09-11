@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/pdp"
 )
 
@@ -35,6 +36,7 @@ func New(cfg Config) *Client {
 }
 
 func (c *Client) Evaluate(ctx context.Context, req pdp.Request) (pdp.Response, error) {
+	start := time.Now()
 	if c.cfg.Endpoint == "" {
 		return pdp.Response{}, errors.New("pdp endpoint not configured")
 	}
@@ -44,15 +46,18 @@ func (c *Client) Evaluate(ctx context.Context, req pdp.Request) (pdp.Response, e
 	if c.cfg.APIKey != "" {
 		hreq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
 	}
-	resp, err := c.http.Do(hreq)
+resp, err := c.http.Do(hreq)
 	if err != nil {
+		if metrics.Enabled() { metrics.CacheOperations.WithLabelValues("error", "pdp").Inc() }
 		return pdp.Response{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 500 {
+		if metrics.Enabled() { metrics.CacheOperations.WithLabelValues("error", "pdp").Inc() }
 		return pdp.Response{}, fmt.Errorf("pdp upstream %d", resp.StatusCode)
 	}
-	var wire struct {
+	// Support both top-level and OPA-style nested {"result": {...}}
+	var wireTop struct {
 		Decision    string            `json:"decision"`
 		Obligations []pdp.Obligation  `json:"obligations"`
 		Reason      string            `json:"reason"`
@@ -62,23 +67,27 @@ func (c *Client) Evaluate(ctx context.Context, req pdp.Request) (pdp.Response, e
 		Provider    string            `json:"provider"`
 		Raw         json.RawMessage   `json:"raw"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&wire); err != nil {
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(&wireTop); err != nil {
 		return pdp.Response{}, err
 	}
-	d := pdp.Decision(wire.Decision)
+	w := &wireTop
+	d := pdp.Decision(w.Decision)
 	switch d {
 	case pdp.Permit, pdp.Deny, pdp.Indeterminate, pdp.NotApplicable:
 	default:
-		return pdp.Response{}, fmt.Errorf("invalid decision: %s", wire.Decision)
+		return pdp.Response{}, fmt.Errorf("invalid decision: %s", w.Decision)
 	}
-	return pdp.Response{
+	respObj := pdp.Response{
 		Decision:    d,
-		Obligations: wire.Obligations,
-		Reason:      wire.Reason,
-		Risk:        wire.Risk,
-		Cacheable:   wire.Cacheable,
-		Provider:    wire.Provider,
-		Raw:         wire.Raw,
-		TTL:         time.Duration(wire.TTLMs) * time.Millisecond,
-	}, nil
+		Obligations: w.Obligations,
+		Reason:      w.Reason,
+		Risk:        w.Risk,
+		Cacheable:   w.Cacheable,
+		Provider:    w.Provider,
+		Raw:         w.Raw,
+		TTL:         time.Duration(w.TTLMs) * time.Millisecond,
+	}
+	if metrics.Enabled() { metrics.RecordDuration(metrics.TimeToFirstDecision, time.Since(start)) }
+	return respObj, nil
 }
