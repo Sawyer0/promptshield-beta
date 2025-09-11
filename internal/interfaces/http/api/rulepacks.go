@@ -590,6 +590,67 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewEncoder(w).Encode(bundle)
 			})
 
+			a.Post("/{id}/versions/{ver}/publish", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil)
+					return
+				}
+				ver, err := strconv.Atoi(chi.URLParam(r, "ver"))
+				if err != nil || ver <= 0 {
+					writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid version", nil)
+					return
+				}
+				if ok, reason := authorizePDP(r, "rulepack.bundle.publish", "rulepack", packID.String(), map[string]any{"version": ver}, true); !ok {
+					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
+					return
+				}
+				tenantID, ok := getTenantID(w, r)
+				if !ok { return }
+				dsl, _, err := opt.RulepackService.GetVersion(r.Context(), packID, ver)
+				if err != nil { writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error(), nil); return }
+				bundle, err := pap.BuildBundle(tenantID, packID, ver, dsl)
+				if err != nil { writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil); return }
+				base := strings.TrimSpace(os.Getenv("PS_BUNDLE_DIR"))
+				if base == "" { base = "bundles" }
+				store, err := pap.NewFSStore(base)
+				if err != nil { writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil); return }
+				path, err := store.Save(r.Context(), bundle)
+				if err != nil { writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil); return }
+				_ = json.NewEncoder(w).Encode(map[string]any{"status": "published", "path": path, "checksum": bundle.Checksum, "key_id": bundle.KeyID})
+			})
+
+			a.Get("/{id}/bundles", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil { writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil); return }
+				// PDP gate for listing
+				if ok, reason := authorizePDP(r, "rulepack.bundle.list", "rulepack", packID.String(), nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+				tenantID, ok := getTenantID(w, r)
+				if !ok { return }
+				base := strings.TrimSpace(os.Getenv("PS_BUNDLE_DIR")); if base == "" { base = "bundles" }
+				store, err := pap.NewFSStore(base); if err != nil { writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil); return }
+				infos, err := store.List(r.Context(), tenantID, packID)
+				if err != nil { writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil); return }
+				_ = json.NewEncoder(w).Encode(map[string]any{"bundles": infos, "count": len(infos)})
+			})
+
+			a.Get("/{id}/bundles/{ver}", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil { writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil); return }
+				ver, err := strconv.Atoi(chi.URLParam(r, "ver"))
+				if err != nil || ver <= 0 { writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid version", nil); return }
+				// PDP gate for retrieving stored bundles
+				if ok, reason := authorizePDP(r, "rulepack.bundle.get", "rulepack", packID.String(), map[string]any{"version": ver}, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+				tenantID, ok := getTenantID(w, r); if !ok { return }
+				base := strings.TrimSpace(os.Getenv("PS_BUNDLE_DIR")); if base == "" { base = "bundles" }
+				store, err := pap.NewFSStore(base); if err != nil { writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil); return }
+				bundle, err := store.Load(r.Context(), tenantID, packID, ver)
+				if err != nil { writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error(), nil); return }
+				// Optional verification before returning
+				if err := pap.VerifyBundle(bundle); err != nil { writeError(w, http.StatusBadRequest, "INVALID_BUNDLE", err.Error(), nil); return }
+				_ = json.NewEncoder(w).Encode(bundle)
+			})
+
 			a.Post("/{id}/versions/{ver}/activate", func(w http.ResponseWriter, r *http.Request) {
 				packID, err := uuid.Parse(chi.URLParam(r, "id"))
 				if err != nil {
