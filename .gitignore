@@ -60,3 +60,6 @@ frontend/RulepackManager/coverage/
 
 # AWS credentials directory (never commit)
 .aws/
+
+# Ignore Aurora migrations drafts (tracked elsewhere)
+migrations_aurora/
