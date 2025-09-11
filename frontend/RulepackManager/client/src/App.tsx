@@ -1,6 +1,6 @@
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { useEffect } from "react";
-import { useClerk } from '@clerk/clerk-react';
+import { useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react';
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -27,7 +27,6 @@ import AuditLogs from "@/pages/AuditLogs";
 import SystemHealth from "@/pages/SystemHealth";
 import Users from "@/pages/Users";
 import PlatformDashboard from "@/pages/PlatformDashboard";
-import ProviderProfiles from "@/pages/ProviderProfiles";
 import Preferences from "@/pages/Preferences";
 import Tools from "@/pages/Tools";
 import Organization from "@/pages/Organization";
@@ -42,10 +41,13 @@ function Router() {
   const { tenantId, isLoading: isTenantLoading } = useTenant();
   const [loc, setLocation] = useLocation();
   const clerk = useClerk();
+  const clerkAuth = useClerkAuth();
 
   // If Clerk reports a lastActiveSessionId but no active session (common after refresh),
   // promote it to active so isSignedIn flips true without manual re-login.
   useEffect(() => {
+    const autoActivate = (import.meta.env.VITE_DISABLE_AUTO_SESSION_ACTIVATION !== 'true');
+    if (!autoActivate) return;
     let timer: any;
     const tryActivate = async () => {
       try {
@@ -71,11 +73,13 @@ function Router() {
 
   // After authentication (including OAuth), push users away from auth pages
   useEffect(() => {
+    const autoActivate = (import.meta.env.VITE_DISABLE_AUTO_SESSION_ACTIVATION !== 'true');
     if (isAuthenticated && (loc === '/sign-in' || loc === '/sign-up')) {
       setLocation('/');
       return;
     }
-    // If Clerk reports a pending session, try to activate and route home
+    // If Clerk reports a pending session, optionally try to activate and route home
+    if (!autoActivate) return;
     try {
       const anyClerk: any = clerk as any;
       const client = anyClerk?.client;
@@ -89,7 +93,7 @@ function Router() {
         }
       }
     } catch { /* ignore */ }
-  }, [isAuthenticated, loc, setLocation]);
+  }, [isAuthenticated, loc, setLocation, clerk]);
 
   // On auth, fetch minimal user info to set role hint for routing (admin vs user)
   useEffect(() => {
@@ -101,9 +105,18 @@ function Router() {
       try {
         let headers: Record<string,string> = {};
         try {
-          // Attempt to attach a Clerk session token to support header-based auth on the BFF
-          const anyClerk: any = (clerk as any);
-          const tok = await anyClerk?.session?.getToken?.() ?? undefined;
+          // Prefer Clerk React useAuth().getToken (works with any templates)
+          let tok: string | null | undefined = undefined;
+          try {
+            // Try default template first, then fallback to unnamed
+            tok = await clerkAuth.getToken({ template: 'default' });
+            if (!tok) tok = await clerkAuth.getToken();
+          } catch {}
+          // Final fallback to window.Clerk.session.getToken()
+          if (!tok) {
+            const anyClerk: any = (clerk as any);
+            tok = await anyClerk?.session?.getToken?.().catch(() => undefined);
+          }
           if (tok) headers['Authorization'] = `Bearer ${tok}`;
         } catch {}
         const r = await fetch('/api/auth/user', { credentials: 'include', headers });
@@ -199,7 +212,6 @@ function Router() {
                 <Route path="/" component={PlatformDashboard} />
                 <Route path="/platform" component={PlatformDashboard} />
                 <Route path="/users" component={Users} />
-                <Route path="/integrations/providers" component={ProviderProfiles} />
                 <Route path="/tenants" component={Tenants} />
                 <Route path="/preferences" component={Preferences} />
                 <Route path="/health" component={SystemHealth} />

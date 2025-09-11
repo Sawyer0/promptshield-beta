@@ -74,7 +74,7 @@ help:
 	@echo "  db-fix-tenants  - Add missing tenants.deleted_at column (idempotent)"
 	@echo "  db-apply-memberships - Create tenant_memberships table (idempotent)"
 	@echo "  db-apply-platform-users - Create platform_users table (idempotent)"
-	@echo "  db-apply-provider-profiles - Create provider_profiles table (idempotent)"
+	@echo "  db-aurora-migrate - Apply Aurora migrations (SDK via AURORA_SECRET_ID/AURORA_WRITER or DSN via AURORA_PG_DSN)"
 	@echo "  enc-key         - Print a new base64 32-byte encryption key"
 	@echo "  enc-write-dev   - Write PS_ENCRYPTION_KEY to .env.dev"
 	@echo "  db-drop-legacy  - Drop legacy/duplicate public tables (assignments, policy_assignments, audit_events, rule_packs, sessions)"
@@ -125,7 +125,7 @@ jwt-export-env: jwt-keys
 # -------------------------------
 # Database migrations (consolidated)
 # -------------------------------
-.PHONY: db-migrate db-verify db-sync db-rls-sync db-stats db-migrate-legacy db-drop-legacy db-fix-tenants db-apply-memberships db-apply-platform-users
+.PHONY: db-migrate db-verify db-sync db-rls-sync db-stats db-migrate-legacy db-drop-legacy db-fix-tenants db-apply-memberships db-apply-platform-users db-aurora-migrate
 
 db-migrate:
 	@if [ -z "$$PS_PG_DSN" ]; then echo "PS_PG_DSN is not set"; exit 1; fi
@@ -191,12 +191,27 @@ db-apply-platform-users:
 	@echo "Applying platform_users (idempotent)"
 	@psql "$$PS_PG_DSN" -v ON_ERROR_STOP=1 -f migrations_consolidated/0018_platform_users.sql
 
-.PHONY: db-apply-provider-profiles
-db-apply-provider-profiles:
-	@if [ -z "$$PS_PG_DSN" ]; then echo "PS_PG_DSN is not set"; exit 1; fi
-	@echo "Applying provider_profiles (idempotent)"
-	@psql "$$PS_PG_DSN" -v ON_ERROR_STOP=1 -f migrations_consolidated/0019_provider_profiles.sql
-	@psql "$$PS_PG_DSN" -v ON_ERROR_STOP=1 -f migrations_consolidated/0020_tools_registry.sql
+# -------------------------------
+# Aurora migrations (fresh schema)
+# -------------------------------
+.PHONY: db-aurora-migrate
+
+db-aurora-migrate:
+	@set -e; \
+	if [ -n "$$AURORA_SECRET_ID" ] && [ -n "$$AURORA_WRITER" ]; then \
+	  echo "Applying Aurora migrations via AWS SDK (Secrets Manager)"; \
+	  echo "  secret: $$AURORA_SECRET_ID"; \
+	  echo "  writer: $$AURORA_WRITER"; \
+	  cd scripts/aurora_migrate && go mod tidy && \
+	  go run . -secret-id "$$AURORA_SECRET_ID" -region "$${AURORA_REGION:-us-east-1}" -writer "$$AURORA_WRITER" -db "$${AURORA_DB_NAME:-promptshield}"; \
+	elif [ -n "$$AURORA_PG_DSN" ]; then \
+	  echo "Applying Aurora migrations via DSN (AURORA_PG_DSN)"; \
+	  go run scripts/run-aurora-migrations.go; \
+	else \
+	  echo "Set AURORA_SECRET_ID and AURORA_WRITER (optional: AURORA_REGION, AURORA_DB_NAME) to use SDK; or set AURORA_PG_DSN to use DSN."; \
+	  exit 1; \
+	fi
+
 
 .PHONY: enc-key enc-write-dev
 enc-key:

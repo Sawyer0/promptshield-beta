@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,8 +17,8 @@ func TestPDP_System_Info_Deny(t *testing.T) {
 		return map[string]any{"decision":"PERMIT"}
 	})
 	defer ts.Close()
-	os.Setenv("PS_DEV_BYPASS_AUTH", "true")
-	os.Setenv("PS_PDP_ENDPOINT", ts.URL)
+	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
+	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
 	mux := newTestMux(t)
 
 req := httptest.NewRequest(http.MethodGet, "/admin/system/info", nil)
@@ -39,8 +38,8 @@ func TestPDP_Rulepacks_Validate_Deny(t *testing.T) {
 		return map[string]any{"decision":"PERMIT"}
 	})
 	defer ts.Close()
-	os.Setenv("PS_DEV_BYPASS_AUTH", "true")
-	os.Setenv("PS_PDP_ENDPOINT", ts.URL)
+	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
+	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
 	mux := newTestMux(t)
 
 	body := []byte(`{"apiVersion":"promptshield.io/v1","kind":"RulePack","metadata":{"name":"x"}}`)

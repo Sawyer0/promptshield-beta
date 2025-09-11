@@ -1,4 +1,4 @@
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, passthrough } from 'msw';
 
 // Mock data
 const mockTenants = [
@@ -70,11 +70,11 @@ export const handlers = [
       const url = new URL(request.url);
       const host = (url.hostname || '').toLowerCase();
       if (host === '127.0.0.1' || host === 'localhost') {
-        return HttpResponse.passthrough();
+        return passthrough();
       }
     } catch {}
     // Fallthrough to specific mocks below; the catch-all at the bottom will handle others
-    return HttpResponse.passthrough();
+    return passthrough();
   }),
   // Health endpoints
   http.get('/api/healthz', () => {
@@ -153,7 +153,7 @@ export const handlers = [
     return HttpResponse.json(newRulePack, { status: 201 });
   }),
 
-  // Assignment endpoints
+  // Assignment endpoints (legacy)
   http.get('/api/v1/policy-assignments', () => {
     return HttpResponse.json({
       data: mockAssignments,
@@ -163,7 +163,7 @@ export const handlers = [
 
   http.post('/api/v1/policy-assignments', async ({ request }) => {
     const body: any = await request.json().catch(() => ({}));
-    if (!body?.rulepackId || !body?.endpoints || !body?.priority) {
+    if (!body?.rulepackId || !body?.endpoints) {
       return HttpResponse.json(
         { error: 'INVALID_ARGUMENT', message: 'Missing required fields' },
         { status: 400 }
@@ -175,13 +175,71 @@ export const handlers = [
       rulepackId: body?.rulepackId,
       targetScope: Array.isArray(body?.endpoints) ? body.endpoints[0] : '*',
       endpoints: Array.isArray(body?.endpoints) ? body.endpoints : ['*'],
-      priority: body?.priority,
-      enabled: true,
+      priority: body?.priority ?? 100,
+      enabled: body?.enabled ?? true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     
     return HttpResponse.json(newAssignment, { status: 201 });
+  }),
+
+  // Assignment endpoints (current UI uses tenant-scoped admin paths)
+  http.get('/api/admin/tenants/:tenantId/assignments', () => {
+    return HttpResponse.json({
+      assignments: mockAssignments,
+      tenant_id: '6f4d338d-f0c0-4091-b54e-f71752c8f568',
+      count: mockAssignments.length,
+    });
+  }),
+
+  http.post('/api/admin/tenants/:tenantId/assignments', async ({ request }) => {
+    const body: any = await request.json().catch(() => ({}));
+    if (!body?.rulepack_id || !body?.target_scope) {
+      return HttpResponse.json(
+        { error: 'INVALID_ARGUMENT', message: 'Missing required fields' },
+        { status: 400 }
+      );
+    }
+    const newAssignment = {
+      id: 'new-assignment-id',
+      rulepackId: body?.rulepack_id,
+      targetScope: body?.target_scope,
+      priority: body?.priority ?? 100,
+      enabled: body?.enabled ?? true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    mockAssignments.push(newAssignment as any);
+    return HttpResponse.json({ data: newAssignment }, { status: 201 });
+  }),
+
+  http.put('/api/admin/assignments/:id', async ({ params, request }) => {
+    const id = String(params.id);
+    const body: any = await request.json().catch(() => ({}));
+    const idx = mockAssignments.findIndex(a => a.id === id);
+    if (idx === -1) {
+      return HttpResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+    }
+    const prev = mockAssignments[idx];
+    const updated = {
+      ...prev,
+      priority: body?.priority ?? prev.priority,
+      enabled: typeof body?.enabled === 'boolean' ? body.enabled : prev.enabled,
+      updatedAt: new Date().toISOString(),
+    };
+    mockAssignments[idx] = updated as any;
+    return HttpResponse.json({ data: updated });
+  }),
+
+  http.delete('/api/admin/assignments/:id', async ({ params }) => {
+    const id = String(params.id);
+    const idx = mockAssignments.findIndex(a => a.id === id);
+    if (idx === -1) {
+      return HttpResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+    }
+    mockAssignments.splice(idx, 1);
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // Audit endpoints

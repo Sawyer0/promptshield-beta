@@ -92,7 +92,12 @@ export default function Dashboard() {
 
   // Create Assignment mutation
   const createAssignmentMutation = useMutation({
-    mutationFn: policyAssignmentApi.create,
+    mutationFn: async (payload: any) => {
+      if (Array.isArray(payload)) {
+        return await policyAssignmentApi.batchCreate(payload);
+      }
+      return await policyAssignmentApi.create(payload);
+    },
     onSuccess: () => {
       toast({
         title: "Success",
@@ -339,7 +344,7 @@ export default function Dashboard() {
                         <TableRow>
                           <TableHead>Endpoint</TableHead>
                           <TableHead>RulePack</TableHead>
-                          <TableHead>Priority</TableHead>
+                          <TableHead>Precedence</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Created</TableHead>
                         </TableRow>

@@ -47,13 +47,20 @@ export function TopHeader({ title, description, onMenuClick }: TopHeaderProps) {
   const { toast } = useToast();
   const handleLogout = async () => {
     try {
+      // Clear local auth hints
       localStorage.removeItem('user_system_role');
-      localStorage.removeItem('selected_tenant_id');
+      localStorage.removeItem('selected_tenant_id'); // legacy key
+      localStorage.removeItem('promptshield_tenant_id');
+      localStorage.removeItem('promptshield_tenant_name');
       queryClient.clear();
       try {
+        // Clear server-side cookies/session
         await fetch('/api/auth/signout', { method: 'POST', credentials: 'include' });
+        await fetch('/api/session/clear', { method: 'POST', credentials: 'include' });
       } catch {}
+      // End Clerk session fully
       await signOut();
+      // Hard redirect to landing
       window.location.href = '/landing';
     } catch (error) {
       window.location.href = '/landing';
@@ -224,9 +231,11 @@ export function TopHeader({ title, description, onMenuClick }: TopHeaderProps) {
         onSuccess={async (orgName?: string) => {
           if (orgName && orgName.trim()) {
             try {
+              const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+              try { const tok = await (window as any)?.Clerk?.session?.getToken?.(); if (tok) headers['Authorization'] = `Bearer ${tok}`; } catch {}
               const resp = await fetch('/api/orgs/create', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 credentials: 'include',
                 body: JSON.stringify({ name: orgName.trim() })
               });

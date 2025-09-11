@@ -29,9 +29,13 @@ export function useAuth() {
   const { isLoaded: authLoaded, isSignedIn, getToken } = useClerkAuth();
   const { isLoaded: userLoaded, user } = useUser();
 
+  // Feature flag: disable automatic session re-activation on refresh if desired
+  const autoActivate = (import.meta.env.VITE_DISABLE_AUTO_SESSION_ACTIVATION !== 'true');
+
   // Proactively activate a pending Clerk session (common after refresh)
   const [activated, setActivated] = useState(false);
   useEffect(() => {
+    if (!autoActivate) return; // honor flag
     // Only attempt if not already signed in
     if (isSignedIn || activated) return;
     try {
@@ -45,12 +49,12 @@ export function useAuth() {
           .catch(() => {});
       }
     } catch { /* ignore */ }
-  }, [isSignedIn, activated]);
+  }, [isSignedIn, activated, autoActivate]);
 
   const hasPending = (() => {
     try { return !!(globalThis as any).Clerk?.client?.lastActiveSessionId; } catch { return false; }
   })();
-  const isAuthenticated = !!isSignedIn || (hasPending && activated);
+  const isAuthenticated = !!isSignedIn || (autoActivate && hasPending && activated);
   // Consider loaded when auth state is known and, if signed in, user has loaded
   const isLoading = !(authLoaded && (isAuthenticated ? userLoaded : true));
 

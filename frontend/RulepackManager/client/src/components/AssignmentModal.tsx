@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
-import { Link2, Shield, Zap, AlertTriangle, Info } from 'lucide-react';
+import { Link2, Shield, AlertTriangle, Info } from 'lucide-react';
 import type { RulePack } from '@shared/apiTypes';
 
 type AssignmentFormData = z.infer<typeof assignmentModalSchema>;
@@ -21,20 +21,12 @@ type AssignmentFormData = z.infer<typeof assignmentModalSchema>;
 interface AssignmentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { rulepackId: string; method: string; targetScope: string; priority: number; enabled: boolean }) => void;
+  onSubmit: (data: { rulepackId: string; method: string; targetScope: string; priority: number; enabled: boolean } | Array<{ rulepackId: string; method: string; targetScope: string; priority: number; enabled: boolean }>) => void;
   isLoading?: boolean;
   rulePacks: RulePack[];
   assignment?: any; // For editing
 }
 
-// Priority UX mapping (labels → numeric)
-const PRIORITY_MAP: Record<string, number> = {
-  Highest: 1000,
-  High: 750,
-  Medium: 500,
-  Low: 250,
-  Lowest: 0,
-};
 
 // Parse endpoints input (one per line or comma-separated) → unique, trimmed list
 function parseEndpoints(input: string): string[] {
@@ -66,7 +58,6 @@ const assignmentModalSchema = z.object({
     .array(z.string().min(1))
     .min(1, 'Add at least one endpoint')
     .refine((arr) => arr.every((ep) => isValidEndpoint(ep)), 'Endpoints must be valid paths (e.g., /, /v1/*, /api/orders/*, /api/payments/refund)'),
-  priorityLabel: z.enum(['Highest', 'High', 'Medium', 'Low', 'Lowest']).default('Medium'),
   enabled: z.boolean().default(true),
 });
 
@@ -90,7 +81,6 @@ export function AssignmentModal({
       rulepackId: assignment?.rulepackId || '',
       method: assignment?.method || '*',
       endpoints: assignment?.targetScope ? [String(assignment.targetScope)] : [],
-      priorityLabel: 'Medium',
       enabled: assignment?.enabled !== false,
     },
   });
@@ -99,17 +89,18 @@ export function AssignmentModal({
 
   const handleSubmit = (data: AssignmentFormData) => {
     const endpoints = Array.from(new Set((data.endpoints || []).map((s) => s.trim()).filter(Boolean))).filter(isValidEndpoint);
-    const priority = PRIORITY_MAP[data.priorityLabel];
+    const priority = 100; // default precedence; backend may override
     const method = data.method || methodValue || '*';
+    const base = { rulepackId: data.rulepackId, method, priority, enabled: data.enabled };
+
     if (assignment) {
       const first = endpoints[0];
       if (first) {
-        onSubmit({ rulepackId: data.rulepackId, method, targetScope: first, priority, enabled: data.enabled });
+        onSubmit([{ ...base, targetScope: first }]);
       }
     } else {
-      endpoints.forEach((ep) => {
-        onSubmit({ rulepackId: data.rulepackId, method, targetScope: ep, priority, enabled: data.enabled });
-      });
+      const items = endpoints.map((ep) => ({ ...base, targetScope: ep }));
+      onSubmit(items);
     }
   };
 
@@ -171,11 +162,6 @@ export function AssignmentModal({
                     </SelectContent>
                   </Select>
                   <FormMessage />
-                  {selectedRulePack && (
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Priority: {selectedRulePack.priority} | Mode: {selectedRulePack.enforcementMode}
-                    </div>
-                  )}
                 </FormItem>
               )}
             />
@@ -276,32 +262,8 @@ export function AssignmentModal({
               )}
             />
 
-            {/* Priority and Enabled Status */}
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="priorityLabel"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center"><Zap className="w-4 h-4 mr-1" /> Priority</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-priority">
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {Object.keys(PRIORITY_MAP).map((label) => (
-                          <SelectItem key={label} value={label}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <div className="text-xs text-muted-foreground mt-1">Higher priority applies first when multiple assignments match.</div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
+            {/* Enabled Status */}
+            <div>
               <ToggleField
                 control={form.control}
                 name="enabled"
@@ -358,10 +320,6 @@ export function AssignmentModal({
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-sm font-medium text-muted-foreground">Priority:</span>
-                    <p className="text-sm font-bold">{form.watch('priorityLabel')}</p>
-                  </div>
                   <div>
                     <span className="text-sm font-medium text-muted-foreground">Status:</span>
                     <Badge variant={form.watch('enabled') ? 'default' : 'secondary'}>

@@ -258,25 +258,6 @@ export const rulePackApi = {
   },
 };
 
-// Provider Profiles API (BYOK)
-export const providerProfilesApi = {
-  list: async (): Promise<{ data: Array<any> }> => {
-    const res = await fetch('/api/providers/profiles', { credentials: 'include' });
-    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-    return res.json();
-  },
-  create: async (p: { provider: string; label: string; apiKey: string; baseUrl?: string }): Promise<any> => {
-    const res = await fetch('/api/providers/profiles', {
-      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p)
-    });
-    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-    return res.json();
-  },
-  remove: async (id: string): Promise<void> => {
-    const res = await fetch(`/api/providers/profiles/${id}`, { method: 'DELETE', credentials: 'include' });
-    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-  },
-};
 
 // Tools Registry API
 export const toolsApi = {
@@ -447,6 +428,7 @@ const payload: any = {
       target_scope: (data as any).targetScope || (data as any).target_scope || (Array.isArray((data as any).endpoints) ? (data as any).endpoints[0] : undefined) || '*',
       priority: (data as any).priority || 100,
     };
+    if ((data as any).enabled !== undefined) payload.enabled = !!(data as any).enabled;
     const response = await apiRequest('POST', `/api/admin/tenants/${tenantId}/assignments`, payload);
     return response.json();
   },
@@ -454,6 +436,7 @@ const payload: any = {
   update: async (id: string, data: Partial<InsertPolicyAssignment>): Promise<APIResponse<PolicyAssignment>> => {
     const payload: any = {};
     if ((data as any).priority != null) payload.priority = (data as any).priority;
+    if ((data as any).enabled != null) payload.enabled = !!(data as any).enabled;
     const response = await apiRequest('PUT', `/api/admin/assignments/${id}`, payload);
     return response.json();
   },

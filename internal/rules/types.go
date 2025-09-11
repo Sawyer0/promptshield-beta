@@ -94,8 +94,6 @@ type Semantic struct {
 	// Inputs specifies which inputs are expected by the rule: "text", "image".
 	// This is advisory for UIs; the backend relies on provider behavior.
 	Inputs []string `yaml:"inputs" json:"inputs,omitempty"`
-	// Provider profile id for BYOK custom engines
-	ProviderProfile string `yaml:"provider_profile" json:"provider_profile,omitempty"`
 	// Combine semantics for custom+omni
 	CombineMode  string  `yaml:"combine_mode" json:"combine_mode,omitempty"` // or|and|weighted (default or)
 	WeightOmni   float64 `yaml:"weight_omni" json:"weight_omni,omitempty"`

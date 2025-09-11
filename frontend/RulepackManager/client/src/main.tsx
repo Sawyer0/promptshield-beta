@@ -1,7 +1,13 @@
-import { createRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-// Clerk expects VITE_CLERK_PUBLISHABLE_KEY to be set; handled via env
+// Mount with hydrateRoot if existing SSR markup is present; otherwise createRoot
+const container = document.getElementById("root");
+if (!container) throw new Error("#root not found");
 
-createRoot(document.getElementById("root")!).render(<App />);
+if (container.hasChildNodes()) {
+  hydrateRoot(container, <App />);
+} else {
+  createRoot(container).render(<App />);
+}

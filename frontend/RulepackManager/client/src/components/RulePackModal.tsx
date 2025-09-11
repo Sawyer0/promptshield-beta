@@ -5,9 +5,7 @@ import { z } from "zod";
 import { X, Plus, Trash2, Code2, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { TextField, NumberField, TextAreaField, ToggleField, MultiSelectChips, SliderField } from "@/components/common/FormFields";
-import { SelectField } from "@/components/common/SelectField";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form } from "@/components/ui/form";
 import { Modal } from "@/components/common/Modal";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -105,35 +103,6 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
     setRules(newRules);
   };
 
-  const SEMANTIC_TEXT_ONLY = [
-    { value: 'harassment', label: 'Harassment (text)' },
-    { value: 'harassment/threatening', label: 'Harassment/Threat (text)' },
-    { value: 'hate', label: 'Hate (text)' },
-    { value: 'hate/threatening', label: 'Hate/Threat (text)' },
-    { value: 'illicit', label: 'Illicit (text)' },
-    { value: 'illicit/violent', label: 'Illicit/Violent (text)' },
-    { value: 'sexual/minors', label: 'Sexual/Minors (text)' },
-  ]
-  const SEMANTIC_TEXT_IMAGE = [
-    { value: 'violence', label: 'Violence' },
-    { value: 'violence/graphic', label: 'Violence/Graphic' },
-    { value: 'sexual', label: 'Sexual' },
-    { value: 'self-harm', label: 'Self‑harm' },
-    { value: 'self-harm/intent', label: 'Self‑harm/Intent' },
-    { value: 'self-harm/instructions', label: 'Self‑harm/Instructions' },
-  ]
-  const applyPreset = (idx: number, preset: 'default' | 'strict_minors' | 'violence_strict') => {
-    const field = `rules.${idx}.semantic_categories` as any;
-    if (preset === 'default') {
-      form.setValue(field, ['violence','sexual','self-harm','harassment','hate']);
-    } else if (preset === 'strict_minors') {
-      form.setValue(field, ['sexual/minors','sexual','violence','violence/graphic']);
-      form.setValue(`rules.${idx}.semantic_strictness` as any, 9);
-    } else {
-      form.setValue(field, ['violence','violence/graphic']);
-      form.setValue(`rules.${idx}.semantic_strictness` as any, 8);
-    }
-  }
 
   const strictnessToThreshold = (s?: number) => {
     // Map 1..10 (low..high strictness) to threshold 0.95..0.50 (higher strictness -> lower threshold)
@@ -156,18 +125,7 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
       const l3 = !!r.semantic_analysis;
       if (!hasKeywords && !hasPatterns && !l3) problems.push(`${label}: add keywords, regex patterns, or enable Semantic Analysis`);
       if (l3) {
-        const engine = (form.getValues() as any)?.rules?.[i]?.semantic_engine || 'omni';
-        if (engine === 'custom' || engine === 'custom+omni') {
-          const prof = (form.getValues() as any)?.rules?.[i]?.custom_provider_profile;
-          const model = (form.getValues() as any)?.rules?.[i]?.custom_model;
-          if (!prof || !String(prof).trim()) problems.push(`${label}: provider profile is required for Custom engine`);
-          if (!model || !String(model).trim()) problems.push(`${label}: model is required for Custom engine`);
-        }
-        // For any engine using omni, ensure categories selected
-        if (engine === 'omni' || engine === 'custom+omni') {
-          const cats = (form.getValues() as any)?.rules?.[i]?.semantic_categories as string[] | undefined;
-          if (!cats || cats.length === 0) problems.push(`${label}: select at least one Omni category`);
-        }
+        // Categories are optional; ProtectAI DeBERTa v2 scores across its taxonomy automatically.
       }
     });
     if (problems.length) {
@@ -195,72 +153,12 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
           out.patterns = patterns.map((p: string, idx: number) => ({ name: `pattern-${idx+1}`, regex: p }))
         } else {
           out.level = 3
-          const values: any = (form.getValues() as any)?.rules?.[i] || {}
-          const engine = values.semantic_engine || 'omni'
-          if (engine === 'omni') {
-            const inputs = values.semantic_inputs as string[] | undefined
-            const categories = values.semantic_categories as string[] | undefined
-            const strict = values.semantic_strictness as number | undefined
-            const cats = categories && categories.length ? categories : ['violence','sexual','self-harm']
-            const inps = inputs && inputs.length ? inputs : ['text']
-            out.semantic = {
-              engine: 'omni',
-              model: 'omni-moderation-latest',
-              confidence_threshold: strictnessToThreshold(strict),
-              fallback_on_error: true,
-              categories: cats,
-              inputs: inps,
-              analysis_prompt: 'omni:ignored',
-            }
-          } else if (engine === 'custom') {
-            const strict = values.custom_strictness as number | undefined
-            out.semantic = {
-              engine: 'custom',
-              provider_profile: values.custom_provider_profile || '',
-              model: values.custom_model || 'gpt-4o-mini',
-              analysis_prompt: values.custom_prompt || 'Return JSON {"flagged": boolean, "confidence": number, "categories": string[]}',
-              temperature: Number(values.custom_temperature ?? 0),
-              max_tokens: Number(values.custom_max_tokens ?? 256),
-              confidence_threshold: strictnessToThreshold(strict),
-              fallback_on_error: true,
-              inputs: Array.isArray(values.semantic_inputs) && values.semantic_inputs.length ? values.semantic_inputs : ['text'],
-            }
-          } else {
-            // ensemble
-            const omniStrict = values.semantic_strictness as number | undefined
-            const customStrict = values.custom_strictness as number | undefined
-            const inputs = values.semantic_inputs as string[] | undefined
-            const categories = values.semantic_categories as string[] | undefined
-            const combineMode = values.combine_mode || 'or'
-            const low = typeof values.combine_low === 'number' ? values.combine_low : 0.6
-            const high = typeof values.combine_high === 'number' ? values.combine_high : 0.85
-            const wOmni = typeof values.combine_weight_omni === 'number' ? values.combine_weight_omni : 0.6
-            const wCustom = typeof values.combine_weight_custom === 'number' ? values.combine_weight_custom : 0.4
-            out.semantic = {
-              engine: 'ensemble',
-              combine: {
-                mode: combineMode,
-                weights: combineMode === 'weighted' ? { omni: wOmni, custom: wCustom } : undefined,
-                trigger_band: { low, high },
-              },
-              omni: {
-                model: 'omni-moderation-latest',
-                inputs: inputs && inputs.length ? inputs : ['text'],
-                categories: categories && categories.length ? categories : ['violence','sexual','self-harm'],
-                confidence_threshold: strictnessToThreshold(omniStrict),
-                fallback_on_error: true,
-              },
-              custom: {
-                provider_profile: values.custom_provider_profile || '',
-                model: values.custom_model || 'gpt-4o-mini',
-                analysis_prompt: values.custom_prompt || 'Return JSON {"flagged": boolean, "confidence": number, "categories": string[]}',
-                temperature: Number(values.custom_temperature ?? 0),
-                max_tokens: Number(values.custom_max_tokens ?? 256),
-                confidence_threshold: strictnessToThreshold(customStrict),
-                fallback_on_error: true,
-                inputs: inputs && inputs.length ? inputs : ['text'],
-              }
-            }
+          out.semantic = {
+            engine: 'protectai',
+            model: 'protectai-deberta-v2',
+            confidence_threshold: strictnessToThreshold(undefined),
+            fallback_on_error: true,
+            inputs: ['text'],
           }
         }
         return out
@@ -544,106 +442,14 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
                             {/* Engine selector */}
                             <div>
                               <label className="block text-sm font-medium text-foreground mb-1">Engine</label>
-                              <Select
-                                value={(form.getValues() as any)?.rules?.[index]?.semantic_engine || 'omni'}
-                                onValueChange={(v) => form.setValue(`rules.${index}.semantic_engine` as any, v)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="omni">Built‑in Omni Moderation (free)</SelectItem>
-                                  <SelectItem value="custom">Custom (BYOK)</SelectItem>
-                                  <SelectItem value="custom+omni">Custom + Omni (add‑on)</SelectItem>
-                                </SelectContent>
-                              </Select>
+                              <div className="text-sm">ProtectAI DeBERTa v2 (no API key required)</div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              <MultiSelectChips
-                                control={form.control as any}
-                                name={`rules.${index}.semantic_inputs`}
-                                label={<span>Inputs</span>}
-                                description={<span>Select what this rule should analyze.</span>}
-                                options={[
-                                  { value: 'text', label: 'Text' },
-                                  { value: 'image', label: 'Image' },
-                                ]}
-                              />
-                              {/* Strictness slider 1..10 mapped internally to threshold */}
-                              <SliderField
-                                control={form.control as any}
-                                name={`rules.${index}.semantic_strictness`}
-                                label={<span>Strictness</span>}
-                                description={<span>Higher is stricter (maps to lower confidence threshold).</span>}
-                                min={1}
-                                max={10}
-                                step={1}
-                              />
-                            </div>
-                            {/* Preset pills */}
-                            <div className="flex gap-2 text-xs">
-                              <Button type="button" variant="secondary" size="sm" onClick={() => applyPreset(index, 'default')}>Default Safety</Button>
-                              <Button type="button" variant="secondary" size="sm" onClick={() => applyPreset(index, 'strict_minors')}>Strict Minors</Button>
-                              <Button type="button" variant="secondary" size="sm" onClick={() => applyPreset(index, 'violence_strict')}>Violence Strict</Button>
-                            </div>
-
-                            <MultiSelectChips
-                              control={form.control as any}
-                              name={`rules.${index}.semantic_categories`}
-                              label={<span>Categories</span>}
-                              description={<span>Choose categories to protect. Text‑only categories won’t score for image‑only inputs.</span>}
-                              options={[...SEMANTIC_TEXT_IMAGE, ...SEMANTIC_TEXT_ONLY]}
-                            />
-                            {/* Custom model fields */}
-                            {((form.getValues() as any)?.rules?.[index]?.semantic_engine || 'omni') !== 'omni' ? (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <TextField control={form.control as any} name={`rules.${index}.custom_provider_profile`} label="Provider Profile ID" placeholder="prof_abc123" />
-                                <TextField control={form.control as any} name={`rules.${index}.custom_model`} label="Model" placeholder="gpt-4o-mini" />
-                                <TextField control={form.control as any} name={`rules.${index}.custom_prompt`} label="Analysis Output Contract" placeholder='Return JSON {"flagged": boolean, "confidence": number, "categories": string[]}' />
-                                <NumberField control={form.control as any} name={`rules.${index}.custom_temperature`} label="Temperature" min={0} max={1} step={0.1} />
-                                <NumberField control={form.control as any} name={`rules.${index}.custom_max_tokens`} label="Max Tokens" min={32} max={1024} step={32} />
-                                <SliderField control={form.control as any} name={`rules.${index}.custom_strictness`} label={<span>Custom Strictness</span>} description={<span>Applies to the custom engine threshold.</span>} min={1} max={10} step={1} />
-                              </div>
-                            ) : null}
-
-                            {/* Ensemble combiner fields */}
-                            {((form.getValues() as any)?.rules?.[index]?.semantic_engine || 'omni') === 'custom+omni' ? (
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <Select
-                                  value={(form.getValues() as any)?.rules?.[index]?.combine_mode || 'or'}
-                                  onValueChange={(v) => form.setValue(`rules.${index}.combine_mode` as any, v)}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Combine Mode" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="or">OR (flag if Omni or Custom flags)</SelectItem>
-                                    <SelectItem value="and">AND (flag only if both flag)</SelectItem>
-                                    <SelectItem value="weighted">Weighted</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <NumberField control={form.control as any} name={`rules.${index}.combine_low`} label="Trigger Low" min={0.0} max={0.95} step={0.05} />
-                                <NumberField control={form.control as any} name={`rules.${index}.combine_high`} label="Trigger High" min={0.05} max={1.0} step={0.05} />
-                                {(form.getValues() as any)?.rules?.[index]?.combine_mode === 'weighted' ? (
-                                  <>
-                                    <NumberField control={form.control as any} name={`rules.${index}.combine_weight_omni`} label="Weight Omni" min={0} max={1} step={0.05} />
-                                    <NumberField control={form.control as any} name={`rules.${index}.combine_weight_custom`} label="Weight Custom" min={0} max={1} step={0.05} />
-                                  </>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            {/* Validation/warning */}
-                            <div className="text-xs text-muted-foreground">
-                              {Array.isArray((form.getValues() as any)?.rules?.[index]?.semantic_inputs) &&
-                               (form.getValues() as any).rules[index].semantic_inputs?.includes('image') ? (
-                                <p>Note: text‑only categories (e.g., harassment, hate, illicit, sexual/minors) return 0 when only images are provided.</p>
-                              ) : null}
-                            </div>
+                            {/* Inputs are fixed to Text and strictness uses a sensible default. */}
                           </div>
                         ) : null}
                         <p className="text-xs text-muted-foreground mt-1">
-                          Omni uses OpenAI moderation (no prompt). Custom uses your model and a JSON output contract. Combined lets you use both.
+Semantic analysis uses ProtectAI DeBERTa v2. No API key required.
                         </p>
                       </div>
                     </div>

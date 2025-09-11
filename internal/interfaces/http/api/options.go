@@ -53,10 +53,8 @@ type Options struct {
 
 	// Security Gateway - no routing needed
 
-	// Provider API keys management (deprecated - use ProviderKeyStore)
-	ProviderKeys map[string]string // provider -> encrypted key
 
-	// Tool runner (BYOK and internal tools)
+	// Tool runner
 	ToolRunner contracts.ToolRunner
 
 	// Security scanning components

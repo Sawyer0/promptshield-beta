@@ -40,9 +40,9 @@ export function TenantSelector() {
               body: JSON.stringify({ orgId: only.id })
             });
             setTenant(only.id, only.name || '');
-            // Stay on current route; Router will render content once tenant is set
-            return;
           } catch (_) {
+            // ignore
+          } finally {
             setRedirecting(false);
           }
         }
@@ -58,16 +58,31 @@ export function TenantSelector() {
   const handleTenantChange = useCallback(async (selectedOrgId: string) => {
     const selected = availableTenants.find(t => t.id === selectedOrgId);
     if (selected) {
-      const headers: Record<string,string> = { 'Content-Type': 'application/json' };
-      try { const tok = await (window as any)?.Clerk?.session?.getToken?.(); if (tok) headers['Authorization'] = `Bearer ${tok}`; } catch {}
-      await fetch('/api/orgs/select', {
-        method: 'POST', headers, credentials: 'include',
-        body: JSON.stringify({ orgId: selected.id })
-      });
-      setTenant(selected.id, selected.name);
+      setRedirecting(true);
+      try {
+        const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+        try { const tok = await (window as any)?.Clerk?.session?.getToken?.(); if (tok) headers['Authorization'] = `Bearer ${tok}`; } catch {}
+        await fetch('/api/orgs/select', {
+          method: 'POST', headers, credentials: 'include',
+          body: JSON.stringify({ orgId: selected.id })
+        });
+        setTenant(selected.id, selected.name);
+      } finally {
+        setRedirecting(false);
+      }
       // Stay on current route; Router will re-render
     }
   }, [availableTenants, setTenant]);
+
+  // Prefer showing the selected tenant if available, even if a redirect is in progress
+  if (tenantId && tenantName) {
+    return (
+      <div className="flex items-center space-x-2 text-sm">
+        <Building className="h-4 w-4 text-muted-foreground" />
+        <span className="font-medium">{tenantName}</span>
+      </div>
+    );
+  }
 
   if (loading || redirecting) {
     return (
@@ -76,16 +91,6 @@ export function TenantSelector() {
         <span className="text-muted-foreground">
           {redirecting ? 'Taking you to your organization…' : 'Loading tenants...'}
         </span>
-      </div>
-    );
-  }
-
-  if (tenantId && tenantName) {
-    // Regular users see their tenant without ability to switch
-    return (
-      <div className="flex items-center space-x-2 text-sm">
-        <Building className="h-4 w-4 text-muted-foreground" />
-        <span className="font-medium">{tenantName}</span>
       </div>
     );
   }
@@ -141,14 +146,16 @@ export function TenantSelector() {
                 onClick={async () => {
                   if (!newTenantName.trim()) return;
               try {
+                const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+                try { const tok = await (window as any)?.Clerk?.session?.getToken?.(); if (tok) headers['Authorization'] = `Bearer ${tok}`; } catch {}
                 const resp = await fetch('/api/orgs/create', {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                  method: 'POST', headers, credentials: 'include',
                   body: JSON.stringify({ name: newTenantName.trim() })
                 });
                 if (resp.ok) {
                   const org = await resp.json();
                   await fetch('/api/orgs/select', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                    method: 'POST', headers, credentials: 'include',
                     body: JSON.stringify({ orgId: org.id })
                   });
                   setTenant(org.id, org.name);

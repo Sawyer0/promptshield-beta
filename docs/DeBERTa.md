@@ -1,6 +1,6 @@
 # DeBERTa v3 Prompt Injection (ProtectAI) Integration
 
-This deployment uses a DeBERTa v3-based classifier for Level-3 (semantic) analysis instead of OpenAI or BYOK models. The analyzer is called via a configurable HTTP inference endpoint and returns only a boolean (flagged) and a numeric confidence (risk score). No chain-of-thought is ever returned to users; a short, internal-only rationale is logged for operators.
+This deployment uses a DeBERTa v3-based classifier for Level-3 (semantic) analysis instead of external provider models. The analyzer is called via a configurable HTTP inference endpoint and returns only a boolean (flagged) and a numeric confidence (risk score). No chain-of-thought is ever returned to users; a short, internal-only rationale is logged for operators.
 
 ## Environment variables
 
@@ -56,9 +56,9 @@ Testing aids:
   - conv_drift: ["high", "low"]
   - conv_priv_jump: ["true", "false"]
 
-## Migration from OpenAI/BYOK
+## Migration from external providers
 
-- No OpenAI or BYOK calls are made in this path.
+- No external provider calls are made in this path.
 - Ensure PS_DEBERTA_ENDPOINT is reachable and returns one of the supported JSON shapes:
   - [{"label":"PROMPT_INJECTION","score":0.98}, ...]
   - {"risk_score":0.92, "label":"malicious"}
