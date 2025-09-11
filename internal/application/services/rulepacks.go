@@ -182,6 +182,24 @@ if err := s.repo.Activate(ctx, packID, versionID); err != nil {
 	return nil
 }
 
+// ActivateVersionNumber activates a specific numeric version for a rulepack.
+func (s *RulepackService) ActivateVersionNumber(ctx context.Context, tenantID uuid.UUID, packID uuid.UUID, version int) error {
+	if err := canaryDelay(ctx); err != nil { return err }
+	prevVer := 0
+	verID, err := s.repo.GetVersionIDByNumber(ctx, packID, version)
+	if err != nil { return err }
+	if err := s.repo.Activate(ctx, packID, verID); err != nil { return err }
+	metrics.IncRulepackActivations()
+	if dsl, vnum, err := s.repo.GetActive(ctx, packID); err == nil {
+		s.emitAudit("rulepack.activate", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": packID.String(), "prev_version": prevVer, "new_version": vnum, "checksum": checksumJSON(dsl)})
+		if s.pub != nil {
+			u := nats.RuleUpdate{TenantID: tenantID.String(), TargetScope: "global", RulepackID: packID.String(), Version: vnum, ContentSHA256: checksumJSON(dsl)}
+			_ = s.pub.PublishRuleUpdate(ctx, u)
+		}
+	}
+	return nil
+}
+
 // ActivateLatest activates the latest version of a rulepack.
 func (s *RulepackService) ActivateLatest(ctx context.Context, tenantID uuid.UUID, packID uuid.UUID) error {
 	if err := canaryDelay(ctx); err != nil {

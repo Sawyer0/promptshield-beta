@@ -651,6 +651,37 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewEncoder(w).Encode(bundle)
 			})
 
+			a.Post("/{id}/bundles/{ver}/activate", func(w http.ResponseWriter, r *http.Request) {
+				packID, err := uuid.Parse(chi.URLParam(r, "id"))
+				if err != nil { writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid rulepack ID", nil); return }
+				ver, err := strconv.Atoi(chi.URLParam(r, "ver"))
+				if err != nil || ver <= 0 { writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid version", nil); return }
+				if ok, reason := authorizePDP(r, "rulepack.bundle.activate", "rulepack", packID.String(), map[string]any{"version": ver}, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+				tenantID, ok := getTenantID(w, r); if !ok { return }
+				base := strings.TrimSpace(os.Getenv("PS_BUNDLE_DIR")); if base == "" { base = "bundles" }
+				store, err := pap.NewFSStore(base); if err != nil { writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil); return }
+				bundle, err := store.Load(r.Context(), tenantID, packID, ver)
+				if err != nil { writeError(w, http.StatusNotFound, "NOT_FOUND", err.Error(), nil); return }
+				if err := pap.VerifyBundle(bundle); err != nil { writeError(w, http.StatusBadRequest, "INVALID_BUNDLE", err.Error(), nil); return }
+				// Try create-and-activate; fallback to activate existing
+				if err := opt.RulepackService.CreateVersionActivate(r.Context(), tenantID, packID, ver, bundle.DSL); err != nil {
+					if err2 := opt.RulepackService.ActivateVersionNumber(r.Context(), tenantID, packID, ver); err2 != nil {
+						writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err2.Error(), nil); return
+					}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]string{"status": "activated"})
+			})
+
+			a.Post("/{id}/bundles/verify", func(w http.ResponseWriter, r *http.Request) {
+				if ok, reason := authorizePDP(r, "rulepack.bundle.verify", "rulepack", chi.URLParam(r, "id"), nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+				var b pap.Bundle
+				if err := json.NewDecoder(r.Body).Decode(&b); err != nil { writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bundle", nil); return }
+				if err := pap.VerifyBundle(b); err != nil {
+					_ = json.NewEncoder(w).Encode(map[string]any{"valid": false, "error": err.Error()}); return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"valid": true, "checksum": b.Checksum, "key_id": b.KeyID, "version": b.Version})
+			})
+
 			a.Post("/{id}/versions/{ver}/activate", func(w http.ResponseWriter, r *http.Request) {
 				packID, err := uuid.Parse(chi.URLParam(r, "id"))
 				if err != nil {
