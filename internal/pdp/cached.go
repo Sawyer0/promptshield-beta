@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/promptshield/promptshield/internal/observability/metrics"
@@ -15,8 +16,18 @@ import (
 type cachedClient struct{
 	inner Client
 	cache *TTLCache
-	policyEpoch string
 }
+
+var (
+	policyEpoch atomic.Value // string
+)
+
+func init(){ policyEpoch.Store(strings.TrimSpace(os.Getenv("PS_PDP_POLICY_EPOCH"))) }
+
+// SetPolicyEpoch updates the epoch used for cache keys across all cached clients
+func SetPolicyEpoch(e string){ policyEpoch.Store(strings.TrimSpace(e)) }
+
+func getPolicyEpoch() string { if v, ok := policyEpoch.Load().(string); ok { return v }; return "" }
 
 func NewCached(inner Client) Client{
 	ttl := 1500 * time.Millisecond
@@ -27,11 +38,12 @@ func NewCached(inner Client) Client{
 	if v := strings.TrimSpace(os.Getenv("PS_PDP_CACHE_MAX_ENTRIES")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 { max = n }
 	}
-	return &cachedClient{ inner: inner, cache: NewTTLCache(ttl, max), policyEpoch: strings.TrimSpace(os.Getenv("PS_PDP_POLICY_EPOCH")) }
+	return &cachedClient{ inner: inner, cache: NewTTLCache(ttl, max) }
 }
 
 func (c *cachedClient) Evaluate(ctx context.Context, req Request) (Response, error) {
-	k := keyFrom(req, c.policyEpoch)
+	epoch := getPolicyEpoch()
+	k := keyFrom(req, epoch)
 	if resp, ok := c.cache.Get(k); ok {
 		if metrics.Enabled() { metrics.CacheOperations.WithLabelValues("hit", "pdp").Inc() }
 		return resp, nil

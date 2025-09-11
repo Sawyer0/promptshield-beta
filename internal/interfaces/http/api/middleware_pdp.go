@@ -22,6 +22,11 @@ var (
 )
 
 func initPDP() {
+	c := buildPDPClientForAdmin()
+	if c != nil { pdpClient = c }
+}
+
+func buildPDPClientForAdmin() pdp.Client {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("PS_PDP_MODE")))
 	apiKey := strings.TrimSpace(os.Getenv("PS_PDP_API_KEY"))
 	to := 2000 * time.Millisecond
@@ -32,7 +37,7 @@ func initPDP() {
 	}
 
 	// Try in-process mode first if requested
-	if mode == "inprocess" {
+if mode == "inprocess" {
 		cfg := pdp.InprocessConfig{
 			PolicyPath: strings.TrimSpace(os.Getenv("PS_PDP_REGO_PATH")),
 			DataPath:   strings.TrimSpace(os.Getenv("PS_PDP_DATA_PATH")),
@@ -40,9 +45,9 @@ func initPDP() {
 			Timeout:    to,
 		}
 		if c, err := pdp.NewInprocessClient(cfg); err == nil && c != nil {
-			pdpClient = pdp.NewCached(c)
+			client := pdp.NewCached(c)
 			slog.Info("PDP enabled (in-process)", "entrypoint", cfg.EntryPoint, "policy", cfg.PolicyPath)
-			return
+			return client
 		} else if err != nil {
 			slog.Warn("In-process PDP not available, falling back to HTTP", "error", err)
 		}
@@ -50,13 +55,14 @@ func initPDP() {
 
 	// HTTP/sidecar mode
 	endpoint := strings.TrimSpace(os.Getenv("PS_PDP_ENDPOINT"))
-	if endpoint == "" {
+if endpoint == "" {
 		slog.Info("PDP disabled: PS_PDP_ENDPOINT not set")
-		return
+		return nil
 	}
 	base := pdphttp.New(pdphttp.Config{Endpoint: endpoint, APIKey: apiKey, Timeout: to})
-	pdpClient = pdp.NewCached(base)
+	client := pdp.NewCached(base)
 	slog.Info("PDP enabled (http)", "endpoint", endpoint, "timeout_ms", to.Milliseconds())
+	return client
 }
 
 // pdpMiddleware attaches a pdp.Client to the request context if configured.
