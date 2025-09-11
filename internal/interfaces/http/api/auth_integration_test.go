@@ -43,47 +43,12 @@ func generateTestKeyPair() ([]byte, []byte, error) {
     return privPEM, pubPEM, nil
 }
 
-// Test JWT keys for testing (DO NOT use in production)
-const testPrivateKey = `-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKB
-wEiOfH3nzor9cwHXLbkiG+2XgQXpM6CpGiuXmN5fwB0+LWHBNy1jx4bJ5D6rE+Cc
-JQyF0KTKZ/NLBQxaS1gUeE+7+LbAEk9rAhQbTtK7clIAuWsjAmzqW4fdMy7YBq1z
-rtK1XqN6/bgFQGA7I2mzM5jfT28bieBq1ziiFQMQGiU+6hHiDq7yaA+RJvsPiyn9
-zGB6tR8W5+wJw1L2aBQGR54soR1fFZdnWFe6qVa6+kQDNtnKwrlOOdqEGBuE4dJx
-fuMzaogfJ28JjXxAlqMhHGFvvRK6VyFdMTsaVlP4Vwh7uFHd4Tg3VBhHrwX5fMCd
-Qw8ZqPzfAgMBAAECggEBAKTmjaS6tkK8BlPXClTQ2vpz/N6uxDeS35mXpqasqskV
-laAidgg/sWqpjXDbXr93otIMLlWsM+X0CqMDgSXKejLS2jx4GDjI1ZTXg++0AMJ8
-sJ74pWzVDOfmCEQ/7wXs3+cbnXhKriO8Z036q92Qc1+N87SI38nkGa0ABH9CN83H
-mQqt4fB7UdHzuIRe/me2PGhIq5ZBzj6h3BpoPGzEP+x3l9YmK8t/1cN0pqI+dQwY
-sqIwVLFVp86Sm9XY3x3k+fLJGHSIUKEWpMJzby5fqIgyey299uDIqudJmcsv2U2L
-4HMtCqv8pgAmRiKiHVOcjGgtjsxvFWulJ9+ckrypoGECgYEA4ZU4qwI0+YQN4xiu
-VkhQAPC7i4zG4FjjZvQeMNidN9sFHSRFWqmzMZFillhMtMtlgh1yBuHdAhQ+9VMh
-oPpMWrlHIB6hwcCxkcoD5owP2ivkYVmFiuQyB9RbDVvKJGOmSHiHkzG+DQkMrBQf
-7o/MnBbzDEHFBQbtq0t0xiVhXoMCgYEA1KMFoRBK0TleiVVa8a73L1g4tzjQaYK+
-tmUC0Yk2O/s7DQFGl2OaEA9OXzFQXctFm7r6+fdHdlkTds2uNliX3MsBVtHYa6NO
-30ojp8ljz6q4pBg4atVzUpOKCRUCbUZfSdImnW2MhqbBTJPXbLiXGAcR5v6sBQGx
-vuGqHZe4aY0CgYEAw+aaPqsqTQNUz3hBYz2fyh3Coj1QcRpBe+POLHSOJwRl/ArC
-6S+usZP8A7kZE4ZfVEQcUjLRNnNhPgEEfIvPYdHI0/M7CZMP+i/aLkKCMHdg
-Tv9k2GF4f8jXmQiVd3sbHUdGWepwJx+R/agtHPmFQ5fvLKFxJ4l1IvJ+qQMCgYAT
-4DdvuEeiNNDP2eB3EBLQs7ykHSRXTsgEvWx9cQvn1lUwBHeatgAjXtK4A6NqS6w5
-WqEQBrXCU1VnfH9iuDSAEeiRNE6a4EE3+7qHBdSMLEMm4NdVUDJvMaYw+9rSd+IQ
-GiHwHRfFt7AkwJjeeiZOXMNb+tm2r2o1BRtmd+T9NQKBgBn4WhKzWh5BFAuAK86s
-ouHiPiM5QiuKEKBFmpYpsRBNZLyFa7bbdHR3Ia6cRNxy6o2M0GBWC4Ra1Qc8lP8O
-+3JEFJTtqz7AveUGBfxDA/r+mnzpXhHdNhYf71OiEYGG4EIrMYRnI+wuD+OFiEpF
-4eMpvT3lGOxRGMaED4gYe9zv
------END PRIVATE KEY-----`
-
-const testPublicKey = `-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1SU1L7VLPHCgcBIjnx9
-586K/XMB1y25IhvtF4EF6TOgqRorl5jeX8AdPi1hwTctY8eGyeQ+qxPgnCUMhdCk
-ymfzSwUMWktYFHhPu/i2wBJPawIUG07Su3JSALlrIwJs6luH3TMu2Aatc67StV6j
-ev24BUBgOyNpszOY309vG4ngatc4ohUDEBolPuoR4g6u8mgPkSb7D4sp/cxgerUf
-FufsCcNS9mgUBkeeHKEdXxWXZ1hXuqlWuvpEAzbZysK5TjnahBgbhOHScX7jM2qI
-HydvCY18QJajIRxhb70SulchXTE7GlZT+FcIe7hR3eE4N1QYR68F+XzAnUMPGaj8
-3wIDAQAB
------END PUBLIC KEY-----`
+// Test keys are generated dynamically at runtime to avoid storing any PEM material in the repo.
 
 func TestJWTAuthIntegration(t *testing.T) {
+	// Generate an ephemeral RSA keypair for all subtests
+	privPEM, pubPEM, err := generateTestKeyPair()
+	require.NoError(t, err)
 	// Set up test environment
 	originalEnv := map[string]string{
 		"PS_BFF_JWT_PUBLIC_KEY": os.Getenv("PS_BFF_JWT_PUBLIC_KEY"),
@@ -92,8 +57,9 @@ func TestJWTAuthIntegration(t *testing.T) {
 		"PS_DEV_BYPASS_AUTH":    os.Getenv("PS_DEV_BYPASS_AUTH"),
 	}
 	
-	// Set test environment
-	os.Setenv("PS_BFF_JWT_PUBLIC_KEY", testPublicKey)
+// Set test environment
+// Use the generated public key for all tests
+os.Setenv("PS_BFF_JWT_PUBLIC_KEY", string(pubPEM))
 	os.Setenv("PS_BFF_JWT_ISSUER", "test-issuer")
 	os.Setenv("PS_BFF_JWT_AUDIENCE", "test-audience")
 	os.Setenv("PS_DEV_BYPASS_AUTH", "false")
@@ -156,11 +122,9 @@ func TestJWTAuthIntegration(t *testing.T) {
 		})
 
 		t.Run("should accept valid JWT and inject headers", func(t *testing.T) {
-			// Generate an RSA keypair and configure middleware with the matching public key
-			privPEM, pubPEM, err := generateTestKeyPair()
-			require.NoError(t, err)
+			// Use the already-generated keypair
 			os.Setenv("PS_BFF_JWT_PUBLIC_KEY", string(pubPEM))
-			// Rebuild router with middleware bound to the new public key
+			// Build router with middleware bound to the current public key
 			r2 := chi.NewRouter()
 			r2.Use(jwtAuthMiddleware)
 			r2.Get("/test", func(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +198,7 @@ func TestJWTAuthIntegration(t *testing.T) {
 func TestDebugEndpoints(t *testing.T) {
 	// Set up test environment for debug endpoints
 	os.Setenv("PS_DEV_BYPASS_AUTH", "true")
-	os.Setenv("PS_BFF_JWT_PUBLIC_KEY", testPublicKey)
+os.Setenv("PS_BFF_JWT_PUBLIC_KEY", string(pubPEM))
 	os.Setenv("PS_BFF_JWT_ISSUER", "test-issuer")
 	os.Setenv("PS_BFF_JWT_AUDIENCE", "test-audience")
 	

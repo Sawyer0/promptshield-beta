@@ -21,6 +21,10 @@ firebase-*.json
 gcloud-*.json
 credentials.json
 
+# Local key directory used by Makefile jwt-keys (ensure never tracked)
+.keys/
+keys/
+
 # Tooling/user auth files
 .npmrc
 .yarnrc
