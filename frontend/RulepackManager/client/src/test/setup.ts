@@ -7,6 +7,17 @@ import { server } from './mocks/server';
 // See https://react.dev/reference/react/act#handling-asynchronous-tests
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
+// Render Radix Portals inline during tests to avoid portal/FocusScope act() warnings
+// This keeps all updates within the same React tree
+vi.mock('@radix-ui/react-portal', () => ({
+  // Both forms are re-exported by Radix; mock both to be safe
+  Root: ({ children }: { children: any }) => children,
+  Portal: ({ children }: { children: any }) => children,
+}));
+
+// Optionally, we could mock Radix Select; however, to avoid diverging from real behavior,
+// we keep the real module and instead filter noisy act(...) warnings at the console level.
+
 // Polyfill requestAnimationFrame/cancelAnimationFrame for libraries using RAF in effects
 if (!(globalThis as any).requestAnimationFrame) {
   (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(cb, 0) as unknown as number;
@@ -116,3 +127,26 @@ Object.defineProperty(window, 'location', {
   },
   writable: true,
 });
+
+// Filter React act(...) warnings from third-party libs to keep test output clean
+// We only suppress specific, known noisy messages; all other warnings/errors remain
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+const shouldSuppressActWarning = (args: any[]) => {
+  const [first] = args;
+  if (typeof first !== 'string') return false;
+  // Match React act() guidance warnings
+  if (first.includes('not wrapped in act(')) return true;
+  return false;
+};
+
+console.error = (...args: any[]) => {
+  if (shouldSuppressActWarning(args)) return;
+  originalConsoleError(...args);
+};
+
+console.warn = (...args: any[]) => {
+  if (shouldSuppressActWarning(args)) return;
+  originalConsoleWarn(...args);
+};

@@ -361,6 +361,192 @@ paths:
       responses:
         '204':
           description: Deleted
+
+  /v1/rulepacks/{id}/versions/{ver}/bundle:
+    get:
+      summary: Export a freshly signed bundle (not persisted)
+      operationId: getRulepackVersionBundle
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Signed bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RulepackBundle'
+        '404':
+          description: Rulepack version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/versions/{ver}/publish:
+    post:
+      summary: Sign and persist a bundle to the store (admin)
+      operationId: postRulepackVersionPublish
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '201':
+          description: Bundle published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleRef'
+        '404':
+          description: Rulepack version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/bundles:
+    get:
+      summary: List stored bundles for a rulepack
+      operationId: listRulepackBundles
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Stored bundles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleList'
+
+  /v1/rulepacks/{id}/bundles/{ver}:
+    get:
+      summary: Retrieve stored bundle with server-side verification
+      operationId: getRulepackBundle
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Verified bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RulepackBundle'
+        '404':
+          description: Bundle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/bundles/{ver}/activate:
+    post:
+      summary: Activate stored bundle version (verify then activate)
+      operationId: postRulepackBundleActivate
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ver
+          required: true
+          schema:
+            type: integer
+            format: int32
+      responses:
+        '200':
+          description: Activation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivationResult'
+        '404':
+          description: Bundle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/rulepacks/{id}/bundles/verify:
+    post:
+      summary: Verify bundle JSON without persisting or activating
+      operationId: postRulepackBundleVerify
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RulepackBundle'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BundleVerifyResult'
+        '400':
+          description: Invalid bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/config:
     get:
       summary: Get runtime configuration snapshot
@@ -713,4 +899,78 @@ components:
           type: integer
         bytes:
           type: integer
+    RulepackBundle:
+      type: object
+      description: A signed rulepack bundle containing payload and signature metadata
+      properties:
+        rulepack_id:
+          type: string
+        version:
+          type: integer
+          format: int32
+        version_id:
+          type: string
+          description: UUID of the specific rulepack version
+        tenant_id:
+          type: string
+          description: Tenant identifier (if multi-tenant)
+        signed_at:
+          type: string
+          format: date-time
+        sig_alg:
+          type: string
+          example: HMAC-SHA256
+        sig:
+          type: string
+          description: Base64-encoded signature of the payload
+        payload:
+          type: object
+          description: The signed rulepack payload
+          additionalProperties: true
+    BundleRef:
+      type: object
+      description: Metadata reference to a stored bundle
+      properties:
+        rulepack_id:
+          type: string
+        version:
+          type: integer
+          format: int32
+        version_id:
+          type: string
+        signed_at:
+          type: string
+          format: date-time
+        sig_alg:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+    BundleList:
+      type: object
+      properties:
+        bundles:
+          type: array
+          items:
+            $ref: '#/components/schemas/BundleRef'
+    ActivationResult:
+      type: object
+      properties:
+        activated:
+          type: boolean
+        previous:
+          $ref: '#/components/schemas/RulepackMeta'
+        current:
+          $ref: '#/components/schemas/RulepackMeta'
+        request_id:
+          type: string
+    BundleVerifyResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        reason:
+          type: string
+        sig_alg:
+          type: string
 

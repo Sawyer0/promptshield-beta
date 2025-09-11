@@ -52,7 +52,6 @@ func (s *FSStore) Save(ctx context.Context, b Bundle) (string, error) {
 	}
 	defer f.Close()
 	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
 	if err := enc.Encode(b); err != nil {
 		return "", err
 	}

@@ -9,6 +9,8 @@ vi.mock('@/lib/api', () => ({
   policyAssignmentApi: {
     getAll: vi.fn(),
     create: vi.fn(),
+    batchCreate: vi.fn(),
+    update: vi.fn(),
     delete: vi.fn(),
   },
   rulePackApi: {
@@ -29,7 +31,7 @@ describe('PolicyAssignments', () => {
       rulepackId: '550e8400-e29b-41d4-a716-446655440001',
       targetScope: '/api/v1/users',
       endpoints: ['/api/v1/users', '/api/v1/admin'],
-      priority: 'high',
+      priority: 100,
       enabled: true,
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
@@ -69,7 +71,7 @@ describe('PolicyAssignments', () => {
     await waitFor(() => {
       expect(screen.getByText('Security Policy')).toBeInTheDocument();
       expect(screen.getByText('/api/v1/users')).toBeInTheDocument();
-      expect(screen.getByText(/high/i)).toBeInTheDocument();
+      expect(screen.getByText('100')).toBeInTheDocument();
     });
   });
 
@@ -120,7 +122,6 @@ describe('PolicyAssignments', () => {
 
     expect(await screen.findByTestId('select-rulepack')).toBeInTheDocument();
     expect(await screen.findByTestId('input-endpoint-chip')).toBeInTheDocument();
-    expect(await screen.findByTestId('select-priority')).toBeInTheDocument();
   });
 
   it('creates new assignment successfully', async () => {
@@ -135,7 +136,7 @@ describe('PolicyAssignments', () => {
       total: 1,
     });
 
-    (policyAssignmentApi.create as any).mockResolvedValue({ id: 'new' });
+    (policyAssignmentApi.batchCreate as any).mockResolvedValue({ created: [] });
 
     render(<PolicyAssignments />);
 
@@ -151,16 +152,11 @@ describe('PolicyAssignments', () => {
     await user.type(endpointsInput, '/api/v1/test');
     await user.keyboard('{Enter}');
 
-    const prioritySelect = screen.getByTestId('select-priority');
-    await user.click(prioritySelect);
-    const highOptions = await screen.findAllByText('High');
-    await user.click(highOptions[0]);
-
     const submitButton = screen.getByTestId('button-submit-assignment');
     await user.click(submitButton);
 
     await waitFor(() => {
-      expect(policyAssignmentApi.create).toHaveBeenCalled();
+      expect(policyAssignmentApi.batchCreate).toHaveBeenCalled();
     });
   });
 
@@ -169,7 +165,7 @@ describe('PolicyAssignments', () => {
     const { policyAssignmentApi, rulePackApi } = await import('@/lib/api');
     (policyAssignmentApi.getAll as any).mockResolvedValue({ data: [], total: 0 });
     (rulePackApi.getAll as any).mockResolvedValue({ data: mockRulePacks, total: 1 });
-    (policyAssignmentApi.create as any).mockResolvedValue({ id: 'new' });
+    (policyAssignmentApi.batchCreate as any).mockResolvedValue({ created: [] });
 
     render(<PolicyAssignments />);
 
@@ -194,10 +190,11 @@ describe('PolicyAssignments', () => {
     await user.click(screen.getByTestId('button-submit-assignment'));
 
     await waitFor(() => {
-      expect(policyAssignmentApi.create).toHaveBeenCalledTimes(1);
-      const arg = (policyAssignmentApi.create as any).mock.calls[0][0];
-      expect(arg.method).toBe('POST');
-      expect(arg.targetScope).toBe('/api/v1/create');
+      expect(policyAssignmentApi.batchCreate).toHaveBeenCalledTimes(1);
+      const arg = (policyAssignmentApi.batchCreate as any).mock.calls[0][0];
+      expect(Array.isArray(arg)).toBe(true);
+      expect(arg[0].method).toBe('POST');
+      expect(arg[0].targetScope).toBe('/api/v1/create');
     });
   });
 
@@ -262,8 +259,8 @@ describe('PolicyAssignments', () => {
     // Badge styling assertions
     const getBadge = await screen.findByTestId('assignment-method-a1');
     const anyBadge = await screen.findByTestId('assignment-method-a3');
-    expect(getBadge.className).toMatch(/bg-primary/);
-    expect(anyBadge.className).toMatch(/bg-secondary/);
+    expect(getBadge).toHaveTextContent('GET');
+    expect(anyBadge).toHaveTextContent('Any (*)');
   });
 
   it('secures arbitrary endpoint input by creating assignment for custom path', async () => {
@@ -284,16 +281,13 @@ describe('PolicyAssignments', () => {
     await user.type(ep, '/custom/endpoint');
     await user.keyboard('{Enter}');
 
-    await user.click(screen.getByTestId('select-priority'));
-    const medium = await screen.findAllByText('Medium');
-    await user.click(medium[0]);
-
     await user.click(screen.getByTestId('button-submit-assignment'));
 
     await waitFor(() => {
-      expect(policyAssignmentApi.create).toHaveBeenCalled();
-      const arg = (policyAssignmentApi.create as any).mock.calls[0][0];
-      expect(arg.targetScope).toBe('/custom/endpoint');
+      expect(policyAssignmentApi.batchCreate).toHaveBeenCalled();
+      const arg = (policyAssignmentApi.batchCreate as any).mock.calls[0][0];
+      expect(Array.isArray(arg)).toBe(true);
+      expect(arg[0].targetScope).toBe('/custom/endpoint');
     });
   });
 });

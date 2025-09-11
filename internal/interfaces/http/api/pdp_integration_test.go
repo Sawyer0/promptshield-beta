@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -55,9 +54,9 @@ func TestPDP_ToolInvoke_Deny(t *testing.T) {
 		return map[string]any{"decision":"PERMIT"}
 	})
 	defer ts.Close()
-	os.Setenv("PS_DEV_BYPASS_AUTH", "true")
-	os.Setenv("PS_PDP_ENDPOINT", ts.URL)
-	os.Setenv("PS_PDP_FAIL_OPEN_TOOL", "false")
+	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
+	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
+	t.Setenv("PS_PDP_FAIL_OPEN_TOOL", "false")
 	mux := newTestMux(t)
 
 	body := []byte(`{"tool_id":"echo","args":{}}`)
@@ -75,9 +74,9 @@ func TestPDP_ToolInvoke_Deny(t *testing.T) {
 func TestPDP_ToolInvoke_Permit(t *testing.T) {
 	ts := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision":"PERMIT"} })
 	defer ts.Close()
-	os.Setenv("PS_DEV_BYPASS_AUTH", "true")
-	os.Setenv("PS_PDP_ENDPOINT", ts.URL)
-	os.Unsetenv("PS_PDP_FAIL_OPEN_TOOL")
+	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
+	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
+	t.Setenv("PS_PDP_FAIL_OPEN_TOOL", "")
 	mux := newTestMux(t)
 
 	body := []byte(`{"tool_id":"echo","args":{}}`)
@@ -100,9 +99,9 @@ func TestPDP_Check_Deny(t *testing.T) {
 		return map[string]any{"decision":"PERMIT"}
 	})
 	defer ts.Close()
-	os.Setenv("PS_DEV_BYPASS_AUTH", "true")
-	os.Setenv("PS_PDP_ENDPOINT", ts.URL)
-	os.Unsetenv("PS_PDP_FAIL_OPEN_CHECK") // default fail-closed
+	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
+	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
+	t.Setenv("PS_PDP_FAIL_OPEN_CHECK", "") // default fail-closed
 	mux := newTestMux(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/check", bytes.NewReader([]byte(`"hello"`)))

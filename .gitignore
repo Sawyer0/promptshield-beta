@@ -67,3 +67,7 @@ frontend/RulepackManager/coverage/
 
 # Ignore Aurora migrations drafts (tracked elsewhere)
 migrations_aurora/
+
+# Local migration helper scripts (avoid committing secrets)
+scripts/aurora_migrate/
+scripts/run-aurora-migrations-secret.go

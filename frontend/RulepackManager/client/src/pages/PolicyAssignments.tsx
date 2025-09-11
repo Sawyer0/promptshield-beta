@@ -83,7 +83,12 @@ export default function PolicyAssignments() {
   });
 
   const createAssignmentMutation = useMutation({
-    mutationFn: policyAssignmentApi.create,
+    mutationFn: async (payload: any) => {
+      if (Array.isArray(payload)) {
+        return await policyAssignmentApi.batchCreate(payload);
+      }
+      return await policyAssignmentApi.create(payload);
+    },
     onSuccess: () => {
       toast({
         title: "Success",
@@ -175,9 +180,10 @@ export default function PolicyAssignments() {
 
   const handleModalSubmit = (data: any) => {
     if (editingAssignment) {
+      const item = Array.isArray(data) ? data[0] : data;
       updateAssignmentMutation.mutate({
         id: editingAssignment.id,
-        data
+        data: item,
       });
     } else {
       createAssignmentMutation.mutate(data);
@@ -295,7 +301,7 @@ export default function PolicyAssignments() {
                       <TableHead className="min-w-20">Method</TableHead>
                       <TableHead className="min-w-48">Target Scope</TableHead>
                       <TableHead className="min-w-32">RulePack</TableHead>
-                      <TableHead className="min-w-20">Priority</TableHead>
+                      <TableHead className="min-w-20">Precedence</TableHead>
                       <TableHead className="min-w-20">Status</TableHead>
                       <TableHead className="min-w-24">Created</TableHead>
                       <TableHead className="w-12"></TableHead>

@@ -11,6 +11,21 @@ export default defineConfig({
       '@assets': path.resolve(__dirname, 'attached_assets'),
     },
   },
+  // Inline Radix UI packages so that vi.mock can intercept them
+  server: {
+    deps: {
+      inline: [
+        '@radix-ui/react-portal',
+        '@radix-ui/react-select',
+        '@radix-ui/react-dismissable-layer',
+        '@radix-ui/react-focus-scope',
+        '@radix-ui/react-popper',
+        '@radix-ui/react-primitive',
+        '@radix-ui/react-slot',
+        '@radix-ui/react-collection',
+      ],
+    },
+  },
   test: {
     pool: 'forks',
     globals: true,

@@ -79,9 +79,16 @@ export default function SimpleLanding() {
         <SignInModal
           open={signInOpen}
           onOpenChange={setSignInOpen}
-          onSuccess={() => {
-            // After successful sign-in, try to hydrate session role and go home
-            fetch('/api/auth/user', { credentials: 'include' }).catch(() => {});
+          onSuccess={async () => {
+            // After successful sign-in, include Clerk bearer token so the BFF accepts the first call
+            try {
+              const tok = await (window as any).Clerk?.session?.getToken?.();
+              const headers: Record<string, string> = {};
+              if (tok) headers['Authorization'] = `Bearer ${tok}`;
+              await fetch('/api/auth/user', { credentials: 'include', headers });
+            } catch {
+              // ignore
+            }
             setLocation('/');
           }}
         />
@@ -91,9 +98,11 @@ export default function SimpleLanding() {
           onSuccess={async (orgName?: string) => {
             if (orgName && orgName.trim()) {
               try {
+                const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+                try { const tok = await (window as any)?.Clerk?.session?.getToken?.(); if (tok) headers['Authorization'] = `Bearer ${tok}`; } catch {}
                 const resp = await fetch('/api/orgs/create', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers,
                   credentials: 'include',
                   body: JSON.stringify({ name: orgName.trim() }),
                 });
@@ -104,7 +113,7 @@ export default function SimpleLanding() {
                   // Persist selection on server and locally
                   if (orgId) {
                     await fetch('/api/orgs/select', {
-                      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                      method: 'POST', headers, credentials: 'include',
                       body: JSON.stringify({ orgId })
                     }).catch(() => {});
                     setTenant(orgId, orgNameResp);

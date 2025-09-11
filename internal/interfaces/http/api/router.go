@@ -113,11 +113,9 @@ func registerAllHandlers(r chi.Router, opt Options) {
 	registerAssignmentHandlers(r, opt)
 	registerAuditHandlers(r, opt)
 	registerUserHandlers(r, opt)
-	registerProviderProfileHandlers(r, opt)
 	
 	// System and monitoring
 	registerSystemHandlers(r, opt)
-	registerServiceControlHandlers(r, opt)
 	registerSettingsHandlers(r, opt)
 	registerBusinessMetricsHandlers(r, opt)
 }
@@ -406,6 +404,13 @@ func eventsStreamHandler(opt Options) http.HandlerFunc {
 
 func NewMux(opt Options) http.Handler {
 	r := chi.NewRouter()
+	
+	// Reset PDP client between mux instances when PDP endpoint is not configured.
+	// This improves test isolation so a prior test enabling PDP does not affect others.
+	if strings.TrimSpace(os.Getenv("PS_PDP_ENDPOINT")) == "" && strings.ToLower(strings.TrimSpace(os.Getenv("PS_PDP_MODE"))) != "inprocess" {
+		pdpClient = nil
+		pdpOnce = sync.Once{}
+	}
 	
 	// Apply standard middleware chain
 	applyStandardMiddleware(r, opt)

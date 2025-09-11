@@ -46,7 +46,6 @@ describe('AssignmentModal', () => {
     expect(screen.getByText(/Assign RulePack/i)).toBeInTheDocument();
     expect(screen.getByTestId('select-rulepack')).toBeInTheDocument();
     expect(screen.getByTestId('input-endpoint-chip')).toBeInTheDocument();
-    expect(screen.getByText('Priority')).toBeInTheDocument();
   });
 
   it('does not render when closed', () => {
@@ -123,7 +122,8 @@ describe('AssignmentModal', () => {
     expect(screen.queryByText('/api/v1/users')).not.toBeInTheDocument();
   });
 
-  it('populates priority select with correct options', async () => {
+  // Priority select removed in new UX; presets/strictness dropped.
+  it.skip('legacy priority select (removed)', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
       <AssignmentModal
@@ -143,7 +143,7 @@ describe('AssignmentModal', () => {
     expect(await screen.findAllByText('Low')).not.toHaveLength(0);
   });
 
-  it('submits form with correct data', async () => {
+  it('submits form with correct data (batch payload)', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
       <AssignmentModal
@@ -166,29 +166,26 @@ describe('AssignmentModal', () => {
     await user.type(endpointsInput, '/api/v1/admin');
     await user.keyboard('{Enter}');
 
-    const prioritySelect = screen.getByTestId('select-priority');
-    await user.click(prioritySelect);
-    // Default is Medium; move to High via keyboard (up once) and confirm
-    await user.keyboard('{ArrowUp}{Enter}');
-
     const submitButton = screen.getByTestId('button-submit-assignment');
     await user.click(submitButton);
 
-    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(2));
-    const calls = (mockOnSubmit as any).mock.calls;
-    const first = calls[0][0];
-    const second = calls[1][0];
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    const arg = (mockOnSubmit as any).mock.calls[0][0];
+    expect(Array.isArray(arg)).toBe(true);
+    expect(arg.length).toBe(2);
+    const first = arg[0];
+    const second = arg[1];
     expect([mockRulePacks[0].id, mockRulePacks[1].id]).toContain(first.rulepackId);
     expect(second.rulepackId).toBe(first.rulepackId);
     expect(first.targetScope).toBe('/api/v1/users');
     expect(second.targetScope).toBe('/api/v1/admin');
-    expect(first.priority).toBe(750);
-    expect(second.priority).toBe(750);
+    expect(first.priority).toBe(100);
+    expect(second.priority).toBe(100);
     expect(first.enabled).toBe(true);
     expect(second.enabled).toBe(true);
   });
 
-  it('submits selected method in payload', async () => {
+  it('submits selected method in batch payload', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
       <AssignmentModal
@@ -219,9 +216,10 @@ describe('AssignmentModal', () => {
 
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     const arg = (mockOnSubmit as any).mock.calls[0][0];
-    expect(arg.method).toBe('POST');
-    expect(arg.targetScope).toBe('/api/v1/items');
-    expect([mockRulePacks[0].id, mockRulePacks[1].id]).toContain(arg.rulepackId);
+    expect(Array.isArray(arg)).toBe(true);
+    expect(arg[0].method).toBe('POST');
+    expect(arg[0].targetScope).toBe('/api/v1/items');
+    expect([mockRulePacks[0].id, mockRulePacks[1].id]).toContain(arg[0].rulepackId);
   });
 
   it('validates required fields', async () => {

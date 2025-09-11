@@ -23,22 +23,16 @@ interface TenantProviderProps {
 }
 
 export function TenantProvider({ children }: TenantProviderProps) {
-  const [tenantId, setTenantId] = useState<string | null>(null);
-  const [tenantName, setTenantName] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Synchronously prime state from localStorage to avoid extra effects on mount
+  const initialId = typeof window !== 'undefined' ? localStorage.getItem('promptshield_tenant_id') : null;
+  const initialName = typeof window !== 'undefined' ? localStorage.getItem('promptshield_tenant_name') : null;
+  const [tenantId, setTenantId] = useState<string | null>(initialId);
+  const [tenantName, setTenantName] = useState<string | null>(initialName);
+  const [isLoading, setIsLoading] = useState<boolean>(!(initialId && initialName));
 
   useEffect(() => {
+    if (tenantId && tenantName) return; // already bootstrapped synchronously
     const bootstrap = async () => {
-      // Try localStorage first
-      const savedTenantId = localStorage.getItem('promptshield_tenant_id');
-      const savedTenantName = localStorage.getItem('promptshield_tenant_name');
-      if (savedTenantId && savedTenantName) {
-        setTenantId(savedTenantId);
-        setTenantName(savedTenantName);
-        setIsLoading(false);
-        return;
-      }
-
       // Try signed cookie (server authoritative)
       try {
         const m = document.cookie.match(/(?:^|; )ps_tenant_id=([^;]+)/);
@@ -81,7 +75,7 @@ export function TenantProvider({ children }: TenantProviderProps) {
     };
 
     bootstrap();
-  }, []);
+  }, [tenantId, tenantName]);
 
   const setTenant = useCallback((newTenantId: string, newTenantName: string) => {
     setTenantId(newTenantId);
