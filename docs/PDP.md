@@ -4,7 +4,7 @@ This gateway integrates with a vendor-neutral Policy Decision Point (PDP). You c
 
 ## Modes
 - Sidecar HTTP (recommended): Run OPA locally and point PS_PDP_ENDPOINT to http://127.0.0.1:8181/v1/data/your/entry
-- In-process (future option): Evaluate Rego in-process using OPA’s Go SDK (no network). The current code is structured to allow this without changing handlers.
+- In-process: Evaluate Rego in-process using OPA’s Go SDK (no network). Build with -tags=opa_inprocess and set PS_PDP_MODE=inprocess. Provide PS_PDP_REGO_PATH and PS_PDP_ENTRYPOINT. (Optional PS_PDP_DATA_PATH).
 
 ## Env Variables
 - PS_PDP_ENDPOINT: PDP evaluate endpoint URL (empty disables PDP)
