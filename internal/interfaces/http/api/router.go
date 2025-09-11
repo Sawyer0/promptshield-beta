@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
     "sync"
+    "fmt"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -160,6 +161,9 @@ func pdpReloadHandler() http.HandlerFunc {
 		c := buildPDPClientForAdmin()
 		if c == nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to initialize PDP", nil, r); return }
 		pdpClient = c
+		// Auto-bump epoch
+		e := fmt.Sprintf("%d", time.Now().UnixNano())
+		pdp.SetPolicyEpoch(e)
 		writeJSON(w, http.StatusNoContent, nil, r)
 	}
 }

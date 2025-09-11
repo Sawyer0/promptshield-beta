@@ -17,12 +17,19 @@ type inprocessClient struct{
 }
 
 func NewInprocessClient(cfg InprocessConfig) (Client, error) {
-	if cfg.PolicyPath == "" || cfg.EntryPoint == "" {
-		return nil, fmt.Errorf("rego path and entrypoint required for inprocess mode")
+	if cfg.EntryPoint == "" {
+		return nil, fmt.Errorf("entrypoint required for inprocess mode")
+	}
+	paths := []string{}
+	if cfg.BundlePath != "" { paths = append(paths, cfg.BundlePath) }
+	if cfg.PolicyPath != "" { paths = append(paths, cfg.PolicyPath) }
+	if cfg.DataPath != "" { paths = append(paths, cfg.DataPath) }
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no policy/data paths provided")
 	}
 	r := rego.New(
 		rego.Query(fmt.Sprintf("data.%s", cfg.EntryPoint)),
-		rego.Load([]string{cfg.PolicyPath, cfg.DataPath}, nil),
+		rego.Load(paths, nil),
 	)
 	pq, err := r.PrepareForEval(context.Background())
 	if err != nil {
