@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,6 +18,13 @@ func NewPool(ctx context.Context, dsn string) (*Pool, error) {
 	if dsn == "" {
 		return nil, fmt.Errorf("postgres dsn required")
 	}
+
+	// Optional Aurora IAM auth is disabled in OSS build to avoid AWS dependencies.
+	// If PS_DB_IAM_USER is set, return an explicit error so operators know to provide PS_PG_DSN.
+	if os.Getenv("PS_DB_IAM_USER") != "" {
+		return nil, fmt.Errorf("Aurora IAM auth not available in OSS build; please set PS_PG_DSN")
+	}
+
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)

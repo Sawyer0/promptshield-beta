@@ -38,8 +38,21 @@ func main() {
 	dsn := getEnv("PS_PG_DSN", "")
 
 	if dsn == "" {
-		logger.Error("PS_PG_DSN environment variable is required")
-		os.Exit(1)
+		if iamUser := getEnv("PS_DB_IAM_USER", ""); iamUser != "" {
+			writer := getEnv("AURORA_WRITER", "")
+			dbName := getEnv("AURORA_DB_NAME", "promptshield")
+			if writer == "" {
+				logger.Error("AURORA_WRITER is required when using PS_DB_IAM_USER for IAM auth")
+				os.Exit(1)
+			}
+			// Build a minimal DSN without credentials; pgx BeforeConnect will inject an IAM token.
+			dsn = "postgres://@" + writer + ":5432/" + dbName + "?sslmode=require"
+			os.Setenv("PS_PG_DSN", dsn)
+			logger.Info("Configured IAM auth for Aurora (token generated on connect)", "writer", writer, "db", dbName, "user", iamUser)
+		} else {
+			logger.Error("PS_PG_DSN is required (or set PS_DB_IAM_USER with AURORA_WRITER/DB)")
+			os.Exit(1)
+		}
 	}
 
 	// Initialize repository factory with automatic environment detection
