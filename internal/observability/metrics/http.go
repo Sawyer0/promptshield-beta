@@ -9,13 +9,13 @@ import (
 
 // HTTP API metrics
 var (
-	HTTPBytesTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ps_http_bytes_total",
-			Help: "Total HTTP bytes in/out by path",
-		},
-		[]string{"direction", "path"},
-	)
+    HTTPBytesTotal = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "ps_http_bytes_total",
+            Help: "Total HTTP bytes in/out by path",
+        },
+        []string{"direction", "method", "path"},
+    )
 	ScanRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "ps_scan_request_duration_seconds",

@@ -18,13 +18,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
+	"github.com/promptshield/promptshield/internal/pdp"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	semdeberta "github.com/promptshield/promptshield/internal/semantic/deberta"
 	semfake "github.com/promptshield/promptshield/internal/semantic/fake"
 	ckeys "github.com/promptshield/promptshield/internal/shared/contextkeys"
 	"github.com/promptshield/promptshield/internal/shared/types"
-	"github.com/promptshield/promptshield/internal/pdp"
 	pkg "github.com/promptshield/promptshield/pkg/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -46,6 +46,20 @@ type decisionResponse struct {
 	RequestID  string `json:"request_id"`
 }
 
+// statusRecorder captures HTTP status codes for metrics
+// It wraps the ResponseWriter and records the last status code written.
+// Defaults to 200 when WriteHeader is never explicitly called.
+// This allows us to record accurate status labels for request counters.
+type statusRecorder struct {
+	http.ResponseWriter
+	code int
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	sr.code = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
 func checkHandlerVersioned(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tracer := otel.Tracer("promptshield/http")
@@ -57,6 +71,24 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			),
 		)
 		defer span.End()
+
+		// Metrics: capture start time, path label, and status via wrapper
+		startAll := time.Now()
+		pathLabel := r.URL.Path
+		decisionMetric := "unknown"
+		sr := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
+		w = sr
+		defer func() {
+			if metrics.Enabled() {
+				metrics.EnforcerRequests.WithLabelValues(pathLabel, strconv.Itoa(sr.code)).Inc()
+				metrics.EnforcerRequestDuration.WithLabelValues(pathLabel, decisionMetric).Observe(time.Since(startAll).Seconds())
+				// Only count a single decision for single payload mode.
+				// NDJSON and aggregate modes increment per item.
+				if decisionMetric != "unknown" && decisionMetric != "ndjson" && decisionMetric != "aggregate" {
+					metrics.EnforcerDecisions.WithLabelValues(decisionMetric).Inc()
+				}
+			}
+		}()
 
 		reqToken := os.Getenv("PS_ENFORCER_AUTH_TOKEN")
 		if reqToken != "" {
@@ -102,7 +134,11 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 				if !okP {
 					reason := strings.TrimSpace(resp.Reason)
 					if reason == "" {
-						if errEval != nil { reason = "pdp_error" } else { reason = "pdp_denied" }
+						if errEval != nil {
+							reason = "pdp_error"
+						} else {
+							reason = "pdp_denied"
+						}
 					}
 					writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r)
 					return
@@ -147,11 +183,19 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			s := bufio.NewScanner(r.Body)
 			buf := make([]byte, 0, 1024*1024)
 			s.Buffer(buf, 10*1024*1024)
+			// Metrics: NDJSON request duration measured across the stream
+			decisionMetric = "ndjson"
+			ndjsonStart := time.Now()
+			defer func() {
+				if metrics.Enabled() {
+					metrics.ScanRequestDuration.WithLabelValues("ndjson").Observe(time.Since(ndjsonStart).Seconds())
+				}
+			}()
 			for s.Scan() {
 				line := s.Bytes()
 				base := ctx
 				ctxLine, cancelLine := context.WithTimeout(base, 2*time.Second)
-res := runScanLine(ctxLine, line, strings.TrimSpace(r.Header.Get("X-PS-Conversation-ID")), opt, endpoint, r.Method)
+				res := runScanLine(ctxLine, line, strings.TrimSpace(r.Header.Get("X-PS-Conversation-ID")), opt, endpoint, r.Method)
 				cancelLine()
 				b, _ := json.Marshal(res)
 				_, _ = bw.Write(b)
@@ -160,6 +204,9 @@ res := runScanLine(ctxLine, line, strings.TrimSpace(r.Header.Get("X-PS-Conversat
 				dn := stringFromAny(res["decision"])
 				rn := stringFromAny(res["reason"])
 				vn := intFromAny(res["violations"])
+				if metrics.Enabled() && dn != "" {
+					metrics.EnforcerDecisions.WithLabelValues(dn).Inc()
+				}
 				ev := "ps.decision.allow"
 				if dn == "quarantine" || dn == "deny" {
 					ev = "ps.decision.block"
@@ -183,7 +230,6 @@ res := runScanLine(ctxLine, line, strings.TrimSpace(r.Header.Get("X-PS-Conversat
 				}
 				metrics.ScanEventsTotal.WithLabelValues(r.URL.Path).Inc()
 			}
-			metrics.ScanRequestDuration.WithLabelValues("ndjson").Observe(2.0)
 			return
 		}
 
@@ -196,7 +242,10 @@ res := runScanLine(ctxLine, line, strings.TrimSpace(r.Header.Get("X-PS-Conversat
 				decisions       []map[string]any
 				totalViolations int
 			)
-for _, item := range rawArray {
+			// Metrics: aggregate request duration
+			decisionMetric = "aggregate"
+			aggStart := time.Now()
+			for _, item := range rawArray {
 				res := runScanLine(ctx, item, strings.TrimSpace(r.Header.Get("X-PS-Conversation-ID")), opt, endpoint, r.Method)
 				decisions = append(decisions, res)
 				totalViolations += intFromAny(res["violations"])
@@ -204,6 +253,9 @@ for _, item := range rawArray {
 				dn := stringFromAny(res["decision"])
 				rn := stringFromAny(res["reason"])
 				vn := intFromAny(res["violations"])
+				if metrics.Enabled() && dn != "" {
+					metrics.EnforcerDecisions.WithLabelValues(dn).Inc()
+				}
 				ev := "ps.decision.allow"
 				if dn == "quarantine" || dn == "deny" {
 					ev = "ps.decision.block"
@@ -234,7 +286,29 @@ for _, item := range rawArray {
 				},
 			}
 			_ = json.NewEncoder(w).Encode(report)
-			metrics.ScanRequestDuration.WithLabelValues("aggregate").Observe(2.0)
+			if metrics.Enabled() {
+				metrics.ScanRequestDuration.WithLabelValues("aggregate").Observe(time.Since(aggStart).Seconds())
+			}
+
+			// Track usage for billing (aggregate mode)
+			if opt.UsageTracker != nil {
+				if tenantID, err := uuid.Parse(tenantID); err == nil {
+					// Track aggregate usage asynchronously
+					go func() {
+						// Create a synthetic scan result for aggregate mode
+						aggResult := pkg.ScanResult{
+							Violations: make([]pkg.Violation, totalViolations),
+							Metrics: pkg.Metrics{
+								SemanticAttempts: 0, // Would need to sum from individual scans
+								LinesRead:        int64(len(decisions)),
+							},
+						}
+						if err := opt.UsageTracker.TrackScanResult(context.Background(), tenantID, aggResult); err != nil {
+							slog.Error("Failed to track aggregate usage", "error", err, "tenant_id", tenantID)
+						}
+					}()
+				}
+			}
 			return
 		}
 
@@ -251,7 +325,9 @@ for _, item := range rawArray {
 				if v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_FAKE_L3"))); v == "1" || v == "true" || v == "yes" {
 					var d time.Duration
 					if ms := strings.TrimSpace(os.Getenv("PS_FAKE_L3_DELAY_MS")); ms != "" {
-						if n, err := strconv.Atoi(ms); err == nil && n > 0 { d = time.Duration(n) * time.Millisecond }
+						if n, err := strconv.Atoi(ms); err == nil && n > 0 {
+							d = time.Duration(n) * time.Millisecond
+						}
 					}
 					sc.SetSemanticAnalyzer(semfake.Analyzer{Delay: d})
 				} else if ep := strings.TrimSpace(os.Getenv("PS_DEBERTA_ENDPOINT")); ep != "" {
@@ -259,11 +335,22 @@ for _, item := range rawArray {
 					sc.SetSemanticAnalyzer(analyzer)
 				}
 			}
-packs, perr := resolveApplicableRulepacks(ctx, opt, endpoint, r.Method)
+			packs, perr := resolveApplicableRulepacks(ctx, opt, endpoint, r.Method)
 			if perr == nil && len(packs) > 0 {
+				// Observe compilation/loading time
+				t0 := time.Now()
 				sc.LoadRulePacks(packs)
+				if metrics.Enabled() {
+					metrics.RuleCompilationDuration.WithLabelValues("success").Observe(time.Since(t0).Seconds())
+				}
 			} else if rp := os.Getenv("PS_ENFORCER_RULEPACK"); rp != "" {
-				if packs, e := rules.LoadPacks(rp); e == nil { sc.LoadRulePacks(packs) }
+				if packs, e := rules.LoadPacks(rp); e == nil {
+					t0 := time.Now()
+					sc.LoadRulePacks(packs)
+					if metrics.Enabled() {
+						metrics.RuleCompilationDuration.WithLabelValues("success").Observe(time.Since(t0).Seconds())
+					}
+				}
 			}
 			res, err = sc.ScanReader(ctx, bytes.NewReader(body), "http:v1:check:assignment")
 		} else if opt.ScannerManager != nil && opt.ScannerManager.HasActivePolicies() {
@@ -272,41 +359,111 @@ packs, perr := resolveApplicableRulepacks(ctx, opt, endpoint, r.Method)
 		} else {
 			logger.Info("No active rulepacks - allowing request (fail-open)")
 			res = pkg.ScanResult{Violations: []pkg.Violation{}, ScanInfo: pkg.ScanInfo{ShouldBlock: false, BlockReason: "no_rulepacks_loaded", TotalViolations: 0, ScanStatus: "success"}}
+			if metrics.Enabled() {
+				metrics.PolicyBypass.WithLabelValues("no_rules").Inc()
+			}
 		}
 		if err != nil {
 			msg := err.Error()
 			code := http.StatusInternalServerError
-			if strings.Contains(strings.ToLower(msg), "request body too large") { code = http.StatusBadRequest }
-			errCode := "INTERNAL"; if code == http.StatusBadRequest { errCode = "INVALID_ARGUMENT" }
+			if strings.Contains(strings.ToLower(msg), "request body too large") {
+				code = http.StatusBadRequest
+			}
+			errCode := "INTERNAL"
+			if code == http.StatusBadRequest {
+				errCode = "INVALID_ARGUMENT"
+			}
 			writeError(w, code, errCode, "scan failed", map[string]any{"error": msg})
 			return
 		}
-		decision := "allow"; reason := "no_signals"; total := len(res.Violations)
+		// Metrics: single payload request timing
+		if metrics.Enabled() {
+			metrics.ScanRequestDuration.WithLabelValues("single").Observe(time.Since(startAll).Seconds())
+		}
+		decision := "allow"
+		reason := "no_signals"
+		total := len(res.Violations)
 		// Apply mask obligations to reason (best-effort)
 		reason = applyMaskToString(reason, pdpObligations)
-		anyQuarantine := false; anyDeny := false; firstRule := ""
+		anyQuarantine := false
+		anyDeny := false
+		firstRule := ""
 		for _, v := range res.Violations {
-			if firstRule == "" { firstRule = v.RuleID }
-			switch v.ResponseAction { case "deny", "block": anyDeny = true; case "quarantine": anyQuarantine = true }
+			if firstRule == "" {
+				firstRule = v.RuleID
+			}
+			switch v.ResponseAction {
+			case "deny", "block":
+				anyDeny = true
+			case "quarantine":
+				anyQuarantine = true
+			}
 		}
-		if anyDeny { decision = "deny"; reason = firstNonEmpty(firstRule, "response_action") } else if anyQuarantine { decision = "quarantine"; reason = firstNonEmpty(firstRule, "signals_detected") } else {
+		if anyDeny {
+			decision = "deny"
+			reason = firstNonEmpty(firstRule, "response_action")
+		} else if anyQuarantine {
+			decision = "quarantine"
+			reason = firstNonEmpty(firstRule, "signals_detected")
+		} else {
 			finalScore, _, _ := computeFinalScore(&res)
-			if finalScore >= parseFloatEnv("PS_BLOCK_THRESHOLD", 0.75) { decision = "quarantine"; reason = "policy_bridge_threshold" }
+			if finalScore >= parseFloatEnv("PS_BLOCK_THRESHOLD", 0.75) {
+				decision = "quarantine"
+				reason = "policy_bridge_threshold"
+			}
 		}
-		if id := r.Header.Get("X-Request-ID"); id != "" { w.Header().Set("x-ps-request-id", id) }
-		w.Header().Set("x-ps-decision", decision); w.Header().Set("x-ps-reason", reason); w.Header().Set("content-type", "application/json")
-		statusCode := http.StatusOK; if decision != "allow" { statusCode = http.StatusForbidden }
+		if id := r.Header.Get("X-Request-ID"); id != "" {
+			w.Header().Set("x-ps-request-id", id)
+		}
+		w.Header().Set("x-ps-decision", decision)
+		w.Header().Set("x-ps-reason", reason)
+		w.Header().Set("content-type", "application/json")
+		statusCode := http.StatusOK
+		if decision != "allow" {
+			statusCode = http.StatusForbidden
+		}
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(decisionResponse{Decision: decision, Reason: reason, Violations: total, RequestID: r.Header.Get("X-Request-ID")})
-		if n := len(pdpObligations); n > 0 { w.Header().Set("X-PS-Obligations-Count", strconv.Itoa(n)) }
+		if n := len(pdpObligations); n > 0 {
+			w.Header().Set("X-PS-Obligations-Count", strconv.Itoa(n))
+		}
+		// Metrics: capture final decision for request-scoped metrics
+		decisionMetric = decision
 		respMap := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": r.Header.Get("X-Request-ID")}
 		// Span + publish + audit
-		ev := "ps.decision.allow"; if decision == "quarantine" || decision == "deny" { ev = "ps.decision.block" }
+		ev := "ps.decision.allow"
+		if decision == "quarantine" || decision == "deny" {
+			ev = "ps.decision.block"
+		}
 		span.SetAttributes(attribute.String("decision", decision), attribute.String("reason", reason), attribute.Int("ps.violations", total))
 		span.AddEvent(ev, trace.WithAttributes(attribute.String("reason", reason), attribute.Int("ps.violations", total)))
-		if opt.Events != nil { opt.Events.Publish(Event{Type: "decision", Data: respMap}) }
-		if opt.AuditLogger != nil { _ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{Action: "request.decision", ObjectType: "request", ObjectID: uuid.New(), Metadata: map[string]any{"path": r.URL.Path, "status": statusCode, "decision": decision, "reason": reason, "violations": total}, Timestamp: time.Now().UTC()}) }
-		if store := getUsageStoreFromCtx(r.Context()); store != nil { var bytesN int64; if cl := r.Header.Get("Content-Length"); cl != "" { if n, err := strconv.ParseInt(cl, 10, 64); err == nil { bytesN = n } }; _ = store.Record(r.Context(), r.Header.Get("x-tenant-id"), r.URL.Path, decision, bytesN, time.Now()) }
+		if opt.Events != nil {
+			opt.Events.Publish(Event{Type: "decision", Data: respMap})
+		}
+		if opt.AuditLogger != nil {
+			_ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{Action: "request.decision", ObjectType: "request", ObjectID: uuid.New(), Metadata: map[string]any{"path": r.URL.Path, "status": statusCode, "decision": decision, "reason": reason, "violations": total}, Timestamp: time.Now().UTC()})
+		}
+		if store := getUsageStoreFromCtx(r.Context()); store != nil {
+			var bytesN int64
+			if cl := r.Header.Get("Content-Length"); cl != "" {
+				if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+					bytesN = n
+				}
+			}
+			_ = store.Record(r.Context(), r.Header.Get("x-tenant-id"), r.URL.Path, decision, bytesN, time.Now())
+		}
+
+		// Track usage for billing
+		if opt.UsageTracker != nil {
+			if tenantID, err := uuid.Parse(tenantID); err == nil {
+				// Track usage asynchronously to avoid blocking the response
+				go func() {
+					if err := opt.UsageTracker.TrackScanResult(context.Background(), tenantID, res); err != nil {
+						logger.Error("Failed to track usage", "error", err, "tenant_id", tenantID)
+					}
+				}()
+			}
+		}
 	}
 }
 
@@ -315,7 +472,9 @@ func applyMaskToString(s string, obs []pdp.Obligation) string {
 	for _, o := range obs {
 		if strings.EqualFold(o.Type, "mask") && (strings.EqualFold(o.Key, "pattern") || o.Key == "") {
 			if pat, ok := o.Value.(string); ok && strings.TrimSpace(pat) != "" {
-				if rx, err := regexp.Compile(pat); err == nil { out = rx.ReplaceAllString(out, "[REDACTED]") }
+				if rx, err := regexp.Compile(pat); err == nil {
+					out = rx.ReplaceAllString(out, "[REDACTED]")
+				}
 			}
 		}
 	}
@@ -325,12 +484,12 @@ func applyMaskToString(s string, obs []pdp.Obligation) string {
 func runScanLine(ctx context.Context, data []byte, convID string, opt Options, endpoint, method string) map[string]any {
 	// Opportunistic prune of conversation store based on TTL
 	pruneConversationStore(convTTL())
-sc := scanner.ScanEngineCstor(0)
+	sc := scanner.ScanEngineCstor(0)
 	sc.SetBaseContext(ctx)
 	// Attempt assignment-based rulepack loading
 	loadedFromAssignments := false
 	if opt.AssignmentRepository != nil && opt.RulepackService != nil {
-if packs, err := resolveApplicableRulepacks(ctx, opt, endpoint, method); err == nil && len(packs) > 0 {
+		if packs, err := resolveApplicableRulepacks(ctx, opt, endpoint, method); err == nil && len(packs) > 0 {
 			sc.LoadRulePacks(packs)
 			loadedFromAssignments = true
 		}
@@ -343,7 +502,9 @@ if packs, err := resolveApplicableRulepacks(ctx, opt, endpoint, method); err == 
 		if v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_FAKE_L3"))); v == "1" || v == "true" || v == "yes" {
 			var d time.Duration
 			if ms := strings.TrimSpace(os.Getenv("PS_FAKE_L3_DELAY_MS")); ms != "" {
-				if n, err := strconv.Atoi(ms); err == nil && n > 0 { d = time.Duration(n) * time.Millisecond }
+				if n, err := strconv.Atoi(ms); err == nil && n > 0 {
+					d = time.Duration(n) * time.Millisecond
+				}
 			}
 			sc.SetSemanticAnalyzer(semfake.Analyzer{Delay: d})
 		} else if ep := strings.TrimSpace(os.Getenv("PS_DEBERTA_ENDPOINT")); ep != "" {
@@ -351,7 +512,7 @@ if packs, err := resolveApplicableRulepacks(ctx, opt, endpoint, method); err == 
 			sc.SetSemanticAnalyzer(analyzer)
 		}
 	}
-// Fallback to file-based packs when no assignment matched
+	// Fallback to file-based packs when no assignment matched
 	if !loadedFromAssignments {
 		if rp := os.Getenv("PS_ENFORCER_RULEPACK"); rp != "" {
 			if packs, e := rules.LoadPacks(rp); e == nil {
@@ -398,7 +559,8 @@ if packs, err := resolveApplicableRulepacks(ctx, opt, endpoint, method); err == 
 	finalScore, riskScore, patternScore := computeFinalScore(&res)
 	alpha := parseFloatEnv("PS_ALPHA", 0.7)
 	beta := parseFloatEnv("PS_BETA", 0.3)
-	_ = alpha; _ = beta // already applied in computeFinalScore
+	_ = alpha
+	_ = beta // already applied in computeFinalScore
 	threshold := parseFloatEnv("PS_BLOCK_THRESHOLD", 0.75)
 	if decision == "allow" && finalScore >= threshold {
 		decision = "quarantine"
@@ -439,20 +601,33 @@ func setConversationSignals(sc *scanner.Scanner, convID, text string) {
 }
 
 func updateConversation(convID, text string) {
-	if convID == "" { return }
+	if convID == "" {
+		return
+	}
 	convStore.Store(convID, &convState{LastText: truncate(text, 800), UpdatedAt: time.Now()})
 }
 
 func driftHigh(prev, curr string) bool {
 	// simple token Jaccard distance > 0.8 → high drift
-	pt := tokenize(prev); ct := tokenize(curr)
-	if len(pt) == 0 || len(ct) == 0 { return false }
+	pt := tokenize(prev)
+	ct := tokenize(curr)
+	if len(pt) == 0 || len(ct) == 0 {
+		return false
+	}
 	set := make(map[string]struct{}, len(pt))
-	for _, t := range pt { set[t] = struct{}{} }
+	for _, t := range pt {
+		set[t] = struct{}{}
+	}
 	inter := 0
-	for _, t := range ct { if _, ok := set[t]; ok { inter++ } }
+	for _, t := range ct {
+		if _, ok := set[t]; ok {
+			inter++
+		}
+	}
 	union := len(pt) + len(ct) - inter
-	if union == 0 { return false }
+	if union == 0 {
+		return false
+	}
 	d := 1.0 - float64(inter)/float64(union)
 	return d > 0.8
 }
@@ -461,7 +636,9 @@ func tokenize(s string) []string {
 	s = strings.ToLower(s)
 	s = strings.ReplaceAll(s, "\n", " ")
 	parts := strings.Fields(s)
-	if len(parts) > 128 { parts = parts[:128] }
+	if len(parts) > 128 {
+		parts = parts[:128]
+	}
 	return parts
 }
 
@@ -471,14 +648,20 @@ func privilegedTokens(s string) bool {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n { return s }
+	if len(s) <= n {
+		return s
+	}
 	return s[:n]
 }
 
 func parseFloatEnv(k string, def float64) float64 {
 	v := strings.TrimSpace(os.Getenv(k))
-	if v == "" { return def }
-	if f, err := strconv.ParseFloat(v, 64); err == nil { return f }
+	if v == "" {
+		return def
+	}
+	if f, err := strconv.ParseFloat(v, 64); err == nil {
+		return f
+	}
 	return def
 }
 
@@ -490,17 +673,24 @@ func convTTL() time.Duration {
 		return 15 * time.Minute
 	}
 	d, err := time.ParseDuration(v)
-	if err != nil { return 15 * time.Minute }
+	if err != nil {
+		return 15 * time.Minute
+	}
 	return d
 }
 
 func pruneConversationStore(ttl time.Duration) {
-	if ttl <= 0 { return }
+	if ttl <= 0 {
+		return
+	}
 	cut := time.Now().Add(-ttl)
 	count := 0
 	convStore.Range(func(key, value any) bool {
 		cs, ok := value.(*convState)
-		if !ok { convStore.Delete(key); return true }
+		if !ok {
+			convStore.Delete(key)
+			return true
+		}
 		if cs.UpdatedAt.Before(cut) {
 			convStore.Delete(key)
 		}
@@ -518,17 +708,29 @@ func computeFinalScore(r *pkg.ScanResult) (final, risk, pattern float64) {
 	beta := parseFloatEnv("PS_BETA", 0.3)
 	var hasL2, hasL1 bool
 	for _, v := range r.Violations {
-		if v.Level == 3 && v.Confidence > risk { risk = v.Confidence }
-		if v.Level == 2 { hasL2 = true }
-		if v.Level == 1 { hasL1 = true }
+		if v.Level == 3 && v.Confidence > risk {
+			risk = v.Confidence
+		}
+		if v.Level == 2 {
+			hasL2 = true
+		}
+		if v.Level == 1 {
+			hasL1 = true
+		}
 	}
-	if hasL2 { pattern = 1.0 } else if hasL1 { pattern = 0.5 } else { pattern = 0.0 }
+	if hasL2 {
+		pattern = 1.0
+	} else if hasL1 {
+		pattern = 0.5
+	} else {
+		pattern = 0.0
+	}
 	final = alpha*risk + beta*pattern
 	return
 }
 
 // buildInternalRationale creates a compact probe rationale for logs only
-func buildInternalRationale(convID string, risk, pattern, final float64, r *pkg.ScanResult) string {
+func buildInternalRationale(_ string, risk, pattern, final float64, r *pkg.ScanResult) string {
 	ruleCount := len(r.Violations)
 	return "risk=" + fmtFloat(risk) + ",pattern=" + fmtFloat(pattern) + ",final=" + fmtFloat(final) + ",rules=" + strconv.Itoa(ruleCount)
 }

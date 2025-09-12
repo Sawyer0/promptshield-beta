@@ -1,4 +1,8 @@
-# Overview
+# Deprecated: Replit guide
+
+This project no longer uses Replit. Authentication, dev, and build flows were updated to remove Replit-specific plugins and settings.
+
+Below is the original content retained for historical context only.
 
 This is a full-stack web application for PromptShield, an AI Security Management Platform that provides security management and threat protection for AI systems. The application features a React frontend with a Node.js/Express backend, built to manage security rulepacks, tenants, policy assignments, and audit logs for AI system protection.
 

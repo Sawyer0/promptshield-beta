@@ -39,6 +39,8 @@ export function TopHeader({ title, description, onMenuClick }: TopHeaderProps) {
   const queryClient = useQueryClient();
   const userRole = getUserSystemRole();
   const isAdmin = userRole === 'admin';
+  let roles: string[] = [];
+  try { const raw = localStorage.getItem('ps_roles'); roles = raw ? JSON.parse(raw) : []; } catch {}
 
   const { signOut } = useSafeClerk();
   const { isSignedIn: clerkSignedIn } = useSafeClerkAuth();
@@ -180,6 +182,9 @@ export function TopHeader({ title, description, onMenuClick }: TopHeaderProps) {
                         <div className="text-xs text-muted-foreground">
                           {isAdmin ? 'Platform Administrator' : 'User'}
                         </div>
+                        {Array.isArray(roles) && roles.length > 0 && (
+                          <div className="mt-1 text-[10px] text-muted-foreground">Roles: {roles.join(', ')}</div>
+                        )}
                       </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />

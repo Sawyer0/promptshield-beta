@@ -10,6 +10,11 @@ This deployment uses a DeBERTa v3-based classifier for Level-3 (semantic) analys
     https://api-inference.huggingface.co/models/protectai/deberta-v3-base-prompt-injection-v2
 - HF_TOKEN=... (optional if required by your inference endpoint)
 
+Exact tokenizer (for precise token accounting):
+- PS_DEBERTA_TOKENIZER_JSON=C:\\Users\\Dawan\\promptshield-v0.2.0\\assets\\tokenizers\\tokenizer.json
+  - or PS_DEBERTA_VOCAB_FILE=C:\\Users\\Dawan\\promptshield-v0.2.0\\assets\\tokenizers\\deberta-vocab.txt
+- PS_DEBERTA_LOWERCASE=true|false (default true)
+
 Policy bridge (weighted scoring):
 - PS_ALPHA=0.7               # weight for L3 risk (confidence)
 - PS_BETA=0.3                # weight for pattern score (L1/L2)
@@ -55,6 +60,12 @@ Testing aids:
 - Gated rules can reference runtime context keys:
   - conv_drift: ["high", "low"]
   - conv_priv_jump: ["true", "false"]
+
+## Token accounting
+
+- When tokenizer.json or vocab.txt is provided, the enforcer emits exact token counts as:
+  - ps_llm_tokens_total{provider="protectai",model="deberta",token_type="input",tenant="..."}
+- Without a tokenizer file, it falls back to an approximation.
 
 ## Migration from external providers
 

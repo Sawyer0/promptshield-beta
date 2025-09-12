@@ -1,0 +1,67 @@
+apiVersion: promptshield/v1
+kind: RulePack
+metadata:
+  name: preset-compliance-coverage
+  version: "1.0"
+  description: "Preset RulePack with controls tags demonstrating coverage across OWASP LLM, SOC2, HIPAA, GDPR, NIST AI RMF"
+rules:
+  - id: rule-prompt-injection
+    name: Prompt Injection Detection
+    description: Detects typical prompt injection and tool abuse patterns
+    level: 1
+    keywords: ["ignore previous", "override", "system prompt", "tool abuse"]
+    response: { action: deny }
+    severity: HIGH
+    controls: ["OWASP_LLM.LLM01", "SOC2.CC7.2", "NIST_AI_RMF.MEA.2"]
+
+  - id: rule-output-sanitization
+    name: Output Sanitization / Redaction
+    description: Redacts PII and secrets in model outputs
+    level: 2
+    patterns:
+      - { name: ssn, regex: "\\b(?!000|666)[0-8][0-9]{2}-?(?!00)[0-9]{2}-?(?!0000)[0-9]{4}\\b" }
+      - { name: api_key, regex: "sk-[A-Za-z0-9]{20,}" }
+    response: { action: redact }
+    severity: HIGH
+    controls: ["OWASP_LLM.LLM02", "OWASP_LLM.LLM06", "GDPR.Art_32", "HIPAA.164.312(b)"]
+
+  - id: rule-tool-constraints
+    name: Tool Constraints / Approvals
+    description: Constrain high-risk tools and require approvals
+    level: 1
+    keywords: ["delete_file", "export_data", "transfer_funds"]
+    response: { action: quarantine }
+    severity: HIGH
+    controls: ["OWASP_LLM.LLM07", "OWASP_LLM.LLM08", "SOC2.CC7.3", "HIPAA.164.312(a)(1)"]
+
+  - id: rule-egress-allowlist
+    name: Egress Allowlist Enforcement
+    description: Restrict outbound network requests to approved endpoints
+    level: 1
+    keywords: ["http://", "https://"]
+    response: { action: deny }
+    severity: HIGH
+    controls: ["OWASP_LLM.LLM08", "GDPR.Art_25", "GDPR.Art_32"]
+
+  - id: rule-timeouts
+    name: Timeouts and Budgets
+    description: Prevent long-running operations that can cause resource abuse
+    level: 1
+    keywords: ["long running", "infinite loop"]
+    response: { action: deny }
+    severity: WARNING
+    controls: ["OWASP_LLM.LLM04", "SOC2.CC7.2"]
+
+  - id: rule-exfiltration
+    name: Exfiltration / Model Leakage Patterns
+    description: Detect potential data exfiltration or model leakage attempts
+    level: 1
+    keywords: ["dump weights", "download model", "exfiltrate", "leak"]
+    response: { action: quarantine }
+    severity: ERROR
+    controls: ["OWASP_LLM.LLM10", "GDPR.Art_33"]
+
+composition:
+  strategy: priority
+  priority: 1
+

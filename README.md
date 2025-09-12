@@ -144,6 +144,40 @@ docker compose up --build -d
 - Observability: Prometheus metrics and OpenTelemetry traces
 - Optional redaction mutations for response bodies via `ext_proc`
 
+### Gateway Metrics: Latency and Cardinality Control
+
+The gateway exposes Prometheus metrics at `/metrics` when enabled. Two key metrics for HTTP traffic:
+
+- `ps_gateway_requests_total{method,status,endpoint}`: request counts
+- `ps_gateway_request_duration_seconds{method,status,endpoint}`: request latency histogram
+
+Customize buckets and path label cardinality via environment variables:
+
+- `PS_GATEWAY_REQ_BUCKETS` (comma-separated seconds)
+  - Example: `0.01,0.05,0.1,0.25,0.5,1,2.5,5,10`
+  - Controls histogram buckets for request duration. Defaults span 5ms to 30s if unset.
+
+- Path normalization (reduces label cardinality by replacing dynamic segments):
+  - `PS_GATEWAY_RAW_PATHS` (true/false): when true, disables normalization globally (raw paths used).
+  - `PS_GATEWAY_RAW_PREFIXES` (comma-separated): bypass normalization for listed prefixes only.
+    - Example: `PS_GATEWAY_RAW_PREFIXES=/api/debug,/v1/admin`
+
+Normalization rules (when enabled):
+
+- UUIDs → `:uuid`
+- Numeric IDs → `:id`
+- Long opaque segments (>=16 chars of [A-Za-z0-9_-]) → `:token`
+
+The HTTP bytes metric includes method and path as well:
+
+- `ps_http_bytes_total{direction,method,path}`
+
+PromQL examples:
+
+- Overall p95: `histogram_quantile(0.95, sum(rate(ps_gateway_request_duration_seconds_bucket[5m])) by (le))`
+- p95 by endpoint: `histogram_quantile(0.95, sum(rate(ps_gateway_request_duration_seconds_bucket[5m])) by (le, endpoint))`
+- p95 for non-2xx: `histogram_quantile(0.95, sum(rate(ps_gateway_request_duration_seconds_bucket{status!~"2.."}[5m])) by (le, endpoint))`
+
 ### Configuration
 
 Environment variables (illustrative):
@@ -163,6 +197,9 @@ export PS_ENFORCER_REDACTION_MUTATION=true    # enable body mutation in ext_proc
 # Optional telemetry
 export PS_TELEMETRY=1
 export PS_TELEMETRY_ENDPOINT=otel-collector:4317
+export PS_TRACE_SAMPLE=1.0                  # optional: 0.0 - 1.0 sampling
+# Disable gateway HTTP tracing if needed
+export PS_GATEWAY_DISABLE_TRACING=false
 ```
 
 Policy bundles (RulePacks) control signals, thresholds, budgets, and actions. See `docs/RulePacks.md`.

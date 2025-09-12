@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -42,24 +41,6 @@ func requireUUIDParam(w http.ResponseWriter, r *http.Request, param string) (uui
 	return id, true
 }
 
-// requireJSONBody reads and validates JSON request body
-func requireJSONBody(w http.ResponseWriter, r *http.Request, dest interface{}) bool {
-	if err := json.NewDecoder(r.Body).Decode(dest); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid JSON", nil)
-		return false
-	}
-	return true
-}
-
-// requireNonEmpty validates that a string field is not empty
-func requireNonEmpty(w http.ResponseWriter, field, value string) bool {
-	if strings.TrimSpace(value) == "" {
-		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", field+" is required", nil)
-		return false
-	}
-	return true
-}
-
 // TenantAndIDHandler is a helper for handlers that need both tenant ID and a UUID parameter
 type TenantAndIDHandler func(w http.ResponseWriter, r *http.Request, tenantID, id uuid.UUID)
 
@@ -70,12 +51,12 @@ func withTenantAndID(param string, handler TenantAndIDHandler) http.HandlerFunc 
 		if !ok {
 			return
 		}
-		
+
 		id, ok := requireUUIDParam(w, r, param)
 		if !ok {
 			return
 		}
-		
+
 		handler(w, r, tenantID, id)
 	}
 }
@@ -90,7 +71,7 @@ func withTenant(handler TenantHandler) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		
+
 		handler(w, r, tenantID)
 	}
 }
@@ -108,12 +89,12 @@ func validateTenantIDString(w http.ResponseWriter, tenantIDStr string) (uuid.UUI
 		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing tenant id", map[string]any{"hint": "pass X-PS-Tenant-ID"})
 		return uuid.Nil, false
 	}
-	
+
 	tenantID, err := uuid.Parse(tenantIDStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tenant id", nil)
 		return uuid.Nil, false
 	}
-	
+
 	return tenantID, true
 }

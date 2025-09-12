@@ -15,6 +15,11 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
+	"crypto/tls"
+	"crypto/x509"
+	"os"
+	"strings"
+	grpcCredentials "google.golang.org/grpc/credentials"
 )
 
 // ObservabilityService provides comprehensive monitoring, tracing, and alerting
@@ -405,21 +410,44 @@ func (s *ObservabilityService) triggerAlert(alert Alert) {
 // Helper functions
 
 func initOpenTelemetry(ctx context.Context, endpoint string) (*sdktrace.TracerProvider, interface{}, error) {
-	// Create OTLP trace exporter
-	var traceExporter sdktrace.SpanExporter
-	var err error
+    // Create OTLP trace exporter
+    var traceExporter sdktrace.SpanExporter
+    var err error
 
-	if endpoint != "" {
-		traceExporter, err = otlptrace.New(ctx,
-			otlptracegrpc.NewClient(
-				otlptracegrpc.WithEndpoint(endpoint),
-				otlptracegrpc.WithInsecure(),
-			))
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
-		// Use no-op exporter if no endpoint provided
+    if endpoint != "" {
+        // Optional mTLS controls via env (same keys as enforcer HTTP)
+        insecure := strings.EqualFold(strings.TrimSpace(os.Getenv("PS_OTEL_INSECURE")), "true") || strings.TrimSpace(os.Getenv("PS_OTEL_INSECURE")) == "1"
+        var opts []otlptracegrpc.Option
+        opts = append(opts, otlptracegrpc.WithEndpoint(endpoint))
+        if insecure {
+            opts = append(opts, otlptracegrpc.WithInsecure())
+        } else {
+            tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+            if sni := strings.TrimSpace(os.Getenv("PS_OTEL_SERVER_NAME")); sni != "" {
+                tlsCfg.ServerName = sni
+            }
+            if caFile := strings.TrimSpace(os.Getenv("PS_OTEL_CA_FILE")); caFile != "" {
+                if pem, err := os.ReadFile(caFile); err == nil {
+                    pool := x509.NewCertPool()
+                    if pool.AppendCertsFromPEM(pem) { tlsCfg.RootCAs = pool }
+                }
+            }
+            certFile := strings.TrimSpace(os.Getenv("PS_OTEL_CLIENT_CERT_FILE"))
+            keyFile := strings.TrimSpace(os.Getenv("PS_OTEL_CLIENT_KEY_FILE"))
+            if certFile != "" && keyFile != "" {
+                if crt, err := tls.LoadX509KeyPair(certFile, keyFile); err == nil {
+                    tlsCfg.Certificates = []tls.Certificate{crt}
+                }
+            }
+            creds := grpcCredentials.NewTLS(tlsCfg)
+            opts = append(opts, otlptracegrpc.WithTLSCredentials(creds))
+        }
+        traceExporter, err = otlptrace.New(ctx, otlptracegrpc.NewClient(opts...))
+        if err != nil {
+            return nil, nil, err
+        }
+    } else {
+        // Use no-op exporter if no endpoint provided
 		traceExporter = &noopExporter{}
 	}
 

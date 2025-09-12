@@ -4,7 +4,7 @@ ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
-FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25 AS builder
 ARG ENABLE_HYPERSCAN
 ARG TARGETOS
 ARG TARGETARCH
@@ -25,7 +25,7 @@ COPY . .
 
 # Build gateway/enforcer only (optionally with Hyperscan)
 RUN --mount=type=cache,target=/go/pkg/mod \
-    if [ "$ENABLE_HYPERSCAN" = "1" ]; then \
+    if [ "$ENABLE_HYPERSCAN" = "1" ]; then 
       CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
       go build -tags hyperscan -trimpath -ldflags="-s -w" -o /out/ps-enforcer ./enforcer; \
     else \
@@ -42,16 +42,13 @@ RUN apt-get update && \
       apt-get install -y --no-install-recommends libhyperscan5; \
     fi && \
     rm -rf /var/lib/apt/lists/* && \
-    useradd -m -u 10001 app && \
-    mkdir -p /rules
+    useradd -m -u 10001 app
 COPY --from=builder /out/ps-enforcer /usr/local/bin/ps-enforcer
-COPY rules /rules
 
 USER app
 EXPOSE 9090 9091
 ENV PS_ENFORCER_ADDR=:9090 \
-    PS_ENFORCER_GRPC_ADDR=:9091 \
-    PS_ENFORCER_RULEPACK=/rules/basic-security.yaml
+    PS_ENFORCER_GRPC_ADDR=:9091
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD wget -qO- http://127.0.0.1:9090/healthz || exit 1
 

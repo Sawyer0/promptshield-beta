@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,13 @@ import (
 	"github.com/promptshield/promptshield/internal/usage"
 	redis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	grpcCredentials "google.golang.org/grpc/credentials"
 )
 
 // HTTP server for the PromptShield enforcer.
@@ -362,6 +370,16 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 // Serve starts an HTTP server on addr with sane timeouts.
 func Serve(addr string) *http.Server {
 	var srv *http.Server
+
+	// Initialize OpenTelemetry tracing (global) for the enforcer if enabled
+	if telemetryEnabled() {
+		if shutdown, err := initEnforcerTracing(context.Background()); err != nil {
+			slog.With("component", "enforcer-http").Warn("OpenTelemetry init failed", "error", err)
+		} else if shutdown != nil {
+			// Ensure we flush on shutdown via api options below
+			_ = shutdown
+		}
+	}
 	// Initialize database pool if configured
 	var dbPool *pg.Pool
 	if dsn := os.Getenv("PS_PG_DSN"); dsn != "" {
@@ -379,6 +397,13 @@ func Serve(addr string) *http.Server {
 	}
 	// Inject shutdown hooks into API mux with database pool
 	options := getAPIOptionsWithDB(dbPool)
+
+	var traceShutdown func(ctx context.Context) error
+	if telemetryEnabled() {
+		if s, err := initEnforcerTracing(context.Background()); err == nil {
+			traceShutdown = s
+		}
+	}
 	// Wire Redis-backed UsageStore when configured
 	if options.UsageStore == nil {
 		if addr := strings.TrimSpace(os.Getenv("PS_USAGE_REDIS_ADDR")); addr != "" {
@@ -421,6 +446,10 @@ func Serve(addr string) *http.Server {
 	}
 	options.OnDrain = func(ctx context.Context) error { return nil }
 	options.OnShutdown = func(ctx context.Context, delay time.Duration) error {
+		// Flush tracing first
+		if traceShutdown != nil {
+			_ = traceShutdown(ctx)
+		}
 		if delay > 0 {
 			select {
 			case <-time.After(delay):
@@ -565,6 +594,83 @@ func HttpAuthOK(r *http.Request, want string) bool {
 		}
 	}
 	return false
+}
+
+// telemetryEnabled checks PS_TELEMETRY
+func telemetryEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_TELEMETRY")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// initEnforcerTracing creates a global tracer provider for enforcer
+func initEnforcerTracing(ctx context.Context) (func(context.Context) error, error) {
+    endpoint := strings.TrimSpace(os.Getenv("PS_TELEMETRY_ENDPOINT"))
+    if endpoint == "" {
+        return nil, fmt.Errorf("PS_TELEMETRY_ENDPOINT is empty")
+    }
+    // exporter with optional mTLS
+    // Controls:
+    // - PS_OTEL_INSECURE: if true, use insecure connection (default false)
+    // - PS_OTEL_CA_FILE: path to CA bundle (optional)
+    // - PS_OTEL_CLIENT_CERT_FILE / PS_OTEL_CLIENT_KEY_FILE: client cert/key for mTLS (optional)
+    // - PS_OTEL_SERVER_NAME: override SNI / server name (optional)
+    insecure := strings.EqualFold(strings.TrimSpace(os.Getenv("PS_OTEL_INSECURE")), "true") || strings.TrimSpace(os.Getenv("PS_OTEL_INSECURE")) == "1"
+    var opts []otlptracegrpc.Option
+    opts = append(opts, otlptracegrpc.WithEndpoint(endpoint))
+    if insecure {
+        opts = append(opts, otlptracegrpc.WithInsecure())
+    } else {
+        // Build TLS config
+        tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+        if sni := strings.TrimSpace(os.Getenv("PS_OTEL_SERVER_NAME")); sni != "" {
+            tlsCfg.ServerName = sni
+        }
+        if caFile := strings.TrimSpace(os.Getenv("PS_OTEL_CA_FILE")); caFile != "" {
+            if pem, err := os.ReadFile(caFile); err == nil {
+                pool := x509.NewCertPool()
+                if pool.AppendCertsFromPEM(pem) {
+                    tlsCfg.RootCAs = pool
+                }
+            }
+        }
+        certFile := strings.TrimSpace(os.Getenv("PS_OTEL_CLIENT_CERT_FILE"))
+        keyFile := strings.TrimSpace(os.Getenv("PS_OTEL_CLIENT_KEY_FILE"))
+        if certFile != "" && keyFile != "" {
+            if crt, err := tls.LoadX509KeyPair(certFile, keyFile); err == nil {
+                tlsCfg.Certificates = []tls.Certificate{crt}
+            }
+        }
+        creds := grpcCredentials.NewTLS(tlsCfg)
+        opts = append(opts, otlptracegrpc.WithTLSCredentials(creds))
+    }
+    exp, err := otlptracegrpc.New(ctx, opts...)
+    if err != nil { return nil, err }
+	// sample rate
+	sample := 1.0
+	if v := strings.TrimSpace(os.Getenv("PS_TRACE_SAMPLE")); v != "" {
+		if f, e := strconv.ParseFloat(v, 64); e == nil && f >= 0 && f <= 1 { sample = f }
+	}
+	// resource
+	res, err := sdkresource.New(ctx,
+		sdkresource.WithAttributes(
+			semconv.ServiceNameKey.String("promptshield-enforcer"),
+		),
+	)
+	if err != nil { return nil, err }
+	// provider
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(sample))),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	return func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		_ = tp.ForceFlush(ctx)
+		return tp.Shutdown(ctx)
+	}, nil
 }
 
 // tlsMode returns one of: auto (default), require, disable

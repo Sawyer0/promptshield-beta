@@ -3,14 +3,14 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
-	"testing"
 	"sync"
+	"testing"
 
 	services "github.com/promptshield/promptshield/internal/application/services"
 	memrepo "github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 )
 
-func newAdminMux(t *testing.T) http.Handler {
+func newAdminMux(_ *testing.T) http.Handler {
 	// Reset PDP client and build mux with in-memory RulepackService
 	pdpClient = nil
 	pdpOnce = sync.Once{}
@@ -22,14 +22,14 @@ func TestAdminEndpoints_PDP_DenyAndPermit(t *testing.T) {
 	// Deny server: denies system.*
 	tsDeny := setupPDPServer(t, func(p map[string]any) map[string]any {
 		if act, _ := p["action"].(string); act == "system.read" || act == "system.drain" || act == "system.shutdown" {
-			return map[string]any{"decision":"DENY","reason":"blocked"}
+			return map[string]any{"decision": "DENY", "reason": "blocked"}
 		}
-		return map[string]any{"decision":"PERMIT"}
+		return map[string]any{"decision": "PERMIT"}
 	})
 	defer tsDeny.Close()
 
 	// Permit server: permits all
-	tsPermit := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision":"PERMIT"} })
+	tsPermit := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision": "PERMIT"} })
 	defer tsPermit.Close()
 
 	// Common env: dev bypass
@@ -38,10 +38,10 @@ func TestAdminEndpoints_PDP_DenyAndPermit(t *testing.T) {
 	// 1) Deny
 	t.Setenv("PS_PDP_ENDPOINT", tsDeny.URL)
 	mux := newAdminMux(t)
-	denyCases := []struct{
-		name string
-		method string
-		url string
+	denyCases := []struct {
+		name     string
+		method   string
+		url      string
 		expected int
 	}{
 		{"features_deny", http.MethodGet, "/admin/system/features", http.StatusForbidden},
@@ -71,10 +71,10 @@ func TestAdminEndpoints_PDP_DenyAndPermit(t *testing.T) {
 		t.Fatalf("pdp reload: expected 204, got %d body=%s", recReload.Code, recReload.Body.String())
 	}
 
-	permitCases := []struct{
-		name string
-		method string
-		url string
+	permitCases := []struct {
+		name     string
+		method   string
+		url      string
 		expected int
 	}{
 		{"features_ok", http.MethodGet, "/admin/system/features", http.StatusOK},

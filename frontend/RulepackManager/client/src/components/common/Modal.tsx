@@ -38,7 +38,7 @@ export function Modal({
 }: ModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (allowClose && !open) onClose(); }}>
-      <DialogContent className={cn(sizeClass[size], 'max-h-[90vh] overflow-y-auto', contentClassName)}>
+      <DialogContent className={cn(sizeClass[size], 'max-h-[90vh] overflow-y-auto rounded-xl bg-card border shadow-sm', contentClassName)}>
         {(title || description) && (
           <DialogHeader>
             {title ? <DialogTitle>{title}</DialogTitle> : null}

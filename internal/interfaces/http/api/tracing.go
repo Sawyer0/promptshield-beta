@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -15,6 +16,12 @@ func tracingMiddleware(next http.Handler) http.Handler {
 	propagator := otel.GetTextMapPropagator()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip noisy paths
+		if skipTracePath(r.URL.Path) || strings.EqualFold(r.Method, http.MethodOptions) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Extract tracing context from headers
 		ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
@@ -63,6 +70,16 @@ func tracingMiddleware(next http.Handler) http.Handler {
 			span.SetAttributes(attribute.Bool("error", true))
 		}
 	})
+}
+
+// skipTracePath filters out low-value endpoints from tracing.
+func skipTracePath(p string) bool {
+	switch p {
+	case "/healthz", "/readyz", "/metrics", "/version":
+		return true
+	default:
+		return false
+	}
 }
 
 // tracingResponseWriter wraps http.ResponseWriter to capture status code

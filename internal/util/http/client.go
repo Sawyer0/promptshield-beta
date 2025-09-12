@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/promptshield/promptshield/internal/shared/types"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // DefaultClientConfig returns a default HTTP client configuration
@@ -49,10 +50,10 @@ func NewClient(config *types.HTTPClientConfig) *http.Client {
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
-	return &http.Client{
-		Transport: transport,
-		Timeout:   config.Timeout,
-	}
+    return &http.Client{
+        Transport: otelhttp.NewTransport(transport),
+        Timeout:   config.Timeout,
+    }
 }
 
 // SecureClient creates an HTTP client with secure defaults

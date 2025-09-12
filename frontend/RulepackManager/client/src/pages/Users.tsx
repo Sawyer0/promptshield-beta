@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Layout } from '@/components/Layout';
+import { AdminLayout } from '@/components/platform/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -174,7 +174,7 @@ export default function Users() {
   };
 
   return (
-    <Layout title="User Management" description="Manage system users and their permissions">
+<AdminLayout title="User Management" description="Manage system users and their permissions">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -413,6 +413,6 @@ export default function Users() {
           }}
         />
       </div>
-    </Layout>
+</AdminLayout>
   );
 }

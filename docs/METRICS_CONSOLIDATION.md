@@ -70,7 +70,7 @@ All metric packages now use the global enable/disable switch:
 
 - Existing Prometheus dashboards continue to work unchanged
 - Grafana queries remain the same
-- Docker Compose setup requires no changes
+- Docker Compose setup: use PS_DISABLE_METRICS (remove PS_ENABLE_PROMETHEUS)
 - The `/metrics` endpoint behavior is unchanged
 - OpenTelemetry tracing remains fully functional
 

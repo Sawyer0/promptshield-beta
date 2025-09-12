@@ -4,6 +4,7 @@ import (
     "bytes"
     "context"
     "encoding/json"
+    "errors"
     "fmt"
     "log/slog"
     "net/http"
@@ -13,7 +14,10 @@ import (
     "time"
 
     lru "github.com/hashicorp/golang-lru/v2"
+    pmetrics "github.com/promptshield/promptshield/internal/observability/metrics"
+    ckeys "github.com/promptshield/promptshield/internal/shared/contextkeys"
     "github.com/promptshield/promptshield/internal/rules"
+    "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // Analyzer implements scanner.SemanticAnalyzer using a DeBERTa v3-based
@@ -80,7 +84,7 @@ func New(opts Options) *Analyzer {
     }
     client := opts.HTTP
     if client == nil {
-        client = &http.Client{Timeout: opts.Timeout}
+        client = &http.Client{Timeout: opts.Timeout, Transport: otelhttp.NewTransport(http.DefaultTransport)}
     }
     l, _ := lru.New[string, cacheEntry](opts.CacheSize)
     return &Analyzer{
@@ -101,13 +105,34 @@ func (a *Analyzer) Analyze(ctx context.Context, input string, cfg rules.Semantic
         return false, 0, fmt.Errorf("deberta endpoint not configured")
     }
 
+    start := time.Now()
+    provider := "protectai"
+    model := "deberta"
+    tenant := ""
+    if v := ctx.Value(ckeys.TenantID); v != nil {
+        tenant = strings.TrimSpace(fmt.Sprint(v))
+    }
+
     // Normalize input to improve cache hits and reduce obvious obfuscation
     norm := normalizeForCache(input)
+
+    // Estimate tokens using WordPiece tokenizer when available; fallback to basic splitting
+    estTokens := estimateTokens(input)
 
     // Cache lookup
     if ok, conf, hit := a.getCache(norm); hit {
         if a.logger != nil {
             a.logger.Debug("deberta cache hit", "flagged", ok, "confidence", red(conf))
+        }
+        // Count as a successful request with near-zero latency
+        if pmetrics.Enabled() {
+            pmetrics.LLMLatency.WithLabelValues(provider, model).Observe(time.Since(start).Seconds())
+            decision := "safe"
+            if ok { decision = "flagged" }
+            pmetrics.LLMRequestsTotal.WithLabelValues(provider, model, decision, tenant).Inc()
+            if estTokens > 0 {
+                pmetrics.TokensTotal.WithLabelValues(provider, model, "input", tenant).Add(float64(estTokens))
+            }
         }
         return ok, conf, nil
     }
@@ -139,16 +164,33 @@ func (a *Analyzer) Analyze(ctx context.Context, input string, cfg rules.Semantic
     // Execute
     resp, err := a.http.Do(req)
     if err != nil {
+        if pmetrics.Enabled() {
+            // Treat context deadline as timeout; otherwise generic request error
+            retryable := "false"
+            code := "request"
+            if errors.Is(err, context.DeadlineExceeded) || (ctx.Err() != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)) {
+                code = "timeout"
+                pmetrics.LLMTimeouts.WithLabelValues(provider, model).Inc()
+                retryable = "true"
+            }
+            pmetrics.LLMErrors.WithLabelValues(provider, code, retryable).Inc()
+        }
         return false, 0, err
     }
     defer resp.Body.Close()
     if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        if pmetrics.Enabled() {
+            pmetrics.LLMErrors.WithLabelValues(provider, fmt.Sprintf("http_%d", resp.StatusCode), "false").Inc()
+        }
         return false, 0, fmt.Errorf("deberta inference http %d", resp.StatusCode)
     }
 
     // Parse any of the supported shapes
     var raw json.RawMessage
     if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+        if pmetrics.Enabled() {
+            pmetrics.LLMErrors.WithLabelValues(provider, "decode", "false").Inc()
+        }
         return false, 0, err
     }
 
@@ -165,6 +207,17 @@ func (a *Analyzer) Analyze(ctx context.Context, input string, cfg rules.Semantic
     a.putCache(norm, flagged, conf)
     if a.logger != nil {
         a.logger.Info("deberta classify", "flagged", flagged, "confidence", red(conf))
+    }
+
+    // Metrics: record latency and request outcome
+    if pmetrics.Enabled() {
+        pmetrics.LLMLatency.WithLabelValues(provider, model).Observe(time.Since(start).Seconds())
+        decision := "safe"
+        if flagged { decision = "flagged" }
+        pmetrics.LLMRequestsTotal.WithLabelValues(provider, model, decision, tenant).Inc()
+        if estTokens > 0 {
+            pmetrics.TokensTotal.WithLabelValues(provider, model, "input", tenant).Add(float64(estTokens))
+        }
     }
 
     return flagged, conf, nil
@@ -257,3 +310,10 @@ func (a *Analyzer) putCache(key string, ok bool, conf float64) {
 
 // red returns a redacted version of floats for logs (no raw rationales or inputs)
 func red(f float64) string { return fmt.Sprintf("%.3f", f) }
+
+// estimateTokens tokenizes input using a minimal WordPiece-like approach.
+// It expects a vocabulary embedded at build time; if unavailable, it falls back
+// to a basic whitespace+punctuation split with subword prefixing rules.
+// This is an approximation aimed at accounting; for exact parity, integrate
+// your production tokenizer model.
+// estimateTokens is implemented in tokenizer.go (prefers WordPiece tokenizer when available).

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Layout } from '@/components/Layout';
+import { AdminLayout } from '@/components/platform/AdminLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,9 @@ export default function Preferences() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
+  const canEdit = (() => {
+    try { const raw = localStorage.getItem('ps_roles'); const r = raw ? JSON.parse(raw) : []; return Array.isArray(r) && (r.includes('tenant_admin') || r.includes('security_engineer')); } catch { return false; }
+  })();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('basic_member');
@@ -104,7 +107,7 @@ export default function Preferences() {
   };
 
   return (
-    <Layout title="Preferences" description="Harden agent behavior and tool usage policies.">
+<AdminLayout title="Preferences" description="Harden agent behavior and tool usage policies.">
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardContent className="p-6 space-y-3">
@@ -186,12 +189,12 @@ export default function Preferences() {
       </div>
 
       <div className="mt-6 flex justify-end">
-        <Button disabled={readOnly || saving} onClick={save}>{saving ? 'Saving…' : 'Save Preferences'}</Button>
+        <Button disabled={readOnly || saving || !canEdit} onClick={save}>{saving ? 'Saving…' : 'Save Preferences'}</Button>
       </div>
 
-      {readOnly && (
+      {(readOnly || !canEdit) && (
         <p className="mt-3 text-sm text-muted-foreground">Read‑only: you don’t have permission to change settings.</p>
       )}
-    </Layout>
+</AdminLayout>
   );
 }

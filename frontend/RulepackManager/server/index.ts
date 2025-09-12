@@ -1,3 +1,4 @@
+import './otel';
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
@@ -32,6 +33,24 @@ import dotenv from 'dotenv';
 })();
 
 const app = express();
+
+// Optionally start port-forwards for Prometheus and Grafana when developing locally
+// Controlled by PS_AUTO_PORT_FORWARD=true (default false)
+if ((process.env.PS_AUTO_PORT_FORWARD || '').toLowerCase() === 'true') {
+  try {
+    const { spawn } = await import('child_process');
+    const startPF = (name: string, args: string[]) => {
+      const proc = spawn('kubectl', args, { stdio: 'ignore', shell: process.platform === 'win32' });
+      proc.on('error', () => {});
+      return proc;
+    };
+    // Run only if not in production
+    if ((process.env.NODE_ENV || '').toLowerCase() !== 'production') {
+      startPF('pf_prom', ['-n','monitoring','port-forward','svc/kube-prometheus-stack-prometheus','9090:9090']);
+      startPF('pf_graf', ['-n','monitoring','port-forward','svc/kube-prometheus-stack-grafana','3000:80']);
+    }
+  } catch {}
+}
 
 // Validate and log environment configuration
 let envConfig;

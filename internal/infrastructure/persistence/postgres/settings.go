@@ -25,7 +25,7 @@ func NewSettingsRepository(db *Pool) domain.SettingsRepository {
 func (r *SettingsRepository) Get(ctx context.Context) (*domain.PlatformSettings, error) {
 	query := `
 		SELECT id, settings, updated_at, updated_by
-		FROM platform_settings
+		FROM public.platform_settings
 		ORDER BY updated_at DESC
 		LIMIT 1`
 
@@ -79,7 +79,7 @@ func (r *SettingsRepository) Update(ctx context.Context, settings interface{}) (
 
 	// Insert or update settings
 	query := `
-		INSERT INTO platform_settings (id, settings, updated_at, updated_by)
+		INSERT INTO public.platform_settings (id, settings, updated_at, updated_by)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (id) 
 		DO UPDATE SET
@@ -111,7 +111,7 @@ func (r *SettingsRepository) GetHistory(ctx context.Context, limit int, offset i
 
 	// Get total count
 	var totalCount int
-	countQuery := `SELECT COUNT(*) FROM platform_settings`
+	countQuery := `SELECT COUNT(*) FROM public.platform_settings`
 	err := r.db.inner.QueryRow(ctx, countQuery).Scan(&totalCount)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get settings count: %w", err)
@@ -120,7 +120,7 @@ func (r *SettingsRepository) GetHistory(ctx context.Context, limit int, offset i
 	// Get settings with pagination
 	query := `
 		SELECT id, settings, updated_at, updated_by
-		FROM platform_settings
+		FROM public.platform_settings
 		ORDER BY updated_at DESC
 		LIMIT $1 OFFSET $2`
 
@@ -154,7 +154,7 @@ func (r *SettingsRepository) GetHistory(ctx context.Context, limit int, offset i
 
 // Delete removes all platform settings (for testing/reset purposes)
 func (r *SettingsRepository) Delete(ctx context.Context) error {
-	query := `DELETE FROM platform_settings`
+	query := `DELETE FROM public.platform_settings`
 	_, err := r.db.inner.Exec(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to delete platform settings: %w", err)

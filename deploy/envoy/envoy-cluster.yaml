@@ -13,35 +13,14 @@ static_resources:
           route_config:
             name: local_route
             virtual_hosts:
-            - name: backend
+            - name: default
               domains: ["*"]
               routes:
-              # OpenAI API routing
-              - match: { prefix: "/v1/chat/completions" }
-                route: 
-                  cluster: openai_cluster
-                  host_rewrite_literal: api.openai.com
-                  timeout: 300s
-              # Anthropic API routing  
-              - match: { prefix: "/v1/messages" }
-                route:
-                  cluster: anthropic_cluster
-                  host_rewrite_literal: api.anthropic.com
-                  timeout: 300s
-              # Azure OpenAI routing
-              - match: 
-                  prefix: "/openai/deployments/"
-                  headers:
-                  - name: "api-key"
-                    present_match: true
-                route:
-                  cluster: azure_openai_cluster
-                  timeout: 300s
-              # Default backend
               - match: { prefix: "/" }
-                route: 
-                  cluster: backend_cluster
-                  timeout: 60s
+                direct_response:
+                  status: 404
+                  body:
+                    inline_string: "not routed"
           http_filters:
           # Extract tenant from header for routing
           - name: envoy.filters.http.header_to_metadata
@@ -54,7 +33,6 @@ static_resources:
                   key: tenant_id
                   type: STRING
                 remove: false
-          
           # Fast header-based authZ before body inspection
           - name: envoy.filters.http.ext_authz
             typed_config:
@@ -78,7 +56,6 @@ static_resources:
                       - exact: x-ps-tenant-id
                       - exact: x-request-id
                       - exact: x-api-key
-                      - exact: api-key
                 authorization_response:
                   allowed_upstream_headers:
                     patterns:
@@ -86,7 +63,6 @@ static_resources:
                       - exact: x-ps-reason
                       - exact: x-ps-violations
                       - exact: x-promptshield-license
-          
           # Body inspection via ext_proc
           - name: envoy.filters.http.ext_proc
             typed_config:
@@ -109,7 +85,6 @@ static_resources:
                 forwarding_namespaces:
                   untyped:
                   - envoy.lb
-          
           # Per-tenant rate limiting
           - name: envoy.filters.http.local_ratelimit
             typed_config:
@@ -140,14 +115,13 @@ static_resources:
                   append_action: OVERWRITE_IF_EXISTS_OR_ADD
               local_rate_limit_per_downstream_connection: false
               enable_x_ratelimit_headers: DRAFT_VERSION_03
-          
           # Router
           - name: envoy.filters.http.router
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
-  # PromptShield clusters with load balancing
+  # PromptShield clusters
   - name: ps_enforcer_http
     type: STRICT_DNS
     lb_policy: ROUND_ROBIN
@@ -167,13 +141,7 @@ static_resources:
       - lb_endpoints:
         - endpoint:
             address:
-              socket_address: { address: promptshield-1, port_value: 9090 }
-        - endpoint:
-            address:
-              socket_address: { address: promptshield-2, port_value: 9090 }
-        - endpoint:
-            address:
-              socket_address: { address: promptshield-3, port_value: 9090 }
+              socket_address: { address: promptshield, port_value: 9090 }
 
   - name: ps_enforcer_grpc
     type: STRICT_DNS
@@ -196,81 +164,10 @@ static_resources:
       - lb_endpoints:
         - endpoint:
             address:
-              socket_address: { address: promptshield-1, port_value: 9091 }
-        - endpoint:
-            address:
-              socket_address: { address: promptshield-2, port_value: 9091 }
-        - endpoint:
-            address:
-              socket_address: { address: promptshield-3, port_value: 9091 }
+              socket_address: { address: promptshield, port_value: 9091 }
 
-  # LLM Provider clusters
-  - name: openai_cluster
-    connect_timeout: 30s
-    type: LOGICAL_DNS
-    dns_lookup_family: V4_ONLY
-    lb_policy: ROUND_ROBIN
-    load_assignment:
-      cluster_name: openai_cluster
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address: { address: api.openai.com, port_value: 443 }
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: api.openai.com
-
-  - name: anthropic_cluster
-    connect_timeout: 30s
-    type: LOGICAL_DNS
-    dns_lookup_family: V4_ONLY
-    lb_policy: ROUND_ROBIN
-    load_assignment:
-      cluster_name: anthropic_cluster
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address: { address: api.anthropic.com, port_value: 443 }
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: api.anthropic.com
-
-  - name: azure_openai_cluster
-    connect_timeout: 30s
-    type: LOGICAL_DNS
-    dns_lookup_family: V4_ONLY
-    lb_policy: ROUND_ROBIN
-    load_assignment:
-      cluster_name: azure_openai_cluster
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address: { address: "${AZURE_OPENAI_ENDPOINT}", port_value: 443 }
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: "${AZURE_OPENAI_ENDPOINT}"
-
-  # Fallback backend
-  - name: backend_cluster
-    type: STRICT_DNS
-    lb_policy: ROUND_ROBIN
-    load_assignment:
-      cluster_name: backend_cluster
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address: { address: backend, port_value: 8080 }
 
 admin:
   address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
     socket_address: { address: 0.0.0.0, port_value: 9901 }

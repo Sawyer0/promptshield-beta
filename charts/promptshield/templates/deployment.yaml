@@ -22,6 +22,18 @@ spec:
           env:
             - name: PS_ENFORCER_MODE
               value: {{ .Values.mode | quote }}
+            {{- if .Values.database.useIAM }}
+            - name: PS_DB_IAM_USER
+              value: {{ .Values.database.iamUser | quote }}
+            - name: AURORA_REGION
+              value: {{ .Values.database.region | quote }}
+            - name: AURORA_DB_NAME
+              value: {{ .Values.database.dbName | quote }}
+            - name: AURORA_PROXY_ENDPOINT
+              value: {{ .Values.database.proxyEndpoint | quote }}
+            - name: PS_PG_DSN
+              value: {{ printf "postgres://@%s:5432/%s?sslmode=require" .Values.database.proxyEndpoint .Values.database.dbName | quote }}
+            {{- end }}
           ports:
             - containerPort: 9090
               name: http

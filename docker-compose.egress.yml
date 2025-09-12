@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  envoy-egress:
+    image: envoyproxy/envoy:v1.28-latest
+    entrypoint: ["sh","-c","chmod +x /entrypoint.sh && /entrypoint.sh"]
+    environment:
+      # Where the egress proxy sends auth/inspection requests (your gateway)
+      GATEWAY_HTTP_HOST: ${GATEWAY_HTTP_HOST:-promptshield}
+      GATEWAY_HTTP_PORT: ${GATEWAY_HTTP_PORT:-9090}
+      GATEWAY_GRPC_HOST: ${GATEWAY_GRPC_HOST:-promptshield}
+      GATEWAY_GRPC_PORT: ${GATEWAY_GRPC_PORT:-9091}
+      # Identity injected into requests so apps need no code changes
+      TENANT_ID: ${PS_TENANT_ID}
+      FRONTEND_TOKEN: ${PS_FRONTEND_TOKEN:-ps-admin-token-dev}
+    volumes:
+      - ./deploy/envoy/egress-dfp.tmpl.yaml:/config/egress-dfp.tmpl.yaml:ro
+      - ./deploy/envoy/egress-entrypoint.sh:/entrypoint.sh:ro
+    ports:
+      - "8080:8080"
+      - "9902:9901"
+    depends_on:
+      promptshield:
+        condition: service_healthy
+    networks:
+      - promptshield-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+

@@ -121,6 +121,17 @@ export default function RulePacks() {
     setSelectedRulePack(null);
   };
 
+  async function importBaseline() {
+    try {
+      const resp = await fetch('/api/presets/import/baseline', { method: 'POST', credentials: 'include' });
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      toast({ title: 'Imported', description: 'Baseline preset imported and activated' });
+      queryClient.invalidateQueries({ queryKey: ["/api/rulepacks"] });
+    } catch (e: any) {
+      toast({ title: 'Import failed', description: String(e?.message || e), variant: 'destructive' });
+    }
+  }
+
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -148,14 +159,24 @@ export default function RulePacks() {
         title="RulePacks"
         subtitle="Manage security rules and policies"
         actions={
-          <Button 
-            onClick={() => setIsCreateModalOpen(true)}
-            data-testid="button-create-rulepack"
-            className="flex-1 sm:flex-none"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            <span className="sm:inline">Create RulePack</span>
-          </Button>
+          <>
+            <Button 
+              onClick={() => setIsCreateModalOpen(true)}
+              data-testid="button-create-rulepack"
+              className="flex-1 sm:flex-none"
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              <span className="sm:inline">Create RulePack</span>
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={importBaseline}
+              disabled={!canEdit()}
+              title={!canEdit() ? 'Read-only: you do not have permission to import presets' : undefined}
+            >
+              Import Baseline Preset
+            </Button>
+          </>
         }
       />
 

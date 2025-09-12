@@ -22,6 +22,13 @@ service:
 
 resources: {}
 
+database:
+  useIAM: true
+  region: us-east-1
+  dbName: promptshield
+  iamUser: ps_app
+  proxyEndpoint: "" # e.g., my-proxy.proxy-xxxxxxxx.us-east-1.rds.amazonaws.com
+
 nodeSelector: {}
 
 affinity: {}

@@ -2,33 +2,11 @@ package api
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 )
 
 // MiddlewareHelpers provides common middleware patterns to reduce code duplication
-
-// withTimeout creates a middleware that applies a timeout to requests
-func withTimeout(duration time.Duration) func(http.Handler) http.Handler {
-	return middleware.Timeout(duration)
-}
-
-// withAdminAuth creates a middleware that requires admin authentication
-func withAdminAuth(opt Options) func(http.Handler) http.Handler {
-	return adminAuth(opt)
-}
-
-// withRateLimit creates a middleware that applies rate limiting if quota store is available
-func withRateLimit(opt Options) func(http.Handler) http.Handler {
-	if opt.QuotaStore != nil {
-		return tenantQuota(opt)
-	}
-	return func(next http.Handler) http.Handler {
-		return next // no-op if no quota store
-	}
-}
 
 // AdminGroup creates a router group with admin authentication
 func AdminGroup(r chi.Router, opt Options, fn func(chi.Router)) {

@@ -277,6 +277,10 @@ a.Post("/", func(w http.ResponseWriter, r *http.Request) {
 
 				// Upload version 1
 				version := 1
+				// Normalize to JSON before persistence (DB uses JSONB)
+				if jb, jerr := json.Marshal(pack); jerr == nil {
+					data = jb
+				}
 				_, err = opt.RulepackService.Upload(r.Context(), tenantID, packID, version, json.RawMessage(data), activate)
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
@@ -345,6 +349,10 @@ a.Post("/reload", func(w http.ResponseWriter, r *http.Request) {
 
 				// Upload version 1 and activate
 				version := 1
+				// Normalize to JSON before persistence (DB uses JSONB)
+				if jb, jerr := json.Marshal(pack); jerr == nil {
+					data = jb
+				}
 				_, err = opt.RulepackService.Upload(r.Context(), tenantID, packID, version, json.RawMessage(data), true)
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)

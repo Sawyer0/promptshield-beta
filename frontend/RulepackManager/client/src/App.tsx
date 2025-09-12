@@ -1,6 +1,6 @@
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { useEffect } from "react";
-import { useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react';
+import { useSafeClerk, useSafeClerkAuth } from '@/clerk/shim';
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -14,7 +14,7 @@ import { isDevBypassClient } from "@/lib/dev";
 
 
 // Pages
-import SimpleLanding from "@/pages/SimpleLanding";
+import WaitlistLanding from "@/pages/WaitlistLanding";
 import SignIn from "@/pages/SignIn";
 import SignUp from "@/pages/SignUp";
 import Dashboard from "@/pages/Dashboard";
@@ -31,17 +31,50 @@ import Preferences from "@/pages/Preferences";
 import Tools from "@/pages/Tools";
 import Organization from "@/pages/Organization";
 import ToolPolicies from "@/pages/ToolPolicies";
+import Compliance from "@/pages/Compliance";
+import RoleSetup from "@/pages/RoleSetup";
 import NotFound from "@/pages/not-found";
+import AuthModalPage from "@/pages/AuthModal";
 import { AdminRoleDebug } from "@/components/AdminRoleDebug";
+import EnforcerMonitoring from "@/pages/EnforcerMonitoring";
+import Snapshots from "@/pages/Snapshots";
+import UsageAnalytics from "@/pages/UsageAnalytics";
+import ViolationsSummary from "@/pages/ViolationsSummary";
+import Presets from "@/pages/Presets";
+import Billing from "@/pages/Billing";
+import Invoices from "@/pages/Invoices";
+import Experiments from "@/pages/Experiments";
+import AgentManagement from "@/pages/AgentManagement";
+import AdminSystem from "@/pages/AdminSystem";
+import License from "@/pages/License";
+import DebugDiagnostics from "@/pages/DebugDiagnostics";
+import LiveEvents from "@/pages/LiveEvents";
+
+function useRoles(): string[] {
+  try {
+    const raw = localStorage.getItem('ps_roles');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  // Derive basic role from existing storage as fallback
+  const basic = localStorage.getItem('user_system_role') === 'admin' ? ['platform_admin'] : ['developer'];
+  return basic;
+}
+
+function RequireRoles({ roles, children }: { roles: string[]; children: any }) {
+  const my = useRoles();
+  const allow = roles.some(r => my.includes(r));
+  return allow ? children : <NotFound />;
+}
 import AccountSecurity from "@/pages/AccountSecurity";
 import { TenantRequiredBanner } from "@/components/TenantRequiredBanner";
+import { Privacy } from "@/pages/Privacy";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
   const { tenantId, isLoading: isTenantLoading } = useTenant();
   const [loc, setLocation] = useLocation();
-  const clerk = useClerk();
-  const clerkAuth = useClerkAuth();
+  const clerk = useSafeClerk();
+  const clerkAuth = useSafeClerkAuth();
 
   // If Clerk reports a lastActiveSessionId but no active session (common after refresh),
   // promote it to active so isSignedIn flips true without manual re-login.
@@ -75,6 +108,14 @@ function Router() {
   useEffect(() => {
     const autoActivate = (import.meta.env.VITE_DISABLE_AUTO_SESSION_ACTIVATION !== 'true');
     if (isAuthenticated && (loc === '/sign-in' || loc === '/sign-up')) {
+      // If roles not set yet, go to onboarding role selection
+      try {
+        const raw = localStorage.getItem('ps_roles');
+        if (!raw) {
+          setLocation('/onboarding/role');
+          return;
+        }
+      } catch {}
       setLocation('/');
       return;
     }
@@ -127,6 +168,9 @@ function Router() {
           } else {
             localStorage.setItem('user_system_role', 'user');
           }
+          if (Array.isArray(data?.roles)) {
+            localStorage.setItem('ps_roles', JSON.stringify(data.roles));
+          }
         }
       } catch {}
     })();
@@ -164,8 +208,8 @@ function Router() {
       <Switch>
         {!isAuthenticated ? (
           <>
-            <Route path="/" component={SimpleLanding} />
-            <Route path="/landing" component={SimpleLanding} />
+            <Route path="/" component={WaitlistLanding} />
+            <Route path="/landing" component={WaitlistLanding} />
             {/* Friendly aliases */}
             <Route path="/signin">{() => <Redirect to="/sign-in" />}</Route>
             <Route path="/signup">{() => <Redirect to="/sign-up" />}</Route>
@@ -193,7 +237,8 @@ function Router() {
                 </div>
               )}
             </Route>
-            <Route component={SimpleLanding} />
+            <Route path="/privacy" component={Privacy} />
+            <Route path="/auth" component={AuthModalPage} />
           </>
         ) : (
           <>
@@ -205,37 +250,54 @@ function Router() {
                 </div>
               )}
             </Route>
+            {/* Onboarding role selection */}
+            <Route path="/onboarding/role" component={RoleSetup} />
             {/* Route based on user role */}
             {localStorage.getItem('user_system_role') === 'admin' ? (
               <>
                 {/* Platform Owner routes only */}
-                <Route path="/" component={PlatformDashboard} />
-                <Route path="/platform" component={PlatformDashboard} />
-                <Route path="/users" component={Users} />
-                <Route path="/tenants" component={Tenants} />
-                <Route path="/preferences" component={Preferences} />
-                <Route path="/health" component={SystemHealth} />
-                <Route path="/account/security" component={AccountSecurity} />
+                <RequireRoles roles={["platform_admin"]}><Route path="/" component={PlatformDashboard} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/platform" component={PlatformDashboard} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/users" component={Users} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/tenants" component={Tenants} /></RequireRoles>
+                <RequireRoles roles={["platform_admin","tenant_admin","security_engineer","auditor"]}><Route path="/compliance" component={Compliance} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/preferences" component={Preferences} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/health" component={SystemHealth} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/admin/snapshots" component={Snapshots} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/admin/system" component={AdminSystem} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/admin/license" component={License} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/admin/debug" component={DebugDiagnostics} /></RequireRoles>
+                <RequireRoles roles={["platform_admin"]}><Route path="/account/security" component={AccountSecurity} /></RequireRoles>
                 <Route component={NotFound} />
               </>
             ) : (
               <>
-                {/* Regular User routes only */}
-                <Route path="/" component={Dashboard} />
-                <Route path="/dashboard" component={Dashboard} />
-                <Route path="/rulepacks" component={RulePacks} />
-                <Route path="/tools" component={Tools} />
-                <Route path="/tool-policies" component={ToolPolicies} />
-                <Route path="/policies" component={PolicyAssignments} />
+                {/* Tenant views with granular RBAC */}
+                <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/" component={Dashboard} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/dashboard" component={Dashboard} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/monitoring/enforcer" component={EnforcerMonitoring} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer"]}><Route path="/rulepacks" component={RulePacks} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer"]}><Route path="/tools" component={Tools} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer"]}><Route path="/tool-policies" component={ToolPolicies} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer"]}><Route path="/presets" component={Presets} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer"]}><Route path="/agent" component={AgentManagement} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer"]}><Route path="/policies" component={PolicyAssignments} /></RequireRoles>
                 {/* Back-compat redirects */}
                 <Route path="/policy-assignment">{() => <Redirect to="/policies" />}</Route>
                 <Route path="/policy-assignments">{() => <Redirect to="/policies" />}</Route>
-                <Route path="/violations" component={Violations} />
-                <Route path="/services" component={Services} />
-                <Route path="/organization" component={Organization} />
-                <Route path="/audit" component={AuditLogs} />
-                <Route path="/preferences" component={Preferences} />
-                <Route path="/account/security" component={AccountSecurity} />
+                <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/violations" component={Violations} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","auditor"]}><Route path="/analytics/violations" component={ViolationsSummary} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","auditor"]}><Route path="/analytics/usage" component={UsageAnalytics} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer"]}><Route path="/services" component={Services} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/monitoring/live" component={LiveEvents} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin"]}><Route path="/organization" component={Organization} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","auditor"]}><Route path="/audit" component={AuditLogs} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","auditor","platform_admin"]}><Route path="/compliance" component={Compliance} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin"]}><Route path="/preferences" component={Preferences} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin"]}><Route path="/billing" component={Billing} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin"]}><Route path="/invoices" component={Invoices} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin"]}><Route path="/experiments" component={Experiments} /></RequireRoles>
+                <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/account/security" component={AccountSecurity} /></RequireRoles>
                 <Route component={NotFound} />
               </>
             )}

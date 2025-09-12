@@ -56,7 +56,9 @@ func TestHealthzAndMetrics(t *testing.T) {
 		t.Fatalf("/healthz status = %d", resp.StatusCode)
 	}
 
-	resp2, err := http.Get(ts.URL + "/metrics")
+// Ensure prometheus endpoint is enabled for this test
+os.Setenv("PS_DISABLE_METRICS", "")
+resp2, err := http.Get(ts.URL + "/metrics")
 	if err != nil {
 		t.Fatalf("GET /metrics error: %v", err)
 	}

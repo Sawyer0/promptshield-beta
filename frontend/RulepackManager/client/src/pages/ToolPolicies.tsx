@@ -186,3 +186,10 @@ export default function ToolPolicies() {
     setPolicies(prev => prev.map((row, i) => i === idx ? { ...row, ...patch } : row));
   }
 }
+
+function hasRole(name: string) {
+  try { const raw = localStorage.getItem('ps_roles'); const r = raw ? JSON.parse(raw) : []; return Array.isArray(r) && r.includes(name); } catch { return false; }
+}
+function canEdit() {
+  return hasRole('tenant_admin') || hasRole('security_engineer');
+}

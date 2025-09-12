@@ -1,0 +1,143 @@
+static_resources:
+  listeners:
+  - name: main_listener
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 8080 }
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: egress_http
+          codec_type: AUTO
+          route_config:
+            name: dynamic_forward_proxy_routes
+            virtual_hosts:
+            - name: all
+              domains: ["*"]
+              routes:
+              - match: { prefix: "/" }
+                route:
+                  cluster: dynamic_forward_proxy_cluster
+          http_filters:
+          - name: envoy.filters.http.header_to_metadata
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.header_to_metadata.v3.Config
+              request_rules:
+              - header: ":authority"
+                on_header_present:
+                  metadata_namespace: envoy.lb
+                  key: authority
+                  type: STRING
+                remove: false
+          - name: envoy.filters.http.header_mutation
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.header_mutation.v3.HeaderMutation
+              mutations:
+                request_mutations:
+                  set:
+                  - header:
+                      key: x-ps-tenant-id
+                      value: "{{TENANT_ID}}"
+                  - header:
+                      key: x-ps-token
+                      value: "{{FRONTEND_TOKEN}}"
+          - name: envoy.filters.http.ext_authz
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+              transport_api_version: V3
+              failure_mode_allow: false
+              clear_route_cache: true
+              status_on_error:
+                code: 503
+              http_service:
+                server_uri:
+                  uri: promptshield-cluster
+                  cluster: ps_enforcer_http
+                  timeout: 1s
+                path_prefix: "/check"
+                authorization_request:
+                  allowed_headers:
+                    patterns:
+                      - exact: authorization
+                      - exact: x-ps-token
+                      - exact: x-ps-tenant-id
+                      - exact: x-request-id
+                      - exact: x-api-key
+                authorization_response:
+                  allowed_upstream_headers:
+                    patterns:
+                      - exact: x-ps-decision
+                      - exact: x-ps-reason
+                      - exact: x-ps-violations
+          - name: envoy.filters.http.ext_proc
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: ps_enforcer_grpc
+                  authority: promptshield.local
+              message_timeout: 5s
+              failure_mode_allow: false
+              async_mode: false
+              processing_mode:
+                request_header_mode: SEND
+                request_body_mode: STREAMED
+                request_trailer_mode: SKIP
+                response_header_mode: SEND
+                response_body_mode: STREAMED
+                response_trailer_mode: SKIP
+          - name: envoy.filters.http.dynamic_forward_proxy
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig
+              dns_cache_config:
+                name: dynamic_forward_proxy_cache
+                dns_lookup_family: V4_ONLY
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: dynamic_forward_proxy_cluster
+    connect_timeout: 30s
+    lb_policy: CLUSTER_PROVIDED
+    cluster_type:
+      name: envoy.clusters.dynamic_forward_proxy
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig
+        dns_cache_config:
+          name: dynamic_forward_proxy_cache
+          dns_lookup_family: V4_ONLY
+
+  - name: ps_enforcer_http
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: ps_enforcer_http
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: {{GATEWAY_HTTP_HOST}}, port_value: {{GATEWAY_HTTP_PORT}} }
+
+  - name: ps_enforcer_grpc
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    typed_extension_protocol_options:
+      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+        "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+        explicit_http_config:
+          http2_protocol_options:
+            max_concurrent_streams: 100
+    load_assignment:
+      cluster_name: ps_enforcer_grpc
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: {{GATEWAY_GRPC_HOST}}, port_value: {{GATEWAY_GRPC_PORT}} }
+
+admin:
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+

@@ -11,24 +11,18 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("Usage: go run run-migration.go <migration-file>")
-	}
+var migrationFile string
+if len(os.Args) >= 2 {
+	migrationFile = os.Args[1]
+}
 
-	migrationFile := os.Args[1]
-	dsn := os.Getenv("PS_PG_DSN")
+dsn := os.Getenv("PS_PG_DSN")
 	
 	if dsn == "" {
 		dsn = "postgresql://postgres:hVygdTBDDT4FfoXp@db.jsrlqqtfhjfiawxkmoqe.supabase.co:5432/postgres"
 	}
 
-	// Read migration file
-	content, err := ioutil.ReadFile(migrationFile)
-	if err != nil {
-		log.Fatalf("Failed to read migration file: %v", err)
-	}
-
-	// Connect to database
+// Connect to database
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -43,16 +37,34 @@ func main() {
 	fmt.Printf("🔌 Connected to database\n")
 	fmt.Printf("📁 Running migration: %s\n", migrationFile)
 
-	// Execute migration
-	_, err = db.Exec(string(content))
-	if err != nil {
-		log.Fatalf("Failed to execute migration: %v", err)
-	}
-
+// Execute migration(s)
+if migrationFile != "" {
+	// Single file mode
+	fmt.Printf("📁 Running migration: %s\n", migrationFile)
+	content, err := ioutil.ReadFile(migrationFile)
+	if err != nil { log.Fatalf("Failed to read migration file: %v", err) }
+	if _, err := db.Exec(string(content)); err != nil { log.Fatalf("Failed to execute migration: %v", err) }
 	fmt.Printf("✅ Migration completed successfully!\n")
+} else {
+	// Run all *.sql in migrations directory, sorted
+	dir := "migrations"
+	entries, err := ioutil.ReadDir(dir)
+	if err != nil { log.Fatalf("Failed to read migrations dir: %v", err) }
+	for _, e := range entries {
+		if e.IsDir() { continue }
+		name := e.Name()
+		if len(name) < 5 || name[len(name)-4:] != ".sql" { continue }
+		path := dir + string(os.PathSeparator) + name
+		fmt.Printf("📁 Running migration: %s\n", path)
+		content, err := ioutil.ReadFile(path)
+		if err != nil { log.Fatalf("Failed to read migration %s: %v", path, err) }
+		if _, err := db.Exec(string(content)); err != nil { log.Fatalf("Failed to execute migration %s: %v", path, err) }
+	}
+	fmt.Printf("✅ All migrations completed successfully!\n")
+}
 
 	// Verify RLS is enabled
-	fmt.Printf("🔍 Verifying RLS policies...\n")
+fmt.Printf("🔍 Verifying RLS policies...\n")
 	
 	rows, err := db.Query(`
 		SELECT schemaname, tablename, rowsecurity 

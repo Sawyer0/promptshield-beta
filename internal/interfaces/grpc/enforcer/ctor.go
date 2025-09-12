@@ -27,6 +27,8 @@ import (
 	health "google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 )
 
 // New returns a Server with default Options using the provided timeout.
@@ -432,8 +434,10 @@ func Build(addr string, opts Options) (*grpc.Server, error) {
 		return nil, fmt.Errorf("audit sink required but not configured; set PS_AUDIT_SINK and related env or PS_AUDIT_REQUIRED=false")
 	}
 
-	// Create gRPC server
-	grpcServer := grpc.NewServer()
+    // Create gRPC server instrumented via OpenTelemetry stats handler
+    grpcServer := grpc.NewServer(
+        grpc.StatsHandler(otelgrpc.NewServerHandler()),
+    )
 
 	// Register the external processor service
 	extproc.RegisterExternalProcessorServer(grpcServer, server)

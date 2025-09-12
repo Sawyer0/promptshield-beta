@@ -288,10 +288,9 @@ export default function PolicyAssignments() {
                     : "Assign a RulePack to start protecting your API endpoints"
                   }
                 </p>
-                <Button onClick={() => setIsCreateModalOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Assign RulePack
-                </Button>
+            <Button onClick={() => setIsCreateModalOpen(true)} disabled={!canEdit()} title={!canEdit() ? 'Read-only: you do not have permission to create assignments' : undefined}>
+              <Plus className="mr-1 h-4 w-4" /> New Assignment
+            </Button>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -420,4 +419,11 @@ export default function PolicyAssignments() {
       </div>
     </Layout>
   );
+}
+
+function hasRole(name: string) {
+  try { const raw = localStorage.getItem('ps_roles'); const r = raw ? JSON.parse(raw) : []; return Array.isArray(r) && r.includes(name); } catch { return false; }
+}
+function canEdit() {
+  return hasRole('tenant_admin') || hasRole('security_engineer');
 }

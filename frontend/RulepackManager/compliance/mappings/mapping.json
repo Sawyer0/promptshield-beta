@@ -1,0 +1,261 @@
+{
+  "$schema": "./mapping.schema.json",
+  "version": "0.1.0",
+  "frameworks": {
+    "OWASP_LLM": {
+      "LLM01": {
+        "name": "Prompt Injection",
+        "description": "Detection and prevention of prompt injection and tool abuse.",
+        "status": "mapped",
+        "evidence": {
+          "rules": [],
+          "rule_tags": ["prompt-injection", "tool-constraint"],
+          "audits": {
+            "actions": ["scan.decision", "request.decision"],
+            "filters": { "reason": ["prompt_injection", "tool_abuse"] }
+          },
+          "configs": ["rulepacks/active", "assignments", "enforcement_mode"]
+        }
+      },
+      "LLM02": {
+        "name": "Insecure Output Handling",
+        "description": "Prevent sensitive data disclosure via output sanitization and redaction.",
+        "status": "mapped",
+        "evidence": {
+          "rule_tags": ["output-sanitization", "pii-redaction", "secrets-redaction"],
+          "audits": { "actions": ["scan.decision"], "filters": { "reason": ["pii", "secrets", "data_leakage"] } },
+          "configs": ["enforcement_mode"]
+        }
+      },
+      "LLM03": {
+        "name": "Training Data Poisoning",
+        "description": "Controls to detect harmful inputs during ingestion/prompting.",
+        "status": "partial",
+        "evidence": {
+          "rule_tags": ["prompt-injection"],
+          "audits": { "actions": ["scan.decision"], "summary": true }
+        }
+      },
+      "LLM04": {
+        "name": "Model Denial of Service",
+        "description": "Limit tool usage and long-running requests to contain resource abuse.",
+        "status": "partial",
+        "evidence": {
+          "rule_tags": ["rate-limit", "timeouts"],
+          "configs": ["preferences.timeouts_ms"],
+          "audits": { "actions": ["request.decision"], "filters": { "status": ["timeout", "rate_limited"] } }
+        }
+      },
+      "LLM05": {
+        "name": "Supply Chain Vulnerabilities",
+        "description": "Controls for dependencies, models, and plugins.",
+        "status": "partial",
+        "evidence": {
+          "configs": ["tools/registry"],
+          "audits": { "actions": ["rulepack.create", "rulepack.update"], "summary": true }
+        }
+      },
+      "LLM06": {
+        "name": "Sensitive Information Disclosure",
+        "description": "Detect and redact PII/secrets; minimize context.",
+        "status": "mapped",
+        "evidence": {
+          "rule_tags": ["pii-redaction", "secrets-redaction", "context-minimization"],
+          "audits": { "actions": ["scan.decision"], "filters": { "reason": ["pii", "secrets"] } },
+          "configs": ["enforcement_mode"]
+        }
+      },
+      "LLM07": {
+        "name": "Insecure Plugin/Tool Design",
+        "description": "Constrain tool capabilities and require approvals for high-risk tools.",
+        "status": "mapped",
+        "evidence": {
+          "rule_tags": ["tool-constraint", "approvals"],
+          "configs": ["preferences.require_approval_tools", "egress_allowlist"],
+          "audits": { "actions": ["tool.exec", "request.decision"] }
+        }
+      },
+      "LLM08": {
+        "name": "Excessive Agency",
+        "description": "Restrict agent autonomy via action selector, plan-then-execute, and egress allowlist.",
+        "status": "mapped",
+        "evidence": {
+          "rule_tags": ["tool-constraint", "action-selector", "plan-then-execute", "egress-allowlist"],
+          "configs": ["preferences.egress_allowlist"],
+          "audits": { "actions": ["scan.decision", "request.decision"] }
+        }
+      },
+      "LLM09": {
+        "name": "Overreliance",
+        "description": "Human approval/oversight for risky actions.",
+        "status": "partial",
+        "evidence": {
+          "rule_tags": ["approvals"],
+          "configs": ["preferences.require_approval_tools"]
+        }
+      },
+      "LLM10": {
+        "name": "Model Theft",
+        "description": "Protection against model extraction.",
+        "status": "partial",
+        "evidence": {
+          "rule_tags": ["exfiltration"],
+          "audits": { "actions": ["request.decision"], "filters": { "reason": ["exfiltration", "model_leakage"] } },
+          "configs": ["preferences.egress_allowlist"]
+        }
+      }
+    },
+
+    "SOC2": {
+      "CC7.2": {
+        "name": "Monitor and Detect",
+        "description": "Detection of anomalies and security events.",
+        "status": "mapped",
+        "evidence": {
+          "audits": { "actions": ["scan.decision", "request.decision"], "summary": true },
+          "configs": ["enforcement_mode"],
+          "reports": ["violations_trend_30d"]
+        }
+      },
+      "CC7.3": {
+        "name": "Respond to Identified Security Events",
+        "description": "Actions such as quarantine and deny captured in audits.",
+        "status": "mapped",
+        "evidence": {
+          "audits": { "actions": ["request.decision"], "filters": { "decision": ["deny", "quarantine"] } },
+          "configs": ["enforcement_mode"]
+        }
+      },
+      "CC6.1": {
+        "name": "Logical Access Controls",
+        "description": "Authentication/authorization via platform identity and tenant scoping.",
+        "status": "partial",
+        "evidence": {
+          "configs": ["audit_chain_integrity"],
+          "reports": ["tenant_scoped_audit"]
+        }
+      },
+      "CC6.6": {
+        "name": "Change Management",
+        "description": "Policy-as-code diffs and audit trails.",
+        "status": "partial",
+        "evidence": {
+          "audits": { "actions": ["rulepack.create", "rulepack.update", "rulepack.activate"] }
+        }
+      },
+      "CC8.1": {
+        "name": "Incident Response",
+        "description": "Violations and decisions logged and exportable.",
+        "status": "partial",
+        "evidence": {
+          "audits": { "actions": ["scan.decision", "request.decision"] },
+          "reports": ["violations_trend_30d"]
+        }
+      }
+    },
+
+    "HIPAA": {
+      "164.312(b)": {
+        "name": "Audit Controls",
+        "description": "Mechanisms to record and examine activity.",
+        "status": "mapped",
+        "evidence": {
+          "audits": { "actions": ["request.decision", "scan.decision"] },
+          "configs": ["audit_chain_integrity", "retention_policy"]
+        }
+      },
+      "164.308(a)(1)(ii)(D)": {
+        "name": "Information System Activity Review",
+        "description": "Review logs/audits of system activity.",
+        "status": "mapped",
+        "evidence": {
+          "audits": { "actions": ["request.decision", "scan.decision"], "summary": true },
+          "reports": ["violations_trend_30d"]
+        }
+      },
+      "164.312(a)(1)": {
+        "name": "Access Control",
+        "description": "Restrict tool usage and require approvals for sensitive actions.",
+        "status": "partial",
+        "evidence": {
+          "configs": ["preferences.require_approval_tools", "preferences.egress_allowlist"]
+        }
+      },
+      "164.312(c)(1)": {
+        "name": "Integrity",
+        "description": "Protect against improper alteration or destruction.",
+        "status": "partial",
+        "evidence": {
+          "configs": ["audit_chain_integrity"]
+        }
+      }
+    },
+
+    "GDPR": {
+      "Art_32": {
+        "name": "Security of Processing",
+        "description": "Appropriate technical and organizational measures.",
+        "status": "mapped",
+        "evidence": {
+          "rule_tags": ["pii-redaction", "secrets-redaction"],
+          "configs": ["enforcement_mode", "egress_allowlist"]
+        }
+      },
+      "Art_25": {
+        "name": "Data Protection by Design and by Default",
+        "description": "Context minimization and tool constraints.",
+        "status": "partial",
+        "evidence": {
+          "rule_tags": ["context-minimization", "tool-constraint"],
+          "configs": ["preferences.egress_allowlist"]
+        }
+      },
+      "Art_33": {
+        "name": "Breach Notification",
+        "description": "Incident response and notification processes.",
+        "status": "partial",
+        "evidence": {
+          "audits": { "actions": ["request.decision", "scan.decision"], "summary": true },
+          "reports": ["violations_trend_30d"]
+        }
+      }
+    },
+
+    "NIST_AI_RMF": {
+      "GOV.2": {
+        "name": "Policies, processes, procedures are in place",
+        "description": "Policy-as-code and audit logs.",
+        "status": "partial",
+        "evidence": {
+          "audits": { "actions": ["rulepack.create", "rulepack.update", "rulepack.activate"] }
+        }
+      },
+      "MAP.1": {
+        "name": "Context and intended purpose are mapped",
+        "description": "Assignments and protected endpoints documented.",
+        "status": "partial",
+        "evidence": {
+          "configs": ["assignments", "rulepacks/active"]
+        }
+      },
+      "MEA.2": {
+        "name": "Measure risks and impacts",
+        "description": "Violations, decisions, and metrics.",
+        "status": "partial",
+        "evidence": {
+          "audits": { "actions": ["scan.decision", "request.decision"] },
+          "reports": ["violations_trend_30d"]
+        }
+      },
+      "MAN.3": {
+        "name": "Manage risks during deployment",
+        "description": "Operational controls and monitoring for AI systems.",
+        "status": "mapped",
+        "evidence": {
+          "configs": ["rulepacks/active", "approvals(HITL)"]
+        }
+      }
+    }
+  }
+}
+

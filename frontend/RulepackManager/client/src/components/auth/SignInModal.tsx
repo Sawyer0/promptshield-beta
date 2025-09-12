@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Shield } from 'lucide-react';
 
 interface Props {
   open: boolean;
@@ -86,7 +87,17 @@ export function SignInModal({ open, onOpenChange, onSuccess }: Props) {
   };
 
   return (
-    <Modal isOpen={open} onClose={() => onOpenChange(false)} title="Sign In">
+    <Modal isOpen={open} onClose={() => onOpenChange(false)} title="Sign In" contentClassName="p-6 sm:p-8">
+      <div className="mb-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Shield className="h-4 w-4 text-primary" />
+          <span className="font-medium">PromptShield</span>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground mt-3">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--brand-accent)' }} />
+          Secure and compliant AI access
+        </div>
+      </div>
       <Tabs value={mode} onValueChange={(v) => setMode(v as any)} className="w-full">
         <TabsList className="grid grid-cols-3">
           <TabsTrigger value="password">Password</TabsTrigger>
@@ -106,7 +117,7 @@ export function SignInModal({ open, onOpenChange, onSuccess }: Props) {
             </div>
             {error && <div className="text-sm text-red-600">{error}</div>}
             <div className="flex justify-end">
-              <Button type="submit" disabled={loading}>{loading ? 'Signing in…' : 'Sign In'}</Button>
+              <Button type="submit" disabled={loading} className="gap-2" style={{ backgroundColor: 'var(--brand-accent)', borderColor: 'var(--brand-accent)' }}>{loading ? 'Signing in…' : 'Sign In'}</Button>
             </div>
           </form>
         </TabsContent>
@@ -120,7 +131,7 @@ export function SignInModal({ open, onOpenChange, onSuccess }: Props) {
               </div>
               {error && <div className="text-sm text-red-600">{error}</div>}
               <div className="flex justify-end">
-                <Button type="submit" disabled={loading}>{loading ? 'Sending code…' : 'Send code'}</Button>
+                <Button type="submit" disabled={loading} className="gap-2" style={{ backgroundColor: 'var(--brand-accent)', borderColor: 'var(--brand-accent)' }}>{loading ? 'Sending code…' : 'Send code'}</Button>
               </div>
             </form>
           ) : (
@@ -132,7 +143,7 @@ export function SignInModal({ open, onOpenChange, onSuccess }: Props) {
               {error && <div className="text-sm text-red-600">{error}</div>}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="ghost" onClick={() => setNeedsEmailCode(false)}>Back</Button>
-                <Button type="submit" disabled={loading}>{loading ? 'Verifying…' : 'Verify & Sign In'}</Button>
+                <Button type="submit" disabled={loading} className="gap-2" style={{ backgroundColor: 'var(--brand-accent)', borderColor: 'var(--brand-accent)' }}>{loading ? 'Verifying…' : 'Verify & Sign In'}</Button>
               </div>
             </form>
           )}

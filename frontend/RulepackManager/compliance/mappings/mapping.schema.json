@@ -1,0 +1,73 @@
+{
+  "$id": "https://promptshield.dev/schemas/compliance/mapping.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Compliance Mapping Schema",
+  "type": "object",
+  "required": ["version", "frameworks"],
+  "properties": {
+    "version": { "type": "string" },
+    "frameworks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Framework object keyed by control IDs",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["name", "evidence"],
+          "properties": {
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "status": { "type": "string", "enum": ["mapped", "partial", "not_mapped"] },
+            "evidence": {
+              "type": "object",
+              "properties": {
+                "rules": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "rule_tags": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "audits": {
+                  "type": "object",
+                  "properties": {
+                    "actions": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    },
+                    "filters": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "anyOf": [
+                          { "type": "string" },
+                          { "type": "number" },
+                          { "type": "boolean" },
+                          { "type": "array", "items": { "type": "string" } }
+                        ]
+                      }
+                    },
+                    "summary": { "type": "boolean" }
+                  },
+                  "required": ["actions"]
+                },
+                "configs": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "reports": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
+

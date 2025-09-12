@@ -5,7 +5,16 @@
 @tailwind utilities;
 
 :root {
-  /* Light Forest Green Enterprise Theme */
+  /* Promptshield brand variables */
+  --brand-accent: #ff4600; /* Custom Dark Orange 15 */
+  --brand-cyan-3: #183c40; /* DarkCyan 3 */
+  --brand-cyan-2: #20494d; /* DarkCyan 2 */
+  --brand-cyan-1: #799da7; /* LightCyan 1 */
+  --brand-blue-4: #b0c5cd; /* LightBlue 4 */
+  --brand-gray-4: #426345; /* DarkGray 4 */
+  --brand-gray-20: #dcdcdc; /* LightGray 20 */
+
+  /* Light Forest Green Enterprise Theme (base) */
   --background: hsl(150, 15%, 98%);
   --foreground: hsl(150, 25%, 15%);
   --card: hsl(150, 10%, 99%);
@@ -13,7 +22,7 @@
   --popover: hsl(150, 10%, 99%);
   --popover-foreground: hsl(150, 25%, 15%);
   
-  /* Sophisticated forest green primary palette */
+  /* Primary palette (keep) */
   --primary: hsl(150, 45%, 35%);
   --primary-foreground: hsl(150, 10%, 98%);
   --secondary: hsl(150, 12%, 92%);
@@ -23,7 +32,7 @@
   --accent: hsl(150, 12%, 94%);
   --accent-foreground: hsl(150, 25%, 15%);
   
-  /* Light alert colors that complement forest theme */
+  /* Alert colors */
   --destructive: hsl(5, 70%, 50%);
   --destructive-foreground: hsl(150, 10%, 98%);
   --warning: hsl(35, 85%, 55%);
@@ -31,12 +40,12 @@
   --success: hsl(150, 70%, 45%);
   --success-foreground: hsl(150, 10%, 98%);
   
-  /* Light UI elements */
+  /* UI elements */
   --border: hsl(150, 12%, 88%);
   --input: hsl(150, 12%, 95%);
   --ring: hsl(150, 45%, 35%);
   
-  /* Light Sidebar - elegant forest theme */
+  /* Sidebar */
   --sidebar-bg: hsl(150, 20%, 96%);
   --sidebar-foreground: hsl(150, 25%, 25%);
   --sidebar-primary: hsl(150, 45%, 35%);
@@ -46,19 +55,20 @@
   --sidebar-border: hsl(150, 15%, 85%);
   --sidebar-muted: hsl(150, 15%, 55%);
   
-  /* Light theme charts */
+  /* Charts */
   --chart-1: hsl(150, 65%, 45%);
   --chart-2: hsl(35, 75%, 55%);
   --chart-3: hsl(220, 65%, 55%);
   --chart-4: hsl(280, 60%, 55%);
   
-  /* Professional Typography */
+  /* Typography */
   --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Newsreader', 'Source Serif 4', 'Georgia', 'Times New Roman', Times, serif;
   --font-security: 'Inter', 'SF Pro Text', system-ui, sans-serif;
   --font-display: 'Inter', 'SF Pro Display', system-ui, sans-serif;
   --font-mono: 'Fira Code', 'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace;
   
-  /* Enterprise spacing and effects */
+  /* Effects */
   --radius: 0.5rem;
   --enterprise-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --enterprise-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
@@ -121,9 +131,13 @@
 
   body {
     @apply antialiased bg-background text-foreground;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-sans);
     font-weight: 500;
     letter-spacing: -0.015em;
+  }
+
+  .serif-display {
+    font-family: var(--font-serif);
   }
 
   h1, h2, h3, h4, h5, h6 {

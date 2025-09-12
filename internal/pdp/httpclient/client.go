@@ -11,6 +11,7 @@ import (
 
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/pdp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type Config struct {
@@ -31,7 +32,7 @@ func New(cfg Config) *Client {
 	}
 	return &Client{
 		cfg:  cfg,
-		http: &http.Client{Timeout: to},
+		http: &http.Client{Timeout: to, Transport: otelhttp.NewTransport(http.DefaultTransport)},
 	}
 }
 

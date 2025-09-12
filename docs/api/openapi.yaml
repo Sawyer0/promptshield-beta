@@ -12,6 +12,91 @@ servers:
   - url: http://localhost:9090
     description: Local development
 paths:
+  /admin/tenants/{tenantId}/assignments:
+    post:
+      summary: Create a rulepack assignment for a tenant
+      description: Assign a rulepack to a target scope with optional HTTP method filter and priority.
+      operationId: createAssignment
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rulepack_id]
+              properties:
+                rulepack_id:
+                  type: string
+                  format: uuid
+                target_scope:
+                  type: string
+                  description: "Endpoint pattern. Allowed: '*', '/', exact paths ('/a/b'), or prefix wildcards ('/a/*')."
+                  example: "/v1/*"
+                method:
+                  type: string
+                  description: "HTTP method filter. One of '*', GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS."
+                  example: "*"
+                priority:
+                  type: integer
+                  description: "Higher values take precedence. Defaults to 100."
+                  example: 100
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  tenant_id: { type: string, format: uuid }
+                  rulepack_id: { type: string, format: uuid }
+                  target_scope: { type: string }
+                  method: { type: string }
+                  priority: { type: integer }
+                  enabled: { type: boolean }
+                  created_at: { type: string, format: date-time }
+        '400':
+          description: Invalid request (bad method or target_scope)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden by PDP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Assignment already exists for this (tenant_id, target_scope, method, rulepack_id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/healthz:
     get:
       summary: Liveness probe

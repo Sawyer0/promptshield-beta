@@ -4,6 +4,7 @@ import { Modal } from '@/components/common/Modal';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Shield } from 'lucide-react';
 
 interface Props {
   open: boolean;
@@ -20,6 +21,7 @@ export function SignUpModal({ open, onOpenChange, onSuccess }: Props) {
   const [firstName, setFirst] = useState('');
   const [lastName, setLast] = useState('');
   const [orgName, setOrg] = useState('');
+  const allowSelfServe = (() => { try { return (import.meta as any).env?.VITE_ALLOW_SELF_TENANT_SIGNUP === 'true'; } catch { return false; } })();
   const [code, setCode] = useState('');
   const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export function SignUpModal({ open, onOpenChange, onSuccess }: Props) {
       if ((created as any)?.status === 'complete') {
         await setActive({ session: (created as any).createdSessionId });
         onOpenChange(false);
-        onSuccess?.(orgName);
+        onSuccess?.(allowSelfServe ? orgName : undefined);
         return;
       }
       // Otherwise, try to start email code verification if enabled in Clerk
@@ -70,7 +72,7 @@ export function SignUpModal({ open, onOpenChange, onSuccess }: Props) {
       if (res.status === 'complete') {
         await setActive({ session: res.createdSessionId });
         onOpenChange(false);
-        onSuccess?.(orgName);
+        onSuccess?.(allowSelfServe ? orgName : undefined);
       } else {
         setError('Additional verification required.');
       }
@@ -82,7 +84,17 @@ export function SignUpModal({ open, onOpenChange, onSuccess }: Props) {
   };
 
   return (
-    <Modal isOpen={open} onClose={() => onOpenChange(false)} title="Create Account">
+    <Modal isOpen={open} onClose={() => onOpenChange(false)} title="Create Account" contentClassName="p-6 sm:p-8">
+      <div className="mb-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Shield className="h-4 w-4 text-primary" />
+          <span className="font-medium">PromptShield</span>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground mt-3">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--brand-accent)' }} />
+          Secure and compliant AI access
+        </div>
+      </div>
       {!needsCode ? (
         <form onSubmit={startSignUp} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -95,10 +107,12 @@ export function SignUpModal({ open, onOpenChange, onSuccess }: Props) {
               <Input id="last" value={lastName} onChange={(e) => setLast(e.target.value)} />
             </div>
           </div>
-          <div>
-            <Label htmlFor="org">Organization name</Label>
-            <Input id="org" value={orgName} onChange={(e) => setOrg(e.target.value)} required />
-          </div>
+          {allowSelfServe && (
+            <div>
+              <Label htmlFor="org">Organization name</Label>
+              <Input id="org" value={orgName} onChange={(e) => setOrg(e.target.value)} required />
+            </div>
+          )}
           <div>
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -109,7 +123,7 @@ export function SignUpModal({ open, onOpenChange, onSuccess }: Props) {
           </div>
           {error && <div className="text-sm text-red-600">{error}</div>}
           <div className="flex justify-end">
-            <Button type="submit" disabled={loading}>{loading ? 'Creating…' : 'Create account'}</Button>
+            <Button type="submit" disabled={loading} className="gap-2" style={{ backgroundColor: 'var(--brand-accent)', borderColor: 'var(--brand-accent)' }}>{loading ? 'Creating…' : 'Create account'}</Button>
           </div>
         </form>
       ) : (
@@ -121,7 +135,7 @@ export function SignUpModal({ open, onOpenChange, onSuccess }: Props) {
           {error && <div className="text-sm text-red-600">{error}</div>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setNeedsCode(false)}>Back</Button>
-            <Button type="submit" disabled={loading}>{loading ? 'Verifying…' : 'Verify & Continue'}</Button>
+            <Button type="submit" disabled={loading} className="gap-2" style={{ backgroundColor: 'var(--brand-accent)', borderColor: 'var(--brand-accent)' }}>{loading ? 'Verifying…' : 'Verify & Continue'}</Button>
           </div>
         </form>
       )}

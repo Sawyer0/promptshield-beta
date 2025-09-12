@@ -13,7 +13,7 @@ import (
 	memrepo "github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 )
 
-func newMuxRulepack(t *testing.T) http.Handler {
+func newMuxRulepack(_ *testing.T) http.Handler {
 	pdpClient = nil
 	pdpOnce = sync.Once{}
 	svc := services.RulepackServiceCstor(memrepo.NewRulepackRepository(), nil)
@@ -21,7 +21,7 @@ func newMuxRulepack(t *testing.T) http.Handler {
 }
 
 func TestRulepackEndpoints_PDP_Permit_UploadVersionExport(t *testing.T) {
-	ts := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision":"PERMIT"} })
+	ts := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision": "PERMIT"} })
 	defer ts.Close()
 	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
 	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
@@ -39,8 +39,12 @@ func TestRulepackEndpoints_PDP_Permit_UploadVersionExport(t *testing.T) {
 	req.Header.Set("X-PS-Tenant-ID", tenantID.String())
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated { t.Fatalf("upload expected 201, got %d body=%s", rec.Code, rec.Body.String()) }
-	var cr struct{ ID string `json:"id"` }
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload expected 201, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var cr struct {
+		ID string `json:"id"`
+	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &cr)
 
 	// Create version 2 with a minimal valid DSL
@@ -51,7 +55,9 @@ func TestRulepackEndpoints_PDP_Permit_UploadVersionExport(t *testing.T) {
 	reqV.Header.Set("X-PS-Tenant-ID", tenantID.String())
 	recV := httptest.NewRecorder()
 	mux.ServeHTTP(recV, reqV)
-	if recV.Code != http.StatusCreated { t.Fatalf("version create expected 201, got %d body=%s", recV.Code, recV.Body.String()) }
+	if recV.Code != http.StatusCreated {
+		t.Fatalf("version create expected 201, got %d body=%s", recV.Code, recV.Body.String())
+	}
 
 	// Export bundle for version 1
 	reqB := httptest.NewRequest(http.MethodGet, "/rulepacks/"+cr.ID+"/versions/1/bundle", nil)
@@ -59,11 +65,13 @@ func TestRulepackEndpoints_PDP_Permit_UploadVersionExport(t *testing.T) {
 	reqB.Header.Set("X-PS-Tenant-ID", tenantID.String())
 	recB := httptest.NewRecorder()
 	mux.ServeHTTP(recB, reqB)
-	if recB.Code != http.StatusOK { t.Fatalf("export expected 200, got %d body=%s", recB.Code, recB.Body.String()) }
+	if recB.Code != http.StatusOK {
+		t.Fatalf("export expected 200, got %d body=%s", recB.Code, recB.Body.String())
+	}
 }
 
 func TestRulepack_ActivateLatest_MissingIfMatch(t *testing.T) {
-	ts := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision":"PERMIT"} })
+	ts := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision": "PERMIT"} })
 	defer ts.Close()
 	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
 	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
@@ -78,8 +86,12 @@ func TestRulepack_ActivateLatest_MissingIfMatch(t *testing.T) {
 	reqC.Header.Set("X-PS-Tenant-ID", tenantID.String())
 	recC := httptest.NewRecorder()
 	mux.ServeHTTP(recC, reqC)
-	if recC.Code != http.StatusCreated { t.Fatalf("upload expected 201, got %d", recC.Code) }
-	var cr struct{ ID string `json:"id"` }
+	if recC.Code != http.StatusCreated {
+		t.Fatalf("upload expected 201, got %d", recC.Code)
+	}
+	var cr struct {
+		ID string `json:"id"`
+	}
 	_ = json.Unmarshal(recC.Body.Bytes(), &cr)
 
 	// Call activate-latest without If-Match -> 428
@@ -89,5 +101,7 @@ func TestRulepack_ActivateLatest_MissingIfMatch(t *testing.T) {
 	reqA.Header.Set("X-PS-Tenant-ID", tenantID.String())
 	recA := httptest.NewRecorder()
 	mux.ServeHTTP(recA, reqA)
-	if recA.Code != http.StatusPreconditionRequired { t.Fatalf("missing If-Match expected 428, got %d body=%s", recA.Code, recA.Body.String()) }
+	if recA.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing If-Match expected 428, got %d body=%s", recA.Code, recA.Body.String())
+	}
 }

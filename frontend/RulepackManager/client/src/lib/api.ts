@@ -742,6 +742,27 @@ export const serviceApi = {
     }
     return response.json();
   },
+  // Best-effort scale (if supported by backend)
+  scale: async (serviceId: string, replicas: number, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
+    // Prefer explicit scale endpoint; fallback to restart if not available
+    const tryEndpoints = [`${API_BASE}/api/v1/services/${serviceId}/scale`, `${API_BASE}/api/v1/services/${serviceId}/restart`];
+    let lastError: any = null;
+    for (const url of tryEndpoints) {
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: getHeaders(userContext),
+          credentials: 'include',
+          body: JSON.stringify({ replicas }),
+        });
+        if (response.ok) return response.json();
+        lastError = new Error(`${response.status}: ${response.statusText}`);
+      } catch (e: any) {
+        lastError = e;
+      }
+    }
+    throw (lastError || new Error('scale_failed'));
+  },
 };
 
 // User Management API
@@ -801,5 +822,240 @@ export const userApi = {
       credentials: 'include',
     });
     return handleResponse(response);
+  },
+};
+
+// Usage / Billing Analytics API
+export const usageApi = {
+  // Summary usage for current tenant (or across system for admins)
+  async getSummary(params?: { from?: string; to?: string; by?: 'day'|'hour'|'month' }): Promise<any> {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    if (params?.by) qs.set('by', params.by);
+    const res = await apiRequest('GET', `/api/usage${qs.toString() ? `?${qs.toString()}` : ''}`);
+    return res.json();
+  },
+  // Breakdown by endpoint
+  async getByEndpoint(params?: { from?: string; to?: string }): Promise<any> {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    const res = await apiRequest('GET', `/api/usage/endpoints${qs.toString() ? `?${qs.toString()}` : ''}`);
+    return res.json();
+  },
+  // Breakdown by tool or model
+  async getByTool(params?: { from?: string; to?: string }): Promise<any> {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    const res = await apiRequest('GET', `/api/usage/tools${qs.toString() ? `?${qs.toString()}` : ''}`);
+    return res.json();
+  },
+};
+
+// License API
+export const licenseApi = {
+  async getInfo(): Promise<any> {
+    // Gateway typically exposes /license; via BFF use /api/license
+    const res = await apiRequest('GET', `/api/license`);
+    return res.json();
+  },
+  async update(key: string): Promise<any> {
+    const res = await apiRequest('POST', `/api/license`, { key });
+    return res.json();
+  },
+};
+
+// Agent Management API
+export const agentApi = {
+  async authorize(payload: { agent_id: string; tools?: string[]; scopes?: string[]; ttl_seconds?: number }): Promise<any> {
+    const res = await apiRequest('POST', `/api/agent/authorize`, payload);
+    return res.json();
+  },
+  async validatePlan(payload: { plan: any; agent_id?: string }): Promise<any> {
+    const res = await apiRequest('POST', `/api/agent/validate-plan`, payload);
+    return res.json();
+  },
+  async listExecutions(params?: { limit?: number; offset?: number }): Promise<any> {
+    const qs = new URLSearchParams();
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    const res = await apiRequest('GET', `/api/agent/executions${qs.toString() ? `?${qs.toString()}` : ''}`);
+    return res.json();
+  },
+};
+
+// Billing API functions
+export const billingApi = {
+  // Subscription Plans
+  getPlans: async (): Promise<{ plans: any[] }> => {
+    const res = await apiRequest('GET', `/api/billing/plans`);
+    return res.json();
+  },
+  
+  getPlan: async (planId: string): Promise<any> => {
+    const res = await apiRequest('GET', `/api/billing/plans/${planId}`);
+    return res.json();
+  },
+  
+  // Subscriptions
+  getSubscription: async (): Promise<any> => {
+    const res = await apiRequest('GET', `/api/billing/subscription`);
+    return res.json();
+  },
+  
+  createSubscription: async (data: {
+    plan_id: string;
+    billing_cycle: 'monthly' | 'yearly';
+  }): Promise<any> => {
+    const res = await apiRequest('POST', `/api/billing/subscription`, data);
+    return res.json();
+  },
+  
+  updateSubscription: async (subscriptionId: string, data: {
+    plan_id?: string;
+    billing_cycle?: 'monthly' | 'yearly';
+    cancel_at_period_end?: boolean;
+  }): Promise<any> => {
+    const res = await apiRequest('PUT', `/api/billing/subscription/${subscriptionId}`, data);
+    return res.json();
+  },
+  
+  cancelSubscription: async (subscriptionId: string, cancelAtPeriodEnd: boolean = true): Promise<any> => {
+    const res = await apiRequest('DELETE', `/api/billing/subscription/${subscriptionId}?cancel_at_period_end=${cancelAtPeriodEnd}`);
+    return res.json();
+  },
+  
+  // Usage
+  getUsage: async (params?: {
+    start_date?: string;
+    end_date?: string;
+  }): Promise<any> => {
+    const qs = new URLSearchParams();
+    if (params?.start_date) qs.set('start_date', params.start_date);
+    if (params?.end_date) qs.set('end_date', params.end_date);
+    const res = await apiRequest('GET', `/api/billing/usage${qs.toString() ? `?${qs.toString()}` : ''}`);
+    return res.json();
+  },
+  
+  recordUsage: async (data: {
+    api_calls: number;
+    llm_calls: number;
+    violations: number;
+  }): Promise<any> => {
+    const res = await apiRequest('POST', `/api/billing/usage`, data);
+    return res.json();
+  },
+  
+  // Billing History
+  getBillingHistory: async (): Promise<{ billing_history: any[] }> => {
+    const res = await apiRequest('GET', `/api/billing/history`);
+    return res.json();
+  },
+  
+  processBilling: async (data: {
+    billing_period_start: string;
+    billing_period_end: string;
+  }): Promise<any> => {
+    const res = await apiRequest('POST', `/api/billing/process`, data);
+    return res.json();
+  },
+  
+  // Quota
+  checkQuota: async (resourceType: 'api_calls' | 'llm_calls' | 'rulepacks' | 'users'): Promise<any> => {
+    const res = await apiRequest('GET', `/api/billing/quota?resource_type=${resourceType}`);
+    return res.json();
+  },
+  
+  // Stripe Integration
+  createStripeCustomer: async (data: { email: string }): Promise<{ customer_id: string }> => {
+    const res = await apiRequest('POST', `/api/billing/stripe/customer`, data);
+    return res.json();
+  },
+  
+  createStripeSubscription: async (data: {
+    customer_id: string;
+    price_id: string;
+  }): Promise<{ subscription_id: string }> => {
+    const res = await apiRequest('POST', `/api/billing/stripe/subscription`, data);
+    return res.json();
+  },
+};
+
+// Invoice API functions
+export const invoiceApi = {
+  // List invoices
+  getInvoices: async (params?: {
+    status?: string;
+    billing_period_start?: string;
+    billing_period_end?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ invoices: any[]; count: number }> => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.billing_period_start) qs.set('billing_period_start', params.billing_period_start);
+    if (params?.billing_period_end) qs.set('billing_period_end', params.billing_period_end);
+    if (params?.limit) qs.set('limit', params.limit.toString());
+    if (params?.offset) qs.set('offset', params.offset.toString());
+    const res = await apiRequest('GET', `/api/invoices${qs.toString() ? `?${qs.toString()}` : ''}`);
+    return res.json();
+  },
+
+  // Generate invoice
+  generateInvoice: async (data: {
+    subscription_id: string;
+    billing_period_start: string;
+    billing_period_end: string;
+    force_regenerate?: boolean;
+  }): Promise<any> => {
+    const res = await apiRequest('POST', `/api/invoices/generate`, data);
+    return res.json();
+  },
+
+  // Get invoice by ID
+  getInvoice: async (invoiceId: string): Promise<any> => {
+    const res = await apiRequest('GET', `/api/invoices/${invoiceId}`);
+    return res.json();
+  },
+
+  // Update invoice status
+  updateInvoiceStatus: async (invoiceId: string, status: string): Promise<any> => {
+    const res = await apiRequest('PUT', `/api/invoices/${invoiceId}/status`, { status });
+    return res.json();
+  },
+
+  // Generate PDF
+  generatePDF: async (invoiceId: string): Promise<{ pdf_url: string }> => {
+    const res = await apiRequest('POST', `/api/invoices/${invoiceId}/pdf`);
+    return res.json();
+  },
+
+  // Send invoice email
+  sendEmail: async (invoiceId: string): Promise<any> => {
+    const res = await apiRequest('POST', `/api/invoices/${invoiceId}/send`);
+    return res.json();
+  },
+
+  // Mark as paid
+  markAsPaid: async (invoiceId: string, data: {
+    paid_at: string;
+    stripe_invoice_id?: string;
+  }): Promise<any> => {
+    const res = await apiRequest('PUT', `/api/invoices/${invoiceId}/mark-paid`, data);
+    return res.json();
+  },
+
+  // Get invoice summary
+  getSummary: async (params?: {
+    start_date?: string;
+    end_date?: string;
+  }): Promise<any> => {
+    const qs = new URLSearchParams();
+    if (params?.start_date) qs.set('start_date', params.start_date);
+    if (params?.end_date) qs.set('end_date', params.end_date);
+    const res = await apiRequest('GET', `/api/invoices/summary${qs.toString() ? `?${qs.toString()}` : ''}`);
+    return res.json();
   },
 };

@@ -2,23 +2,25 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-    "sync"
-    "fmt"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-    rnats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
-    pmetrics "github.com/promptshield/promptshield/internal/observability/metrics"
+	rnats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	"github.com/promptshield/promptshield/internal/license"
+	pmetrics "github.com/promptshield/promptshield/internal/observability/metrics"
+	"github.com/promptshield/promptshield/internal/pdp"
 	"github.com/promptshield/promptshield/internal/usage"
 	"github.com/promptshield/promptshield/internal/version"
-	"github.com/promptshield/promptshield/internal/pdp"
 )
 
 // Router
@@ -34,8 +36,8 @@ func applyStandardMiddleware(r chi.Router, opt Options) {
 	r.Use(corsMiddleware)
 	// Error recovery and structured error handling
 	r.Use(errorRecoveryMiddleware)
-	// Distributed tracing and header propagation
-	if opt.Telemetry != nil {
+	// Distributed tracing and header propagation (enabled unless PS_GATEWAY_DISABLE_TRACING=1/true/yes)
+	if !disableGatewayTracing() {
 		r.Use(tracingMiddleware)
 	}
 	// Request logging and correlation
@@ -52,13 +54,19 @@ func applyStandardMiddleware(r chi.Router, opt Options) {
 	r.Use(captureBytesMiddleware)
 }
 
+// disableGatewayTracing returns true when gateway tracing is disabled via env.
+func disableGatewayTracing() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_GATEWAY_DISABLE_TRACING")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
 // validateAndSetDefaults ensures required options are set and provides defaults
 func validateAndSetDefaults(opt *Options) {
 	// Required dependencies
 	if opt.RulepackService == nil {
 		panic("RulepackService is required")
 	}
-	
+
 	// Optional dependencies with defaults
 	if opt.ConfigStore == nil {
 		opt.ConfigStore = NewRuntimeConfigStoreFromEnv()
@@ -66,7 +74,7 @@ func validateAndSetDefaults(opt *Options) {
 	if opt.Events == nil {
 		opt.Events = NewEventHub()
 	}
-	
+
 	// Quota store from environment if not provided
 	if opt.QuotaStore == nil {
 		opt.QuotaStore = createQuotaStoreFromEnv()
@@ -77,13 +85,13 @@ func validateAndSetDefaults(opt *Options) {
 func createQuotaStoreFromEnv() usage.QuotaStore {
 	var rps float64
 	var burst int
-	
+
 	if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
 			rps = f
 		}
 	}
-	
+
 	if rps > 0 {
 		if v := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); v != "" {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -92,7 +100,7 @@ func createQuotaStoreFromEnv() usage.QuotaStore {
 		}
 		return usage.NewInMemoryQuota(rps, burst)
 	}
-	
+
 	return nil
 }
 
@@ -101,27 +109,37 @@ func registerAllHandlers(r chi.Router, opt Options) {
 	// Core functionality
 	mountRulepacks(r, opt)
 	mountConfig(r, opt)
-	
+
 	// Tool and agent functionality
 	r.Post("/api/tools/exec", toolExecHandler(opt))
 	registerToolHandlers(r, opt)
 	registerAgentHandlers(r, opt)
 	registerPresetHandlers(r, opt)
-	
+
 	// Enterprise features (safe to mount even if repositories are nil)
 	registerTenantHandlers(r, opt)
 	registerAssignmentHandlers(r, opt)
 	registerAuditHandlers(r, opt)
 	registerUserHandlers(r, opt)
-	
+
 	// System and monitoring
 	registerSystemHandlers(r, opt)
 	registerSettingsHandlers(r, opt)
 	registerBusinessMetricsHandlers(r, opt)
+
+	// Billing and invoicing
+	registerBillingHandlers(r, opt)
+	registerInvoiceHandlers(r, opt)
 }
 
 // registerStandardEndpoints registers health, readiness, and version endpoints
 func registerStandardEndpoints(r chi.Router) {
+	// Prometheus metrics endpoint (enabled when metrics are not disabled)
+	if pmetrics.Enabled() {
+		r.Get("/metrics", func(w http.ResponseWriter, r *http.Request) {
+			promhttp.Handler().ServeHTTP(w, r)
+		})
+	}
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -144,9 +162,14 @@ func registerStandardEndpoints(r chi.Router) {
 // pdpEpochHandler updates the PDP cache epoch at runtime
 func pdpEpochHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body struct{ Epoch string `json:"epoch"` }
+		var body struct {
+			Epoch string `json:"epoch"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if strings.TrimSpace(body.Epoch) == "" { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "epoch is required", nil, r); return }
+		if strings.TrimSpace(body.Epoch) == "" {
+			writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "epoch is required", nil, r)
+			return
+		}
 		pdp.SetPolicyEpoch(body.Epoch)
 		writeJSON(w, http.StatusNoContent, nil, r)
 	}
@@ -157,7 +180,10 @@ func pdpReloadHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Build a new client and swap it in
 		c := buildPDPClientForAdmin()
-		if c == nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to initialize PDP", nil, r); return }
+		if c == nil {
+			writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to initialize PDP", nil, r)
+			return
+		}
 		pdpClient = c
 		// Auto-bump epoch
 		e := fmt.Sprintf("%d", time.Now().UnixNano())
@@ -168,7 +194,7 @@ func pdpReloadHandler() http.HandlerFunc {
 func registerAdminEndpoints(r chi.Router, opt Options) {
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
-		
+
 		// System control
 		a.Post("/admin/drain", drainHandler(opt))
 		a.Post("/admin/shutdown", shutdownHandler(opt))
@@ -210,9 +236,11 @@ func shutdownHandler(opt Options) http.HandlerFunc {
 func toolPolicyFlushHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Optional tenant-scoped flush (JSON body: {"tenant_id":"..."})
-		var req struct{ TenantID string `json:"tenant_id"` }
+		var req struct {
+			TenantID string `json:"tenant_id"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		
+
 		// Immediate local flush
 		tenantID := strings.TrimSpace(req.TenantID)
 		if tenantID != "" {
@@ -220,13 +248,13 @@ func toolPolicyFlushHandler(opt Options) http.HandlerFunc {
 		} else {
 			flushToolPolicyCache()
 		}
-		
+
 		// Bump global epoch for cluster-wide invalidation
 		updateToolPolicyEpoch(r, opt)
-		
+
 		// Publish push invalidation event via NATS (if configured)
 		publishToolPolicyFlush(tenantID)
-		
+
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -236,24 +264,24 @@ func updateToolPolicyEpoch(r *http.Request, opt Options) {
 	if opt.SettingsRepository == nil {
 		return
 	}
-	
+
 	s, err := opt.SettingsRepository.Get(r.Context())
 	if err != nil || s == nil {
 		return
 	}
-	
+
 	var raw map[string]any
 	_ = json.NewDecoder(strings.NewReader(string(s.Settings))).Decode(&raw)
 	if raw == nil {
 		raw = map[string]any{}
 	}
-	
+
 	if v, ok := raw["tool_policy_epoch"].(float64); ok {
 		raw["tool_policy_epoch"] = int64(v) + 1
 	} else {
 		raw["tool_policy_epoch"] = 1
 	}
-	
+
 	raw["updated_by"] = getUserFromContext(r.Context())
 	raw["updated_at"] = time.Now().UTC()
 	_, _ = opt.SettingsRepository.Update(r.Context(), raw)
@@ -265,20 +293,23 @@ func publishToolPolicyFlush(tenantID string) {
 	if addr == "" {
 		return
 	}
-	
+
 	ev := rnats.ToolPolicyFlush{
 		TenantID: tenantID,
 		At:       time.Now().UTC(),
 		Reason:   "admin_flush",
 	}
-	
+
 	_ = rnats.PublishToolPolicyFlush(addr, ev)
-	
+
 	scope := "global"
 	if ev.TenantID != "" {
 		scope = "tenant"
 	}
-	
+	if pmetrics.Enabled() {
+		pmetrics.PolicyFlushEventsTotal.WithLabelValues("publisher", scope).Inc()
+	}
+
 	logger := slog.With("component", "policy-flush-publisher")
 	logger.Info("published tool policy flush", "scope", scope, "tenant_id", ev.TenantID)
 }
@@ -297,7 +328,7 @@ func registerLicenseEndpoints(r chi.Router, opt Options) {
 			"entitlements": ent,
 		})
 	})
-	
+
 	// Admin-only license rotation
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
@@ -332,11 +363,17 @@ func registerSecurityEndpoints(r chi.Router, opt Options) {
 		if opt.QuotaStore != nil {
 			g.Use(tenantQuota(opt))
 		}
-		
+
+		// Billing middleware for quota enforcement
+		if opt.UsageTracker != nil {
+			billingMiddleware := NewBillingMiddleware(opt.UsageTracker)
+			// Enforce API call quotas
+			g.Use(billingMiddleware.EnforceAPICallQuotaMiddleware())
+		}
+
 		g.Post("/check", checkHandlerVersioned(opt))
 	})
 }
-
 
 // registerObservabilityEndpoints registers observability and monitoring endpoints
 func registerObservabilityEndpoints(r chi.Router, opt Options) {
@@ -353,14 +390,14 @@ func eventsStreamHandler(opt Options) http.HandlerFunc {
 		if f, ok := w.(http.Flusher); ok {
 			flusher = f
 		}
-		
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		
+
 		ch := opt.Events.Subscribe(r.Context().Done())
 		defer opt.Events.Unsubscribe(ch)
-		
+
 		// Optional type filtering
 		var filters map[string]struct{}
 		if v := strings.TrimSpace(r.URL.Query().Get("types")); v != "" {
@@ -371,13 +408,13 @@ func eventsStreamHandler(opt Options) http.HandlerFunc {
 				}
 			}
 		}
-		
+
 		// Send initial ready event
 		_, _ = w.Write([]byte("event: ready\ndata: {\"status\":\"ok\"}\n\n"))
 		if flusher != nil {
 			flusher.Flush()
 		}
-		
+
 		// Stream events
 		notify := r.Context().Done()
 		for {
@@ -404,17 +441,17 @@ func eventsStreamHandler(opt Options) http.HandlerFunc {
 
 func NewMux(opt Options) http.Handler {
 	r := chi.NewRouter()
-	
+
 	// Reset PDP client between mux instances when PDP endpoint is not configured.
 	// This improves test isolation so a prior test enabling PDP does not affect others.
 	if strings.TrimSpace(os.Getenv("PS_PDP_ENDPOINT")) == "" && strings.ToLower(strings.TrimSpace(os.Getenv("PS_PDP_MODE"))) != "inprocess" {
 		pdpClient = nil
 		pdpOnce = sync.Once{}
 	}
-	
+
 	// Apply standard middleware chain
 	applyStandardMiddleware(r, opt)
-	
+
 	// Multi-tenant validation (tenant routing only - auth handled by frontend)
 	if opt.DB != nil {
 		r.Use(tenantValidationMiddleware(opt.DB))
@@ -433,33 +470,40 @@ func NewMux(opt Options) http.Handler {
 	// Security Gateway - no complex usage/quota management needed
 
 	// Start Redis pub/sub subscriber for tool policy flush if configured
-    if addr := strings.TrimSpace(os.Getenv("PS_NATS_URL")); addr != "" {
-        _ = addr // silence unused in certain builds
-        startFlushSubscriberOnce.Do(func(){
-            slog.With("component","policy-flush-subscriber").Info("starting subscriber", "addr", addr)
-            pmetrics.PolicyFlushSubscriberUp.Set(1)
-            _ = rnats.StartToolPolicyFlushSubscriber(addr, func(ev rnats.ToolPolicyFlush){
-                // Metrics: latency and counters
-                scope := "global"; if ev.TenantID != "" { scope = "tenant" }
-                if !ev.At.IsZero() {
-                    if d := time.Since(ev.At); d >= 0 {
-                        pmetrics.PolicyFlushLatencySeconds.WithLabelValues(scope).Observe(d.Seconds())
-                    }
-                }
-                pmetrics.PolicyFlushEventsTotal.WithLabelValues("subscriber", scope).Inc()
-                // Log
-                logger := slog.With("component", "policy-flush-subscriber")
-                logger.Info("received tool policy flush", "scope", scope, "tenant_id", ev.TenantID)
-                pmetrics.PolicyFlushLastReceiveUnixSeconds.Set(float64(time.Now().Unix()))
-                // Apply flush
-                if ev.TenantID != "" { flushToolPolicyCacheTenant(ev.TenantID) } else { flushToolPolicyCache() }
-            })
-        })
-    }
-    if strings.TrimSpace(os.Getenv("PS_NATS_URL")) == "" {
-        slog.With("component","policy-flush-subscriber").Info("subscriber disabled; PS_NATS_URL empty")
-        pmetrics.PolicyFlushSubscriberUp.Set(0)
-    }
+	if addr := strings.TrimSpace(os.Getenv("PS_NATS_URL")); addr != "" {
+		_ = addr // silence unused in certain builds
+		startFlushSubscriberOnce.Do(func() {
+			slog.With("component", "policy-flush-subscriber").Info("starting subscriber", "addr", addr)
+			pmetrics.PolicyFlushSubscriberUp.Set(1)
+			_ = rnats.StartToolPolicyFlushSubscriber(addr, func(ev rnats.ToolPolicyFlush) {
+				// Metrics: latency and counters
+				scope := "global"
+				if ev.TenantID != "" {
+					scope = "tenant"
+				}
+				if !ev.At.IsZero() {
+					if d := time.Since(ev.At); d >= 0 {
+						pmetrics.PolicyFlushLatencySeconds.WithLabelValues(scope).Observe(d.Seconds())
+					}
+				}
+				pmetrics.PolicyFlushEventsTotal.WithLabelValues("subscriber", scope).Inc()
+				// Log
+				logger := slog.With("component", "policy-flush-subscriber")
+				logger.Info("received tool policy flush", "scope", scope, "tenant_id", ev.TenantID)
+				pmetrics.PolicyFlushLastReceiveUnixSeconds.Set(float64(time.Now().Unix()))
+				// Apply flush
+				if ev.TenantID != "" {
+					flushToolPolicyCacheTenant(ev.TenantID)
+				} else {
+					flushToolPolicyCache()
+				}
+			})
+		})
+	}
+	if strings.TrimSpace(os.Getenv("PS_NATS_URL")) == "" {
+		slog.With("component", "policy-flush-subscriber").Info("subscriber disabled; PS_NATS_URL empty")
+		pmetrics.PolicyFlushSubscriberUp.Set(0)
+	}
 
 	// Admin endpoints
 	registerAdminEndpoints(r, opt)
@@ -490,21 +534,36 @@ func NewMux(opt Options) http.Handler {
 
 // (removed) registerPolicyHandlers — policy endpoints are registered elsewhere
 
-// registerServiceControlHandlers registers service control endpoints
-func registerServiceControlHandlers(r chi.Router, opt Options) {
-	if opt.DB == nil {
-		// Service control requires database connection
-		println("WARNING: Service control disabled - no database connection")
-		return
+// registerBillingHandlers registers billing-related endpoints
+func registerBillingHandlers(r chi.Router, opt Options) {
+	if opt.BillingService == nil {
+		return // No billing service configured
 	}
 
-	// Create mock service manager for now (replace with real implementation)
-	serviceManager := NewMockServiceManager()
+	billingHandler := NewBillingHandler(opt.BillingService)
 
-	// Create service control handlers
-	handlers := NewServiceControlHandlers(opt.DB, serviceManager, opt.Events)
+	r.Group(func(g chi.Router) {
+		// Add tenant context middleware
+		g.Use(tenantContextMiddleware)
 
-	// Register routes
-	handlers.RegisterServiceRoutes(r, opt)
-	println("INFO: Service control endpoints registered at /api/v1/services")
+		// Register billing routes
+		billingHandler.RegisterRoutes(g)
+	})
+}
+
+// registerInvoiceHandlers registers invoice-related endpoints
+func registerInvoiceHandlers(r chi.Router, opt Options) {
+	if opt.InvoiceService == nil {
+		return // No invoice service configured
+	}
+
+	invoiceHandler := NewInvoiceHandler(opt.InvoiceService)
+
+	r.Group(func(g chi.Router) {
+		// Add tenant context middleware
+		g.Use(tenantContextMiddleware)
+
+		// Register invoice routes
+		invoiceHandler.RegisterRoutes(g)
+	})
 }

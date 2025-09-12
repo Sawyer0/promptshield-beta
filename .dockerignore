@@ -1,0 +1,15 @@
+# Global ignore for Docker build context
+.git
+.gitignore
+node_modules
+**/node_modules
+**/.next
+**/dist
+**/build
+**/*.log
+**/.DS_Store
+**/tmp
+**/.cache
+frontend/RulepackManager/node_modules
+frontend/RulepackManager/dist
+

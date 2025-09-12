@@ -15,7 +15,6 @@ import (
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 )
 
-
 // stubToolRunner echoes args
 
 type stubToolRunner struct{}
@@ -29,7 +28,7 @@ func (t *stubToolRunner) Execute(ctx context.Context, req contracts.ToolExecRequ
 	}, nil
 }
 
-func setupPDPServer(t *testing.T, handler func(map[string]any) map[string]any) *httptest.Server {
+func setupPDPServer(_ *testing.T, handler func(map[string]any) map[string]any) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&payload)
@@ -38,20 +37,20 @@ func setupPDPServer(t *testing.T, handler func(map[string]any) map[string]any) *
 	}))
 }
 
-func newTestMux(t *testing.T) http.Handler {
+func newTestMux(_ *testing.T) http.Handler {
 	// Reset PDP client (package-level) between tests
 	pdpClient = nil
 	pdpOnce = sync.Once{}
-	opt := Options{ RulepackService: &services.RulepackService{}, ToolRunner: &stubToolRunner{} }
+	opt := Options{RulepackService: &services.RulepackService{}, ToolRunner: &stubToolRunner{}}
 	return NewMux(opt)
 }
 
 func TestPDP_ToolInvoke_Deny(t *testing.T) {
 	ts := setupPDPServer(t, func(p map[string]any) map[string]any {
 		if p["action"] == "tool.invoke" {
-			return map[string]any{"decision":"DENY","reason":"deny_tool"}
+			return map[string]any{"decision": "DENY", "reason": "deny_tool"}
 		}
-		return map[string]any{"decision":"PERMIT"}
+		return map[string]any{"decision": "PERMIT"}
 	})
 	defer ts.Close()
 	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
@@ -72,7 +71,7 @@ func TestPDP_ToolInvoke_Deny(t *testing.T) {
 }
 
 func TestPDP_ToolInvoke_Permit(t *testing.T) {
-	ts := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision":"PERMIT"} })
+	ts := setupPDPServer(t, func(p map[string]any) map[string]any { return map[string]any{"decision": "PERMIT"} })
 	defer ts.Close()
 	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
 	t.Setenv("PS_PDP_ENDPOINT", ts.URL)
@@ -86,7 +85,7 @@ func TestPDP_ToolInvoke_Permit(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	mux.ServeHTTP(rec, req)
-if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
@@ -94,9 +93,9 @@ if rec.Code != http.StatusOK {
 func TestPDP_Check_Deny(t *testing.T) {
 	ts := setupPDPServer(t, func(p map[string]any) map[string]any {
 		if p["action"] == "message.send" {
-			return map[string]any{"decision":"DENY","reason":"deny_msg"}
+			return map[string]any{"decision": "DENY", "reason": "deny_msg"}
 		}
-		return map[string]any{"decision":"PERMIT"}
+		return map[string]any{"decision": "PERMIT"}
 	})
 	defer ts.Close()
 	t.Setenv("PS_DEV_BYPASS_AUTH", "true")
@@ -113,4 +112,3 @@ func TestPDP_Check_Deny(t *testing.T) {
 		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 }
-

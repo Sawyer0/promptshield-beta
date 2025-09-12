@@ -1,0 +1,39 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: promptshield-enforcer-rules
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+    prometheus: kube-prometheus-stack-prometheus
+    app.kubernetes.io/managed-by: agent-mode
+spec:
+  groups:
+  - name: promptshield.enforcer
+    interval: 30s
+    rules:
+    - alert: PromptShieldEnforcerDown
+      expr: max by (namespace, job) (up{job=~"promptshield-enforcer|promptshield-enforcer-eu"} == 0)
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: Enforcer target is down
+        description: Prometheus cannot scrape one or more enforcer targets.
+    - alert: PromptShieldHighCPU
+      expr: rate(process_cpu_seconds_total{job=~"promptshield-enforcer|promptshield-enforcer-eu"}[5m]) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: High CPU usage by enforcer
+        description: CPU > 80% for 5m.
+    - alert: PromptShieldNoRedactions
+      expr: increase(ps_extproc_redactions_total{job=~"promptshield-enforcer|promptshield-enforcer-eu"}[30m]) == 0
+      for: 30m
+      labels:
+        severity: info
+      annotations:
+        summary: No redactions observed
+        description: Zero redactions in the last 30 minutes. Investigate traffic or rulepacks.
+

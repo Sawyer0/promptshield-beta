@@ -37,7 +37,17 @@ sr.Post("/shutdown", func(w http.ResponseWriter, r *http.Request) {
             if ok, reason := authorizePDP(r, "system.shutdown", "system", "shutdown", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
             shutdownSystemHandler(opt)(w,r)
         })
-sr.Get("/info", func(w http.ResponseWriter, r *http.Request) {
+        // Seal yesterday's audit Merkle root
+        sr.Post("/audits/seal", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "audits.seal", "audits", "seal", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            if opt.DB == nil { writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "database not configured", nil, r); return }
+            if _, err := opt.DB.ExecContext(r.Context(), "SELECT seal_yesterday_root()"); err != nil {
+                writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "seal failed", map[string]any{"error": err.Error()}, r)
+                return
+            }
+            writeJSON(w, http.StatusOK, map[string]any{"status":"ok","sealed":"yesterday"}, r)
+        })
+        sr.Get("/info", func(w http.ResponseWriter, r *http.Request) {
             if ok, reason := authorizePDP(r, "system.read", "system", "info", nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
             getSystemInfoHandler(opt)(w,r)
         })

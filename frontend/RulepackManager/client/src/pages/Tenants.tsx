@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Layout } from "@/components/Layout";
+import { AdminLayout } from "@/components/platform/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,7 +136,7 @@ export default function Tenants() {
   const isEditing = !!editingTenant;
 
   return (
-    <Layout 
+<AdminLayout 
       title="Tenants" 
       description="Manage tenant organizations and access"
     >
@@ -329,6 +329,6 @@ export default function Tenants() {
           </Form>
         </DialogContent>
       </Dialog>
-    </Layout>
+</AdminLayout>
   );
 }

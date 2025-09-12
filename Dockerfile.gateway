@@ -43,8 +43,7 @@ RUN apt-get update && \
       apt-get install -y --no-install-recommends libhyperscan5; \
     fi && \
     rm -rf /var/lib/apt/lists/* && \
-    useradd -m -u 10001 app && \
-    mkdir -p /rules
+    useradd -m -u 10001 app
 COPY --from=builder /out/ps-gateway /usr/local/bin/ps-gateway
 
 USER app

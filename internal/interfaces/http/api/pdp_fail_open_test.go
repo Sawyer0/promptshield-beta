@@ -11,7 +11,7 @@ import (
 )
 
 // PDP server that returns 500 to simulate upstream error
-func setupPDPServer500(t *testing.T) *httptest.Server {
+func setupPDPServer500(_ *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))

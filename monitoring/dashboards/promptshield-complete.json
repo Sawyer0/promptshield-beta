@@ -55,7 +55,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "targets": [
         {
-          "expr": "sum(rate(ps_requests_total{tenant_id=~\"$tenant_id\"}[1m])) * 60",
+"expr": "sum(rate(ps_enforcer_requests_total[1m])) * 60",
           "refId": "A"
         }
       ],
@@ -98,7 +98,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
       "targets": [
         {
-          "expr": "((sum(ps_requests_total{tenant_id=~\"$tenant_id\"}) - sum(ps_errors_total{tenant_id=~\"$tenant_id\"})) / sum(ps_requests_total{tenant_id=~\"$tenant_id\"})) * 100",
+"expr": "((sum(ps_enforcer_requests_total) - sum(ps_llm_errors_total)) / sum(ps_enforcer_requests_total)) * 100",
           "refId": "A"
         }
       ],
@@ -125,22 +125,22 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "targets": [
         {
-          "expr": "sum(rate(ps_requests_total{tenant_id=~\"$tenant_id\"}[5m]))",
+"expr": "sum(rate(ps_enforcer_requests_total[5m]))",
           "legendFormat": "Request Rate",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.50, sum(rate(ps_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m])) by (le)) * 1000",
+"expr": "histogram_quantile(0.50, sum(rate(ps_enforcer_request_duration_seconds_bucket[5m])) by (le)) * 1000",
           "legendFormat": "P50 Latency (ms)",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(ps_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m])) by (le)) * 1000",
+"expr": "histogram_quantile(0.95, sum(rate(ps_enforcer_request_duration_seconds_bucket[5m])) by (le)) * 1000",
           "legendFormat": "P95 Latency (ms)",
           "refId": "C"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(ps_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m])) by (le)) * 1000",
+"expr": "histogram_quantile(0.99, sum(rate(ps_enforcer_request_duration_seconds_bucket[5m])) by (le)) * 1000",
           "legendFormat": "P99 Latency (ms)",
           "refId": "D"
         }
@@ -238,7 +238,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 12 },
       "targets": [
         {
-          "expr": "topk(10, sum by (rule_id) (ps_violations_total{tenant_id=~\"$tenant_id\"}))",
+"expr": "topk(10, sum by (rule_id, severity) (ps_extproc_rule_hits_total))",
           "legendFormat": "{{rule_id}}",
           "refId": "A"
         }
@@ -260,7 +260,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 12 },
       "targets": [
         {
-          "expr": "sum(rate(ps_request_duration_seconds_bucket{tenant_id=~\"$tenant_id\"}[5m])) by (le)",
+"expr": "sum(rate(ps_enforcer_request_duration_seconds_bucket[5m])) by (le)",
           "refId": "A"
         }
       ]

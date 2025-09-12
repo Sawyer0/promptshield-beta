@@ -32,6 +32,9 @@ export interface EnvironmentConfig {
   gatewayUrl: string;
   adminToken?: string;
   
+  // Observability
+  promUrl?: string; // Prometheus base URL (e.g., http://localhost:9090)
+  
   // Feature Flags
   allowSelfTenantSignup: boolean;
   enableDebugEndpoints: boolean;
@@ -78,6 +81,9 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
     // Gateway Configuration
     gatewayUrl: process.env.PS_GATEWAY_URL || 'http://localhost:8098',
     adminToken: process.env.PS_ADMIN_TOKEN,
+    
+    // Observability
+    promUrl: process.env.PROM_URL || process.env.PS_PROM_URL || 'http://localhost:9090',
     
     // Feature Flags
     allowSelfTenantSignup: (process.env.PS_ALLOW_SELF_TENANT_SIGNUP || '').toLowerCase() === 'true',
@@ -138,6 +144,11 @@ export function validateEnvironmentConfig(config: EnvironmentConfig): string[] {
     }
   }
   
+  // Observability validation (warn only)
+  if (config.promUrl) {
+    try { new URL(config.promUrl); } catch { /* ignore, dev can use port-forward later */ }
+  }
+  
   // Rate limiting validation
   if (config.inviteRateLimit <= 0) {
     errors.push('PS_INVITE_RATE_LIMIT must be a positive number');
@@ -165,6 +176,7 @@ export function logEnvironmentConfig(config: EnvironmentConfig): void {
     jwtAudience: config.jwtAudience,
     jwtTtl: config.jwtTtl,
     gatewayUrl: config.gatewayUrl,
+    promUrl: config.promUrl,
     allowSelfTenantSignup: config.allowSelfTenantSignup,
     enableDebugEndpoints: config.enableDebugEndpoints,
     sessionCookieSecure: config.sessionCookieSecure,

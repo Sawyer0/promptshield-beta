@@ -1,19 +1,20 @@
 package api
 
 import (
-    "context"
-    "net/http"
-    "time"
+	"context"
+	"net/http"
+	"time"
 
-    "github.com/promptshield/promptshield/internal/application/services"
-    "github.com/promptshield/promptshield/internal/domain"
-    "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
-    "github.com/promptshield/promptshield/internal/observability/telemetry"
-    "github.com/promptshield/promptshield/internal/rules"
-    "github.com/promptshield/promptshield/internal/scanner"
-    "github.com/promptshield/promptshield/internal/shared/contracts"
-    "github.com/promptshield/promptshield/internal/usage"
-    pkg "github.com/promptshield/promptshield/pkg/types"
+	"github.com/promptshield/promptshield/internal/application"
+	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/domain"
+	"github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
+	"github.com/promptshield/promptshield/internal/observability/telemetry"
+	"github.com/promptshield/promptshield/internal/rules"
+	"github.com/promptshield/promptshield/internal/scanner"
+	"github.com/promptshield/promptshield/internal/shared/contracts"
+	"github.com/promptshield/promptshield/internal/usage"
+	pkg "github.com/promptshield/promptshield/pkg/types"
 )
 
 // Options configures the API mux.
@@ -39,6 +40,12 @@ type Options struct {
 	OnShutdown func(ctx context.Context, delay time.Duration) error
 	// QuotaStore enables per-tenant rate limiting when set.
 	QuotaStore usage.QuotaStore
+	// UsageTracker tracks usage for billing purposes
+	UsageTracker *usage.UsageTracker
+	// BillingService handles subscription and billing operations
+	BillingService application.BillingService
+	// InvoiceService handles invoice generation and management
+	InvoiceService application.InvoiceService
 	// Security Gateway uses simple token auth only
 	// Telemetry provides OpenTelemetry tracing and metrics collection
 	Telemetry *telemetry.Collector
@@ -53,7 +60,6 @@ type Options struct {
 
 	// Security Gateway - no routing needed
 
-
 	// Tool runner
 	ToolRunner contracts.ToolRunner
 
@@ -67,15 +73,15 @@ type Options struct {
 		ReloadRulepacks() error
 	}
 
-    // PlanState for Plan-Then-Execute and Dual-LLM lane tokens
-    PlanState contracts.PlanState
+	// PlanState for Plan-Then-Execute and Dual-LLM lane tokens
+	PlanState contracts.PlanState
 }
 
 func versionHeader(v string) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            w.Header().Set("X-PS-API-Version", v)
-            next.ServeHTTP(w, r)
-        })
-    }
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-PS-API-Version", v)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

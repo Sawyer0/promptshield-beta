@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,10 +22,35 @@ func NewPool(ctx context.Context, dsn string) (*Pool, error) {
 		return nil, fmt.Errorf("postgres dsn required")
 	}
 
-	// Optional Aurora IAM auth is disabled in OSS build to avoid AWS dependencies.
-	// If PS_DB_IAM_USER is set, return an explicit error so operators know to provide PS_PG_DSN.
-	if os.Getenv("PS_DB_IAM_USER") != "" {
-		return nil, fmt.Errorf("Aurora IAM auth not available in OSS build; please set PS_PG_DSN")
+	// Optional Aurora IAM auth: if PS_DB_IAM_USER is set, use BeforeConnect to mint tokens per connection
+	if iamUser := strings.TrimSpace(os.Getenv("PS_DB_IAM_USER")); iamUser != "" {
+		writer := strings.TrimSpace(os.Getenv("AURORA_WRITER"))
+		if writer == "" { writer = strings.TrimSpace(os.Getenv("AURORA_PROXY_ENDPOINT")) }
+		region := strings.TrimSpace(os.Getenv("AURORA_REGION"))
+		if region == "" { region = "us-east-1" }
+		if writer == "" {
+			return nil, fmt.Errorf("AURORA_WRITER or AURORA_PROXY_ENDPOINT must be set when PS_DB_IAM_USER is configured")
+		}
+		cfg, err := pgxpool.ParseConfig(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("parse dsn: %w", err)
+		}
+		cfg.BeforeConnect = func(ctx context.Context, cc *pgx.ConnConfig) error {
+			awsCfg, err := awscfg.LoadDefaultConfig(ctx, awscfg.WithRegion(region))
+			if err != nil { return fmt.Errorf("load aws config: %w", err) }
+			token, err := auth.BuildAuthToken(ctx, writer+":5432", region, iamUser, awsCfg.Credentials)
+			if err != nil { return fmt.Errorf("build auth token: %w", err) }
+			cc.Host = writer
+			cc.Port = 5432
+			cc.User = iamUser
+			cc.Password = token
+			return nil
+		}
+		pool, err := pgxpool.NewWithConfig(ctx, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (iam): %w", err)
+		}
+		return &Pool{inner: pool}, nil
 	}
 
 	pool, err := pgxpool.New(ctx, dsn)

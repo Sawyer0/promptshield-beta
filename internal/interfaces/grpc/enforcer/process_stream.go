@@ -154,9 +154,11 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
                         tenantScResp.SetQuarantineOnTimeout(true)
                         tenantScResp.SetQuarantineOnError(true)
                     }
-                    // Load the matched packs into both scanners
+                    // Load the matched packs into both scanners with observation
+                    t0 := time.Now()
                     tenantScReq.LoadRulePacks(packs)
                     tenantScResp.LoadRulePacks(packs)
+                    if metrics.Enabled() { metrics.RuleCompilationDuration.WithLabelValues("success").Observe(time.Since(t0).Seconds()) }
 
                     // Explicit log for observability: which packs applied, endpoint, method
                     {

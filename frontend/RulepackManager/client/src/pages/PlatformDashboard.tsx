@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { Layout } from '@/components/Layout';
+import { AdminLayout } from '@/components/platform/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -127,7 +127,7 @@ export default function PlatformDashboard() {
   };
 
   return (
-    <Layout title="Platform Dashboard" description="SaaS platform management and monitoring">
+<AdminLayout title="Platform Overview" description="SaaS platform management and monitoring">
       <div className="space-y-6">
         {/* Platform Overview Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -382,6 +382,6 @@ export default function PlatformDashboard() {
           </CardContent>
         </Card>
       </div>
-    </Layout>
+</AdminLayout>
   );
 }

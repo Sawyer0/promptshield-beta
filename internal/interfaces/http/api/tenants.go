@@ -7,29 +7,160 @@ import (
 	"time"
 
 	"strings"
+	"errors"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgconn"
 	"github.com/promptshield/promptshield/internal/domain"
 )
 
 // registerTenantHandlers registers all tenant-related endpoints
 func registerTenantHandlers(r chi.Router, opt Options) {
-	r.Route("/admin/tenants", func(tr chi.Router) {
-		tr.Use(adminAuth(opt))
+    r.Route("/admin/tenants", func(tr chi.Router) {
+        tr.Use(adminAuth(opt))
 
-		tr.Post("/", createTenantHandler(opt))
-		tr.Get("/", listTenantsHandler(opt))
-		tr.Get("/{id}", getTenantHandler(opt))
-		tr.Put("/{id}", updateTenantHandler(opt))
-		tr.Delete("/{id}", deleteTenantHandler(opt))
-	})
+        tr.Post("/", createTenantHandler(opt))
+        tr.Get("/", listTenantsHandler(opt))
+        tr.Get("/{id}", getTenantHandler(opt))
+        tr.Put("/{id}", updateTenantHandler(opt))
+        tr.Delete("/{id}", deleteTenantHandler(opt))
+        // Refresh endpoint→rulepack snapshots for a tenant
+        tr.Post("/{id}/snapshots/refresh", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "snapshots.refresh", "tenant", chi.URLParam(r, "id"), nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            if opt.DB == nil { writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "database not configured", nil, r); return }
+            idStr := chi.URLParam(r, "id")
+            id, err := uuid.Parse(idStr)
+            if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tenant id", map[string]any{"id": idStr}, r); return }
+            if _, err := opt.DB.ExecContext(r.Context(), "SELECT refresh_endpoint_snapshots($1)", id); err != nil {
+                writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "refresh failed", map[string]any{"error": err.Error()}, r)
+                return
+            }
+            writeJSON(w, http.StatusOK, map[string]any{"status":"ok","tenant_id": id.String()}, r)
+        })
+
+        // Inspect current endpoint→rulepack snapshots (debugging/ops)
+        tr.Get("/{id}/snapshots", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "snapshots.read", "tenant", chi.URLParam(r, "id"), nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            if opt.DB == nil { writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "database not configured", nil, r); return }
+            idStr := chi.URLParam(r, "id")
+            id, err := uuid.Parse(idStr)
+            if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tenant id", map[string]any{"id": idStr}, r); return }
+            const q = `SELECT method, endpoint_template, rulepack_ids::text, generated_at
+                       FROM endpoint_rulepack_snapshots
+                       WHERE tenant_id = $1
+                       ORDER BY endpoint_template, method`
+            rows, err := opt.DB.QueryContext(r.Context(), q, id)
+            if err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", map[string]any{"error": err.Error()}, r); return }
+            defer rows.Close()
+            type snap struct {
+                Method           string    `json:"method"`
+                EndpointTemplate string    `json:"endpoint_template"`
+                RulepackIDs      []string  `json:"rulepack_ids"`
+                GeneratedAt      time.Time `json:"generated_at"`
+            }
+            out := []snap{}
+            for rows.Next() {
+                var m, tpl, idsText string
+                var gen time.Time
+                if err := rows.Scan(&m, &tpl, &idsText, &gen); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "scan failed", map[string]any{"error": err.Error()}, r); return }
+                out = append(out, snap{Method: m, EndpointTemplate: tpl, RulepackIDs: parsePGArray(idsText), GeneratedAt: gen})
+            }
+            if err := rows.Err(); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "iteration failed", map[string]any{"error": err.Error()}, r); return }
+            writeJSON(w, http.StatusOK, map[string]any{"tenant_id": id.String(), "snapshots": out, "count": len(out)}, r)
+        })
+
+        // Inspect snapshot misses (unresolved endpoints) with optional time range and raw toggle
+        // GET /v1/admin/tenants/{id}/snapshots/misses?from=RFC3339&to=RFC3339&raw=true|false
+        tr.Get("/{id}/snapshots/misses", func(w http.ResponseWriter, r *http.Request) {
+            if ok, reason := authorizePDP(r, "snapshots.read", "tenant", chi.URLParam(r, "id"), nil, true); !ok { writeErrorJSON(w, http.StatusForbidden, "PDP_DENY", "not authorized: "+reason, nil, r); return }
+            if opt.DB == nil { writeErrorJSON(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "database not configured", nil, r); return }
+            idStr := chi.URLParam(r, "id")
+            id, err := uuid.Parse(idStr)
+            if err != nil { writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid tenant id", map[string]any{"id": idStr}, r); return }
+            // parse time window
+            now := time.Now()
+            fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
+            toStr := strings.TrimSpace(r.URL.Query().Get("to"))
+            var from time.Time
+            var to time.Time
+            if fromStr == "" { from = now.Add(-24 * time.Hour) } else { if t, e := time.Parse(time.RFC3339, fromStr); e == nil { from = t } else { from = now.Add(-24 * time.Hour) } }
+            if toStr == "" { to = now } else { if t, e := time.Parse(time.RFC3339, toStr); e == nil { to = t } else { to = now } }
+
+            raw := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("raw")), "true")
+            if raw {
+                const q = `SELECT method, endpoint, template, created_at
+                           FROM endpoint_snapshot_misses
+                           WHERE tenant_id = $1 AND created_at BETWEEN $2 AND $3
+                           ORDER BY created_at DESC`
+                rows, err := opt.DB.QueryContext(r.Context(), q, id, from, to)
+                if err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", map[string]any{"error": err.Error()}, r); return }
+                defer rows.Close()
+                type miss struct {
+                    Method    string    `json:"method"`
+                    Endpoint  string    `json:"endpoint"`
+                    Template  string    `json:"template"`
+                    CreatedAt time.Time `json:"created_at"`
+                }
+                out := []miss{}
+                for rows.Next() {
+                    var m, ep, tpl string
+                    var ts time.Time
+                    if err := rows.Scan(&m, &ep, &tpl, &ts); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "scan failed", map[string]any{"error": err.Error()}, r); return }
+                    out = append(out, miss{Method: m, Endpoint: ep, Template: tpl, CreatedAt: ts})
+                }
+                if err := rows.Err(); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "iteration failed", map[string]any{"error": err.Error()}, r); return }
+                writeJSON(w, http.StatusOK, map[string]any{"tenant_id": id.String(), "from": from, "to": to, "raw": true, "misses": out, "count": len(out)}, r)
+                return
+            }
+
+            // Aggregated view
+            const qa = `SELECT method, template, COUNT(*) AS misses, MIN(created_at) AS first_seen, MAX(created_at) AS last_seen
+                        FROM endpoint_snapshot_misses
+                        WHERE tenant_id = $1 AND created_at BETWEEN $2 AND $3
+                        GROUP BY method, template
+                        ORDER BY misses DESC`
+            rows, err := opt.DB.QueryContext(r.Context(), qa, id, from, to)
+            if err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "query failed", map[string]any{"error": err.Error()}, r); return }
+            defer rows.Close()
+            type agg struct {
+                Method    string    `json:"method"`
+                Template  string    `json:"template"`
+                Misses    int64     `json:"misses"`
+                FirstSeen time.Time `json:"first_seen"`
+                LastSeen  time.Time `json:"last_seen"`
+            }
+            out := []agg{}
+            for rows.Next() {
+                var a agg
+                if err := rows.Scan(&a.Method, &a.Template, &a.Misses, &a.FirstSeen, &a.LastSeen); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "scan failed", map[string]any{"error": err.Error()}, r); return }
+                out = append(out, a)
+            }
+            if err := rows.Err(); err != nil { writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "iteration failed", map[string]any{"error": err.Error()}, r); return }
+            writeJSON(w, http.StatusOK, map[string]any{"tenant_id": id.String(), "from": from, "to": to, "raw": false, "misses": out, "count": len(out)}, r)
+        })
+    })
     // Non-admin: list tenants for current user (based on membership)
     r.Get("/tenants/my", listMyTenantsHandler(opt))
     // Public mapping endpoint used by BFF to resolve Clerk org -> tenant
     r.Post("/tenants/resolve", resolveExternalOrgHandler(opt))
     // Self-membership upsert (bypass enforced in tenant middleware)
     r.Post("/tenants/{id}/memberships/self", upsertSelfMembershipHandler(opt))
+}
+
+// parsePGArray parses a simple Postgres text array like {a,b,c} into []string.
+// It does not handle quotes/escapes comprehensively; sufficient for uuid arrays.
+func parsePGArray(s string) []string {
+    s = strings.TrimSpace(s)
+    if s == "" { return nil }
+    if s[0] == '{' && s[len(s)-1] == '}' { s = s[1:len(s)-1] }
+    if s == "" { return []string{} }
+    parts := strings.Split(s, ",")
+    out := make([]string, 0, len(parts))
+    for _, p := range parts {
+        out = append(out, strings.TrimSpace(p))
+    }
+    return out
 }
 
 // createTenantHandler handles POST /v1/admin/tenants
@@ -79,6 +210,13 @@ func createTenantHandler(opt Options) http.HandlerFunc {
 		}
 		err := opt.TenantRepository.Create(r.Context(), tenant)
 		if err != nil {
+			// Map PostgreSQL unique constraint violation to 409 Conflict (tenant already exists)
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				writeErrorJSON(w, http.StatusConflict, "ALREADY_EXISTS",
+					"domain.Tenant with this name already exists", map[string]interface{}{"name": req.Name}, r)
+				return
+			}
 			writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR",
 				"Failed to create tenant", map[string]interface{}{"error": err.Error()}, r)
 			return

@@ -1,38 +1,56 @@
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
-import { useClerk } from '@clerk/clerk-react';
+import { useSafeClerk } from '@/clerk/shim';
 import { isSystemAdmin, getUserSystemRole } from "@/utils/frontendAuth";
-import { Shield, LayoutDashboard, FileText, Building, Link as LinkIcon, ClipboardList, Activity, User, Users, Crown, X, Settings, Target, AlertTriangle, Server } from "lucide-react";
+import { Shield, LayoutDashboard, FileText, Building, Link as LinkIcon, ClipboardList, Activity, User, Users, Crown, X, Settings, Target, AlertTriangle, Server, LineChart, FileSearch, CreditCard, Wrench, FlaskConical } from "lucide-react";
 
 const navigation = [
   // Platform Owner (SaaS Admin) views only
   { name: "Platform Overview", href: "/platform", icon: Activity, view: "platform", roles: ["admin"] },
   { name: "Users", href: "/users", icon: Users, view: "users", roles: ["admin"] },
   { name: "Tenants", href: "/tenants", icon: Building, view: "tenants", roles: ["admin"] },
+  { name: "Compliance", href: "/compliance", icon: Shield, view: "compliance", roles: ["admin"] },
   { name: "System Health", href: "/health", icon: Activity, view: "health", roles: ["admin"] },
+  { name: "Snapshots", href: "/admin/snapshots", icon: FileSearch, view: "admin-snapshots", roles: ["admin"] },
+  { name: "System Admin", href: "/admin/system", icon: Settings, view: "admin-system", roles: ["admin"] },
+  { name: "License", href: "/admin/license", icon: Shield, view: "admin-license", roles: ["admin"] },
+  { name: "Diagnostics", href: "/admin/debug", icon: FileSearch, view: "admin-debug", roles: ["admin"] },
   
   // User views (only for regular users, not platform admins)
   { name: "Dashboard", href: "/", icon: LayoutDashboard, view: "dashboard", roles: ["user"] },
   { name: "RulePacks", href: "/rulepacks", icon: FileText, view: "rulepacks", roles: ["user"] },
+  { name: "Tools", href: "/tools", icon: Wrench, view: "tools", roles: ["user"] },
   { name: "RulePack Assignments", href: "/policies", icon: Target, view: "policy-assignments", roles: ["user"] },
   { name: "Violations", href: "/violations", icon: AlertTriangle, view: "violations", roles: ["user"] },
+  { name: "Violations Summary", href: "/analytics/violations", icon: AlertTriangle, view: "violations-summary", roles: ["user"] },
+  { name: "Usage Analytics", href: "/analytics/usage", icon: LineChart, view: "usage-analytics", roles: ["user"] },
   { name: "Services", href: "/services", icon: Server, view: "services", roles: ["user"] },
+  { name: "Monitoring", href: "/monitoring/enforcer", icon: LineChart, view: "monitoring", roles: ["user"] },
+  { name: "Live Events", href: "/monitoring/live", icon: Activity, view: "live-events", roles: ["user"] },
   { name: "Organization", href: "/organization", icon: Building, view: "organization", roles: ["user"] },
   { name: "Tool Policies", href: "/tool-policies", icon: Settings, view: "tool-policies", roles: ["user"] },
+  { name: "Security Presets", href: "/presets", icon: ClipboardList, view: "presets", roles: ["user"] },
+  { name: "Billing", href: "/billing", icon: CreditCard, view: "billing", roles: ["user"] },
+  { name: "Invoices", href: "/invoices", icon: FileText, view: "invoices", roles: ["user"] },
+  { name: "Experiments", href: "/experiments", icon: FlaskConical, view: "experiments", roles: ["user"] },
+  { name: "Agent Management", href: "/agent", icon: Target, view: "agent", roles: ["user"] },
   { name: "Audit Logs", href: "/audit", icon: ClipboardList, view: "audit", roles: ["user"] },
+  { name: "Compliance", href: "/compliance", icon: Shield, view: "compliance", roles: ["user"] },
 ];
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  mode?: 'admin' | 'user';
 }
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+export function Sidebar({ isOpen, onClose, mode }: SidebarProps) {
   const [location] = useLocation();
   const { user } = useAuth();
-  const userRole = getUserSystemRole();
-  const { signOut } = useClerk();
+  const currentRole = mode || getUserSystemRole();
+  const userRole = currentRole;
+  const { signOut } = useSafeClerk();
 
   const getUserInitials = (user: any) => {
     if (user?.firstName && user?.lastName) {
@@ -112,15 +130,15 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               {navigation
                 .filter((item) => {
                   if (userRole === 'admin') {
-                    return item.roles.includes('admin') && !item.roles.includes('user');
+                    return item.roles.includes('admin');
                   } else {
-                    return item.roles.includes('user') && !item.roles.includes('admin');
+                    return item.roles.includes('user');
                   }
                 })
                 .map((item) => {
                   const isActive = location === item.href;
                   return (
-                    <a
+                    <Link
                       key={item.name}
                       href={item.href}
                       className={cn(
@@ -147,7 +165,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                       {isActive && (
                         <div className="absolute right-3 h-2 w-2 bg-emerald-400 rounded-full shadow-lg shadow-emerald-400/50"></div>
                       )}
-                    </a>
+                    </Link>
                   );
                 })
               }

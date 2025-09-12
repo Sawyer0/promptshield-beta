@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Layout } from "@/components/Layout";
+import { AdminLayout } from "@/components/platform/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,7 @@ export default function SystemHealth() {
   ];
 
   return (
-    <Layout 
+<AdminLayout 
       title="System Health" 
       description="Monitor system status and performance"
     >
@@ -253,6 +253,6 @@ export default function SystemHealth() {
           </CardContent>
         </Card>
       </div>
-    </Layout>
+</AdminLayout>
   );
 }

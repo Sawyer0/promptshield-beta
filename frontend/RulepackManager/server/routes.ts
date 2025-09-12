@@ -4,6 +4,7 @@ import { isAuthenticated, getUserInfo } from "./clerkAuth";
 import { createGatewayProxy } from "./gatewayProxy";
 import { createClerkClient } from '@clerk/backend';
 import { extractUserContext, generateGatewayJWT } from './jwtAuth.js';
+import { registerMetricsApi } from '../api/metrics.js';
 
 // Production BFF router: delegate app endpoints to the Go gateway via /api proxy
 // Keep only auth/session endpoints and health locally.
@@ -53,6 +54,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Derive roles
+      const roles: string[] = [];
+      // Platform admin via env allowlist or dev bypass
+      const platformAdmins = (process.env.PS_PLATFORM_ADMINS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      const emailLc = String(user.email || '').toLowerCase();
+      const devBypass = isDevBypassEnv();
+      const devIsAdmin = (process.env.PS_DEV_IS_ADMIN || '').toLowerCase() === 'true';
+      if ((platformAdmins.includes(emailLc)) || (devBypass && devIsAdmin)) {
+        roles.push('platform_admin');
+      }
+      // Tenant role from signed cookie set during /api/orgs/select
+      const tenantRole = (req.signedCookies && req.signedCookies.ps_tenant_role) || req.cookies?.ps_tenant_role || '';
+      const tRole = String(tenantRole).toLowerCase();
+      if (tRole === 'admin') roles.push('tenant_admin');
+      else if (tRole) roles.push('developer'); // default member -> developer
+      // Allow override via dev roles
+      const devRoles = (process.env.PS_DEV_ROLES || '').split(',').map(s => s.trim()).filter(Boolean);
+      for (const r of devRoles) if (!roles.includes(r)) roles.push(r);
+      // Fallback default role
+      if (!roles.length) roles.push('developer');
+
       // Best-effort sync to backend user directory
       try {
         const { generateGatewayJWT, extractUserContext } = await import('./jwtAuth.js');
@@ -71,7 +93,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Don't fail the request if sync fails
       }
 
-      res.json({ ...user, systemRole: 'user' });
+      res.json({ ...user, systemRole: roles.includes('platform_admin') ? 'admin' : 'user', roles });
     } catch (error) {
       console.error('Auth user endpoint error:', error);
       res.status(500).json({
@@ -89,6 +111,329 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Health under /api for convenience
   app.get('/api/healthz', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Metrics API (Prometheus-backed) — Clerk-protected upstream in gatewayProxy, but this route is local
+  registerMetricsApi(app);
+
+  // Compliance: return static mapping registry (repo default)
+  app.get('/api/compliance/mapping', isAuthenticated, async (_req: any, res: Response) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const filePath = path.resolve(process.cwd(), 'compliance', 'mappings', 'mapping.json');
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'mapping.json not found' } });
+      }
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      res.json({ success: true, data });
+    } catch (error) {
+      res.status(500).json({ error: { code: 'COMPLIANCE_MAPPING_ERROR', message: 'Failed to load mapping', details: String(error instanceof Error ? error.message : error) } });
+    }
+  });
+
+  // Compliance: export evidence (aggregated from mapping + gateway audits/configs)
+  app.get('/api/compliance/export', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      // Load mapping
+      const filePath = path.resolve(process.cwd(), 'compliance', 'mappings', 'mapping.json');
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'mapping.json not found' } });
+      }
+      const mapping = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+      // Params
+      const framework = String(req.query.framework || '').trim();
+      const controlsParam = String(req.query.controls || '').trim();
+      const from = String(req.query.from || '');
+      const to = String(req.query.to || '');
+      const format = (String(req.query.format || 'json').toLowerCase() === 'csv') ? 'csv' : 'json';
+
+      // Tenant context and gateway headers
+      const tenantId = (req.signedCookies && req.signedCookies.ps_tenant_id) || req.cookies?.ps_tenant_id || null;
+      const gw = process.env.PS_GATEWAY_URL || 'http://localhost:8098';
+      const userCtx = extractUserContext(req);
+      const token = generateGatewayJWT(userCtx);
+      const commonHeaders: any = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...(tenantId ? { 'X-PS-Tenant-ID': tenantId } : {}),
+      };
+
+      // Helper to try multiple path prefixes
+      const tryGet = async (method: 'GET'|'POST', basePath: string, body?: any): Promise<any | null> => {
+        const candidates = [basePath, `/v1${basePath}`, `/api${basePath}`, `/v1/api${basePath}`];
+        for (const p of candidates) {
+          try {
+            const resp = await fetch(`${gw}${p}`, {
+              method,
+              headers: commonHeaders,
+              ...(body ? { body: JSON.stringify(body) } : {}),
+            } as any);
+            if (resp.ok) {
+              const ct = resp.headers.get('content-type') || '';
+              return ct.includes('application/json') ? await resp.json() : await resp.text();
+            }
+          } catch (_) {}
+        }
+        return null;
+      };
+
+      // Build control list
+      const fw = mapping?.frameworks?.[framework];
+      if (!fw) {
+        return res.status(400).json({ error: { code: 'INVALID_FRAMEWORK', message: `Unknown framework: ${framework}` } });
+      }
+      const controlIds = controlsParam ? controlsParam.split(',').map((s: string) => s.trim()).filter(Boolean) : Object.keys(fw);
+
+      // Time range filters (best-effort)
+      const rangeFilters: any = {};
+      if (from) rangeFilters.start_time = from;
+      if (to) rangeFilters.end_time = to;
+
+      // Optionally fetch all rulepacks once to check for controls tags
+      let rulepacksList: any[] = [];
+      try {
+        const rp = await tryGet('GET', '/rulepacks');
+        rulepacksList = Array.isArray(rp) ? rp : (Array.isArray(rp?.data) ? rp.data : (Array.isArray(rp?.rulepacks) ? rp.rulepacks : []));
+      } catch (_) {}
+
+      // Aggregate evidence per control
+      const controlsDetailed: any[] = [];
+      for (const cid of controlIds) {
+        const ctrl = fw[cid];
+        if (!ctrl) continue;
+        const evDef = ctrl.evidence || {};
+
+        // Audits: limited sample
+        let auditSummary: any = { total: 0, sample: [] as any[] };
+        if (evDef.audits && Array.isArray(evDef.audits.actions) && evDef.audits.actions.length) {
+          const body: any = {
+            actions: evDef.audits.actions,
+            limit: 50,
+            offset: 0,
+            ...rangeFilters,
+          };
+          if (evDef.audits.filters && typeof evDef.audits.filters === 'object') {
+            body.filters = evDef.audits.filters;
+          }
+          const auditRes = await tryGet('POST', '/admin/audits/search', body);
+          const events = Array.isArray(auditRes?.data) ? auditRes.data : (Array.isArray(auditRes) ? auditRes : []);
+          auditSummary.total = typeof auditRes?.total === 'number' ? auditRes.total : events.length;
+          auditSummary.sample = events.slice(0, 10).map((e: any) => ({
+            id: e.id,
+            action: e.action,
+            ts: e.timestamp || e.created_at,
+            decision: e.metadata?.decision,
+            reason: e.metadata?.reason,
+            path: e.metadata?.path,
+          }));
+        }
+
+        // Config snapshots
+        const configs: Record<string, any> = {};
+        if (Array.isArray(evDef.configs)) {
+          for (const c of evDef.configs) {
+            if (c === 'rulepacks/active') {
+              const data = await tryGet('GET', '/rulepacks/active');
+              configs['rulepacks/active'] = data ?? null;
+            } else if (c === 'assignments') {
+              if (tenantId) {
+                const data = await tryGet('GET', `/admin/tenants/${tenantId}/assignments`);
+                configs['assignments'] = (Array.isArray(data?.assignments) ? data.assignments : (Array.isArray(data?.data) ? data.data : data)) ?? null;
+              } else {
+                configs['assignments'] = null;
+              }
+            } else if (c === 'enforcement_mode') {
+              const sys = await tryGet('GET', '/system/info');
+              configs['enforcement_mode'] = sys?.enforcement_mode ?? sys?.data?.enforcement_mode ?? null;
+            } else if (c === 'audit_chain_integrity') {
+              const sys = await tryGet('GET', '/system/info');
+              configs['audit_chain_integrity'] = typeof sys?.version === 'string' ? { system_version: sys.version } : (sys ?? null);
+            } else if (c === 'retention_policy') {
+              // Placeholder until backend exposes retention config endpoint
+              configs['retention_policy'] = null;
+            } else if (c === 'tools/registry') {
+              const tools = await tryGet('GET', '/tools');
+              const list = Array.isArray(tools?.data) ? tools.data : (Array.isArray(tools) ? tools : (Array.isArray(tools?.tools) ? tools.tools : []));
+              configs['tools/registry'] = list;
+            } else if (c === 'preferences.egress_allowlist') {
+              const prefs = await tryGet('GET', '/admin/settings');
+              configs['preferences.egress_allowlist'] = prefs?.egress_allowlist ?? prefs?.data?.egress_allowlist ?? null;
+            } else if (c === 'preferences.require_approval_tools') {
+              const prefs = await tryGet('GET', '/admin/settings');
+              configs['preferences.require_approval_tools'] = prefs?.require_approval_tools ?? prefs?.data?.require_approval_tools ?? null;
+            } else if (c.startsWith('preferences.')) {
+              const prefs = await tryGet('GET', '/admin/settings');
+              const key = c.split('preferences.')[1];
+              configs[c] = prefs?.[key] ?? prefs?.data?.[key] ?? null;
+            }
+          }
+        }
+
+        // Rules with this control tag present across rulepacks
+        let rules_with_controls = 0;
+        let rulepacks_with_controls = 0;
+        try {
+          for (const rp of rulepacksList) {
+            const rules = Array.isArray(rp?.rules) ? rp.rules : (Array.isArray(rp?.spec?.rules) ? rp.spec.rules : []);
+            if (!Array.isArray(rules) || !rules.length) continue;
+            let anyInPack = false;
+            for (const r of rules) {
+              const ctrls = Array.isArray(r?.controls) ? r.controls : [];
+              if (ctrls.includes(cid)) {
+                rules_with_controls += 1;
+                anyInPack = true;
+              }
+            }
+            if (anyInPack) rulepacks_with_controls += 1;
+          }
+        } catch (_) {}
+
+        // Summary
+        const summary = {
+          rules: Array.isArray(evDef.rules) ? evDef.rules.length : 0,
+          rule_tags: Array.isArray(evDef.rule_tags) ? evDef.rule_tags.length : 0,
+          audits_actions: Array.isArray(evDef.audits?.actions) ? evDef.audits.actions.length : 0,
+          configs: Array.isArray(evDef.configs) ? evDef.configs.length : 0,
+          reports: Array.isArray(evDef.reports) ? evDef.reports.length : 0,
+          audit_events_found: auditSummary.total,
+          rules_with_controls,
+          rulepacks_with_controls,
+        } as any;
+
+        controlsDetailed.push({
+          control_id: cid,
+          name: ctrl.name,
+          description: ctrl.description,
+          mapping: evDef,
+          audit: auditSummary,
+          configs,
+          summary,
+        });
+      }
+
+      const report = {
+        framework,
+        tenant_id: tenantId,
+        generated_at: new Date().toISOString(),
+        range: { from: from || null, to: to || null },
+        controls: controlsDetailed,
+        version: mapping?.version || '0.0.0',
+      };
+
+      if (format === 'csv') {
+        const headers = [
+          'framework','control_id','control_name','tenant_id','evidence_period_start','evidence_period_end','rules','rule_tags','audits_actions','audit_events_found','rules_with_controls','rulepacks_with_controls','configs','reports','generated_at'
+        ];
+        const rows = controlsDetailed.map((c: any) => [
+          framework,
+          c.control_id,
+          JSON.stringify(c.name || ''),
+          tenantId || '',
+          from || '',
+          to || '',
+          String(c.summary.rules || 0),
+          String(c.summary.rule_tags || 0),
+          String(c.summary.audits_actions || 0),
+          String(c.summary.audit_events_found || 0),
+          String(c.summary.rules_with_controls || 0),
+          String(c.summary.rulepacks_with_controls || 0),
+          String(c.summary.configs || 0),
+          String(c.summary.reports || 0),
+          report.generated_at,
+        ]);
+        const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="compliance_export_${framework}_${Date.now()}.csv"`);
+        return res.status(200).send(csv);
+      }
+
+      return res.json({ success: true, data: report });
+    } catch (error) {
+      res.status(500).json({ error: { code: 'COMPLIANCE_EXPORT_ERROR', message: 'Failed to export compliance evidence', details: String(error instanceof Error ? error.message : error) } });
+    }
+  });
+
+  // Simple waitlist endpoint: append JSONL to local file (server-only)
+  app.post('/api/waitlist', async (req: any, res: Response) => {
+    try {
+      const body = req.body || {};
+      const now = new Date().toISOString();
+      const entry = { ...body, _ip: req.ip, _ua: req.headers['user-agent'], _ts: now };
+      const fs = await import('fs');
+      const path = await import('path');
+      const outDir = process.env.WAITLIST_DIR || path.resolve(process.cwd(), 'data');
+      const outFile = path.resolve(outDir, 'waitlist.jsonl');
+      if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+      fs.appendFileSync(outFile, JSON.stringify(entry) + '\n', 'utf8');
+      res.status(204).end();
+    } catch (e: any) {
+      res.status(500).json({ message: 'failed to record waitlist', details: String(e?.message || e) });
+    }
+  });
+
+  // Onboarding: role/view selection logger (server-only, optional)
+  app.post('/api/onboarding/role', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const body = req.body || {};
+      const now = new Date().toISOString();
+      const user = await getUserInfo(req).catch(() => null);
+      const entry = {
+        type: 'role_selection',
+        selection: body?.selection,
+        roles: body?.roles,
+        use_case: body?.useCase || body?.use_case || null,
+        deploy: body?.deploy || null,
+        industry: body?.industry || null,
+        frameworks: Array.isArray(body?.frameworks) ? body.frameworks : undefined,
+        environment: body?.environment || null,
+        tenantId: (req.signedCookies && req.signedCookies.ps_tenant_id) || req.cookies?.ps_tenant_id || null,
+        user: user ? { email: user.email, firstName: user.firstName, lastName: user.lastName } : null,
+        _ip: req.ip, _ua: req.headers['user-agent'], _ts: now,
+      };
+      const fs = await import('fs');
+      const path = await import('path');
+      const dir = process.env.ONBOARDING_DIR || path.resolve(process.cwd(), 'data');
+      const file = path.resolve(dir, 'onboarding-roles.jsonl');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf8');
+      res.status(204).end();
+    } catch (e: any) {
+      res.status(500).json({ message: 'failed to record role selection', details: String(e?.message || e) });
+    }
+  });
+
+  // Onboarding: request access to tenant (notify tenant admins)
+  app.post('/api/onboarding/request-access', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const { desiredRole, note, orgId } = req.body || {};
+      const fs = await import('fs');
+      const path = await import('path');
+      const now = new Date().toISOString();
+      const user = await getUserInfo(req).catch(() => null);
+
+      // If we had email sending configured, we would mail tenant admins here.
+      // For now, append a request log and return 202.
+      const dir = process.env.ONBOARDING_DIR || path.resolve(process.cwd(), 'data');
+      const file = path.resolve(dir, 'onboarding-access-requests.jsonl');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const entry = {
+        type: 'access_request',
+        desiredRole,
+        note,
+        orgId: orgId || null,
+        user: user ? { email: user.email, firstName: user.firstName, lastName: user.lastName } : null,
+        _ip: req.ip, _ua: req.headers['user-agent'], _ts: now,
+      };
+      fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf8');
+      res.status(202).json({ accepted: true });
+    } catch (e: any) {
+      res.status(500).json({ message: 'failed to record access request', details: String(e?.message || e) });
+    }
   });
 
   // Debug endpoints for authentication troubleshooting
@@ -283,6 +628,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
           details: { reason: String(e?.message || e) }
         }
       });
+    }
+  });
+
+  // Discover organizations by email domain (enterprise-friendly flow)
+  app.get('/api/orgs/discover', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      // Determine email to use for discovery
+      let email: string | undefined = String(req.query.email || '').trim() || undefined;
+      if (!email) {
+        const user = await getUserInfo(req).catch(() => null);
+        email = (user?.email || '').toString();
+      }
+      if (!email || !email.includes('@')) {
+        return res.json({ data: [] });
+      }
+      const domain = email.split('@')[1].toLowerCase();
+      const devBypass = isDevBypassEnv();
+
+      // Load mapping from env (JSON string): { "acme.com": [{"id":"org_123","name":"Acme","autoJoin":false}] }
+      let mapStr = process.env.PS_DISCOVER_ORGS || process.env.PS_DOMAIN_ORG_MAP || '';
+      let list: Array<{ id: string; name: string; autoJoin?: boolean }> = [];
+      try {
+        if (mapStr.trim()) {
+          const parsed = JSON.parse(mapStr);
+          const arr = parsed?.[domain];
+          if (Array.isArray(arr)) list = arr.map((o: any) => ({ id: String(o.id), name: String(o.name || o.id), autoJoin: Boolean(o.autoJoin) }));
+        }
+      } catch (_) {
+        list = [];
+      }
+
+      // In dev bypass without explicit mapping, optionally synthesize a demo org
+      if (devBypass && list.length === 0) {
+        list = [{ id: 'dev-demo-org', name: `${domain} (Demo)`, autoJoin: false }];
+      }
+
+      return res.json({ data: list });
+    } catch (e: any) {
+      res.status(500).json({ message: 'failed to discover organizations', details: String(e?.message || e) });
     }
   });
 
@@ -581,6 +965,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).end();
     } catch (e: any) {
       res.status(500).json({ message: 'failed to select organization', details: String(e?.message || e) });
+    }
+  });
+
+  // Preset import: baseline compliance coverage
+  app.post('/api/presets/import/baseline', isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const filePath = path.resolve(process.cwd(), 'presets', 'preset-compliance-coverage.yaml');
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: { code: 'PRESET_NOT_FOUND', message: 'Preset file not found' } });
+      }
+      const yaml = fs.readFileSync(filePath, 'utf8');
+
+      const gw = process.env.PS_GATEWAY_URL || 'http://localhost:8098';
+      const userCtx = extractUserContext(req);
+      const token = generateGatewayJWT(userCtx);
+      const tenantId = (req.signedCookies && req.signedCookies.ps_tenant_id) || req.cookies?.ps_tenant_id || userCtx.tenantId;
+      const headers: any = {
+        'Content-Type': 'text/yaml',
+        'Authorization': `Bearer ${token}`,
+        ...(tenantId ? { 'X-PS-Tenant-ID': tenantId } : {}),
+      };
+
+      const postTo = async (p: string) => {
+        const r = await fetch(`${gw}${p}`, { method: 'POST', headers, body: yaml as any });
+        return r;
+      };
+
+      let resp = await postTo('/rulepacks?activate=true');
+      if (resp.status === 404) resp = await postTo('/v1/rulepacks?activate=true');
+
+      const contentType = resp.headers.get('content-type') || '';
+      const data = contentType.includes('application/json') ? await resp.json() : await resp.text();
+      return res.status(resp.status).send(data);
+    } catch (e: any) {
+      return res.status(500).json({ error: { code: 'PRESET_IMPORT_FAILED', message: 'Failed to import preset', details: String(e?.message || e) } });
     }
   });
 

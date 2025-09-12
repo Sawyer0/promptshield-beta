@@ -2,21 +2,30 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
-	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/repository"
 	"github.com/promptshield/promptshield/internal/scanner"
+	"github.com/promptshield/promptshield/internal/version"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"google.golang.org/grpc"
 )
 
@@ -32,6 +41,17 @@ func main() {
 
 	license.Check()
 
+	// Initialize OpenTelemetry tracing if enabled
+	if telemetryEnabled() {
+		if tp, shutdown, err := initTracing(ctx); err != nil {
+			logger.Warn("OpenTelemetry init failed", "error", err)
+		} else {
+			defer func() { _ = shutdown(context.Background()) }()
+			logger.Info("OpenTelemetry tracing enabled", "endpoint", getEnv("PS_TELEMETRY_ENDPOINT", ""))
+			_ = tp // keep for potential future use
+		}
+	}
+
 	// Configuration from environment
 	httpAddr := getEnv("PS_ENFORCER_ADDR", "localhost:8098")
 	grpcAddr := getEnv("PS_ENFORCER_GRPC_ADDR", "localhost:9091")
@@ -40,17 +60,18 @@ func main() {
 	if dsn == "" {
 		if iamUser := getEnv("PS_DB_IAM_USER", ""); iamUser != "" {
 			writer := getEnv("AURORA_WRITER", "")
+			if writer == "" { writer = getEnv("AURORA_PROXY_ENDPOINT", "") }
 			dbName := getEnv("AURORA_DB_NAME", "promptshield")
 			if writer == "" {
-				logger.Error("AURORA_WRITER is required when using PS_DB_IAM_USER for IAM auth")
+				logger.Error("AURORA_WRITER or AURORA_PROXY_ENDPOINT is required when using PS_DB_IAM_USER for IAM auth")
 				os.Exit(1)
 			}
 			// Build a minimal DSN without credentials; pgx BeforeConnect will inject an IAM token.
 			dsn = "postgres://@" + writer + ":5432/" + dbName + "?sslmode=require"
 			os.Setenv("PS_PG_DSN", dsn)
-			logger.Info("Configured IAM auth for Aurora (token generated on connect)", "writer", writer, "db", dbName, "user", iamUser)
+			logger.Info("Configured IAM auth for Aurora (token generated on connect)", "endpoint", writer, "db", dbName, "user", iamUser)
 		} else {
-			logger.Error("PS_PG_DSN is required (or set PS_DB_IAM_USER with AURORA_WRITER/DB)")
+			logger.Error("PS_PG_DSN is required (or set PS_DB_IAM_USER with AURORA_[WRITER|PROXY_ENDPOINT]/DB)")
 			os.Exit(1)
 		}
 	}
@@ -81,21 +102,6 @@ func main() {
 	auditRepo := repoFactory.Audit()
 	settingsRepo := repoFactory.Settings()
 
-	// Legacy database connection for middleware compatibility
-	// TODO: Remove this once all middleware is updated to use repository factory
-	db, err := pg.NewPool(ctx, dsn)
-	if err != nil {
-		logger.Error("Failed to connect to legacy database pool", "error", err)
-		os.Exit(1)
-	}
-	defer db.Close()
-
-	// Initialize audit event store and hash chain (MANDATORY for security)
-	auditEventStore := pg.NewAuditEventStore(db)
-	auditHashChain := pg.NewAuditHashChain(auditEventStore)
-	auditLogger := pg.NewAuditLogger(auditHashChain)
-	logger.Info("Audit hash chain initialized - all events will be cryptographically chained")
-
 	// Initialize NATS publisher (optional)
 	natsURL := getEnv("PS_NATS_URL", "")
 	publisher, err := nats.NewPublisher(natsURL)
@@ -116,8 +122,7 @@ func main() {
 	apiOptions := api.Options{
 		AdminToken:           getEnv("PS_ENFORCER_ADMIN_TOKEN", "admin"),
 		AllowInsecureAdmin:   true,
-		DB:                   db,          // Unified database connection for tenant validation
-		AuditLogger:          auditLogger, // MANDATORY hash-chained audit logging
+		// DB and AuditLogger are omitted; repositories handle DB access via factory
 		RulepackService:      rulepackSvc,
 		TenantRepository:     tenantRepo,
 		AssignmentRepository: assignmentRepo,
@@ -204,4 +209,66 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// telemetryEnabled checks PS_TELEMETRY for on/off. Defaults to on if set to 1/true/yes.
+func telemetryEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_TELEMETRY")))
+	if v == "" {
+		// default is enabled if env is present in compose/env.example; treat empty as enabled
+		return true
+	}
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// initTracing initializes a global OpenTelemetry TracerProvider with OTLP gRPC exporter.
+func initTracing(ctx context.Context) (*sdktrace.TracerProvider, func(context.Context) error, error) {
+	endpoint := strings.TrimSpace(getEnv("PS_TELEMETRY_ENDPOINT", ""))
+	if endpoint == "" {
+		return nil, func(context.Context) error { return nil }, fmt.Errorf("PS_TELEMETRY_ENDPOINT is empty")
+	}
+
+exp, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithEndpoint(endpoint),
+		otlptracegrpc.WithInsecure(),
+	)
+if err != nil {
+		return nil, nil, err
+	}
+
+	// Sampling ratio (0.0 - 1.0)
+	sample := 1.0
+	if v := strings.TrimSpace(os.Getenv("PS_TRACE_SAMPLE")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+			sample = f
+		}
+	}
+
+	res, err := sdkresource.New(ctx,
+		sdkresource.WithAttributes(
+			semconv.ServiceNameKey.String("promptshield-gateway"),
+			semconv.ServiceVersionKey.String(version.Version),
+		),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exp),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(sample))),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}))
+
+	shutdown := func(ctx context.Context) error {
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := tp.ForceFlush(ctx); err != nil {
+			return err
+		}
+		return tp.Shutdown(ctx)
+	}
+	return tp, shutdown, nil
 }

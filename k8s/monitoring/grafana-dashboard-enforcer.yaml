@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-promptshield-enforcer
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    app.kubernetes.io/managed-by: agent-mode
+  annotations:
+    dashboard.prometheus.io/description: Minimal dashboard for PromptShield Enforcer
+    dashboard.prometheus.io/title: PromptShield Enforcer
+    # Datasource selection: the Grafana sidecar will usually set a default Prometheus DS; this UID can be mapped there.
+    grafana_folder: PromptShield
+
+data:
+  promptshield-enforcer.json: |
+    {
+      "__inputs": [],
+      "__requires": [
+        {"type":"grafana","id":"grafana","name":"Grafana","version":"9.3.0"},
+        {"type":"panel","id":"timeseries","name":"Time series","version":"9.3.0"}
+      ],
+      "editable": true,
+      "graphTooltip": 0,
+      "id": null,
+      "iteration": 1,
+      "links": [],
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Requests scraped (per pod)",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "rate(promhttp_metric_handler_requests_total{job='promptshield-enforcer'}[5m])",
+              "legendFormat": "{{pod}} {{code}}",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Go heap alloc bytes (per pod)",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "go_memstats_alloc_bytes{job='promptshield-enforcer'}",
+              "legendFormat": "{{pod}}",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "PS redactions total (per pod)",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "increase(ps_extproc_redactions_total{job='promptshield-enforcer'}[5m])",
+              "legendFormat": "{{pod}}",
+              "interval": ""
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "gRPC ext_proc bytes (per pod)",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "targets": [
+            {
+              "expr": "rate(ps_extproc_bytes_total{job='promptshield-enforcer'}[5m])",
+              "legendFormat": "{{pod}}",
+              "interval": ""
+            }
+          ]
+        }
+      ],
+      "schemaVersion": 37,
+      "style": "dark",
+      "tags": ["promptshield", "enforcer"],
+      "templating": {
+        "list": [
+          {
+            "name": "pod",
+            "type": "query",
+            "datasource": null,
+            "refresh": 1,
+            "query": "label_values(up{job='promptshield-enforcer'}, pod)",
+            "definition": "label_values(up{job='promptshield-enforcer'}, pod)",
+            "multi": true,
+            "includeAll": true
+          }
+        ]
+      },
+      "time": {"from": "now-6h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "PromptShield Enforcer",
+      "uid": "promptshield-enforcer"
+    }
+

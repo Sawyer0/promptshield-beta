@@ -5,9 +5,13 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
+	otelslogbridge "go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel/trace"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 )
 
 // LogConfig configures the logging system
@@ -134,20 +138,28 @@ func SetupLogging(config LogConfig) (*slog.Logger, error) {
 	} else {
 		baseHandler = slog.NewTextHandler(output, opts)
 	}
-	
+
 	// Wrap with correlation handler
-	handler := NewCorrelationHandler(baseHandler)
-	
+	corr := NewCorrelationHandler(baseHandler)
+
+	// Optionally create OTel logs handler and tee both
+	var tee slog.Handler = corr
+	if enableOTelLogs() {
+		if h, err := newOTelLogsHandler(); err == nil && h != nil {
+			tee = TeeHandler(corr, h)
+		}
+	}
+
 	// Create logger with service context
-	logger := slog.New(handler).With(
+	logger := slog.New(tee).With(
 		"service", "promptshield",
 		"version", GetVersion(),
 		"pid", os.Getpid(),
 	)
-	
+
 	// Set as default logger
 	slog.SetDefault(logger)
-	
+
 	return logger, nil
 }
 
@@ -252,6 +264,50 @@ func LogAuditEvent(ctx context.Context, userID, action, resource string, success
 }
 
 // Helper functions
+
+// TeeHandler tees two slog handlers.
+func TeeHandler(a, b slog.Handler) slog.Handler { return &teeHandler{a: a, b: b} }
+
+type teeHandler struct{ a, b slog.Handler }
+
+func (h *teeHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return h.a.Enabled(ctx, l) || h.b.Enabled(ctx, l)
+}
+func (h *teeHandler) Handle(ctx context.Context, r slog.Record) error {
+	_ = h.a.Handle(ctx, r)
+	_ = h.b.Handle(ctx, r)
+	return nil
+}
+func (h *teeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &teeHandler{a: h.a.WithAttrs(attrs), b: h.b.WithAttrs(attrs)}
+}
+func (h *teeHandler) WithGroup(name string) slog.Handler {
+	return &teeHandler{a: h.a.WithGroup(name), b: h.b.WithGroup(name)}
+}
+
+// OTel logs
+func enableOTelLogs() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("PS_OTEL_LOGS")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func newOTelLogsHandler() (slog.Handler, error) {
+	endpoint := strings.TrimSpace(os.Getenv("PS_TELEMETRY_ENDPOINT"))
+	if endpoint == "" {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	exp, err := otlploggrpc.New(ctx, otlploggrpc.WithEndpoint(endpoint), otlploggrpc.WithInsecure())
+	if err != nil { return nil, err }
+	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewBatchProcessor(exp)))
+	// Create an OTel log-capable slog handler via bridge (v0.13.0 API)
+	h := otelslogbridge.NewHandler("promptshield",
+		otelslogbridge.WithLoggerProvider(lp),
+		otelslogbridge.WithSource(false),
+	)
+	return h, nil
+}
 
 func redactSensitive(content string) string {
 	// Redact sensitive patterns while preserving structure for analysis

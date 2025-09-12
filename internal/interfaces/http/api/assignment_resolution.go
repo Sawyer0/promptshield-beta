@@ -2,6 +2,8 @@ package api
 
 import (
     "context"
+    "database/sql"
+    "regexp"
     "strings"
 
     "github.com/google/uuid"
@@ -61,6 +63,31 @@ func resolveApplicableRulepacks(ctx context.Context, opt Options, endpoint strin
     if err != nil {
         return out, nil // no tenant in context → skip assignment resolution
     }
+    // Fast path: use endpoint_rulepack_snapshots if DB is available
+    if opt.DB != nil {
+        rpIDs, err := snapshotRulepacks(ctx, opt, tenantID, endpoint, method)
+        if err == nil && len(rpIDs) > 0 {
+            seen := make(map[uuid.UUID]struct{})
+            for _, id := range rpIDs {
+                if _, ok := seen[id]; ok { continue }
+                dsl, _, err := opt.RulepackService.GetActive(ctx, id)
+                if err != nil || len(dsl) == 0 { continue }
+                var rp rules.RulePack
+                if err := yaml.Unmarshal(dsl, &rp); err != nil { continue }
+                rp.SourcePath = "db:snapshot:rulepack:" + id.String()
+                out = append(out, rp)
+                seen[id] = struct{}{}
+            }
+            if len(out) > 0 {
+                return out, nil
+            }
+            // Log snapshot miss (no IDs found) for observability
+            logSnapshotMiss(ctx, opt, tenantID, endpoint, method)
+        } else {
+            // Error or empty result: still log miss
+            logSnapshotMiss(ctx, opt, tenantID, endpoint, method)
+        }
+    }
     // List assignments for tenant (already ordered by priority desc in repo)
     list, err := opt.AssignmentRepository.ListByTenant(ctx, tenantID)
     if err != nil {
@@ -105,5 +132,62 @@ func resolveApplicableRulepacks(ctx context.Context, opt Options, endpoint strin
     }
 
     return out, nil
+}
+
+// snapshotRulepacks returns ordered rulepack IDs from endpoint_rulepack_snapshots.
+func snapshotRulepacks(ctx context.Context, opt Options, tenantID uuid.UUID, endpoint, method string) ([]uuid.UUID, error) {
+    // Normalize path similar to DB function normalize_path_template
+    path := normalizePathForSnapshot(endpoint)
+    m := strings.ToUpper(strings.TrimSpace(method))
+    if m == "" { m = "ANY" }
+    // Prefer method-specific, then ANY
+    try := func(meth string) ([]uuid.UUID, error) {
+        const q = `SELECT rulepack_id
+                   FROM endpoint_rulepack_snapshots,
+                        unnest(rulepack_ids) WITH ORDINALITY AS t(rulepack_id, ord)
+                   WHERE tenant_id = $1 AND method = $2 AND endpoint_template = $3
+                   ORDER BY ord`
+        rows, err := opt.DB.QueryContext(ctx, q, tenantID, meth, path)
+        if err != nil { return nil, err }
+        defer rows.Close()
+        var ids []uuid.UUID
+        for rows.Next() {
+            var idStr string
+            if err := rows.Scan(&idStr); err != nil { return nil, err }
+            if id, err := uuid.Parse(strings.TrimSpace(idStr)); err == nil {
+                ids = append(ids, id)
+            }
+        }
+        if err := rows.Err(); err != nil { return nil, err }
+        return ids, nil
+    }
+    if ids, err := try(m); err == nil && len(ids) > 0 { return ids, nil }
+    if ids, err := try("ANY"); err == nil && len(ids) > 0 { return ids, nil }
+    return nil, sql.ErrNoRows
+}
+
+var (
+    reUUID   = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+    reNumber = regexp.MustCompile(`/[0-9]+`)
+)
+
+func normalizePathForSnapshot(p string) string {
+    s := strings.TrimSpace(p)
+    if s == "" { return "/" }
+    if !strings.HasPrefix(s, "/") { s = "/" + s }
+    s = reUUID.ReplaceAllString(s, "/:uuid")
+    s = reNumber.ReplaceAllString(s, "/:id")
+    for strings.Contains(s, "//") { s = strings.ReplaceAll(s, "//", "/") }
+    return s
+}
+
+func logSnapshotMiss(ctx context.Context, opt Options, tenantID uuid.UUID, endpoint, method string) {
+    if opt.DB == nil { return }
+    tpl := normalizePathForSnapshot(endpoint)
+    // best-effort; ignore error
+    _, _ = opt.DB.ExecContext(ctx,
+        "INSERT INTO endpoint_snapshot_misses (tenant_id, method, endpoint, template) VALUES ($1,$2,$3,$4)",
+        tenantID, strings.ToUpper(strings.TrimSpace(method)), endpoint, tpl,
+    )
 }
 

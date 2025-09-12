@@ -24,6 +24,7 @@ const ruleSchema = z.object({
   keywords: z.array(z.string()).optional(),
   pattern: z.array(z.string()).optional(),
   semantic_analysis: z.boolean().optional(),
+  controls: z.array(z.string()).optional(),
 });
 
 const rulePackSchema = z.object({
@@ -47,7 +48,8 @@ interface RulePackModalProps {
 
 export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePackModalProps) {
   const { toast } = useToast();
-  const [rules, setRules] = useState<Partial<Rule>[]>([
+  type UIRule = Partial<Rule> & { controls?: string[] };
+  const [rules, setRules] = useState<UIRule[]>([
     {
       id: "rule-001",
       name: "",
@@ -58,9 +60,9 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
       keywords: [] as string[],
       pattern: [] as string[],
       semantic_analysis: false,
+      controls: ["OWASP_LLM.LLM01", "SOC2.CC7.2", "GDPR.Art_32"],
     },
   ]);
-
   const form = useForm<RulePackFormData>({
     resolver: zodResolver(rulePackSchema),
     defaultValues: {
@@ -76,7 +78,7 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
   });
 
   const addRule = () => {
-    const newRule: Partial<Rule> = {
+    const newRule: UIRule = {
       id: `rule-${String(rules.length + 1).padStart(3, '0')}`,
       name: "",
       description: "",
@@ -86,6 +88,7 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
       keywords: [] as string[],
       pattern: [] as string[],
       semantic_analysis: false,
+      controls: ["OWASP_LLM.LLM01"],
     };
     setRules([...rules, newRule]);
   };
@@ -97,9 +100,9 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
     }
   };
 
-  const updateRule = (index: number, field: keyof Rule, value: any) => {
+  const updateRule = (index: number, field: keyof UIRule, value: any) => {
     const newRules = [...rules];
-    newRules[index] = { ...newRules[index], [field]: value };
+    (newRules[index] as any)[field] = value;
     setRules(newRules);
   };
 
@@ -143,6 +146,12 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
         // response action mapping
         const actMap: Record<string,string> = { observe: 'allow', redact: 'redact', quarantine: 'quarantine', deny: 'deny' }
         out.response = { action: actMap[(r.action || 'observe').toLowerCase()] || 'allow' }
+
+        // Controls tagging (compliance mapping)
+        const controls = Array.isArray((r as any).controls) ? (r as any).controls.filter(Boolean) : []
+        if (controls.length) {
+          out.controls = controls
+        }
 
         if ((r.level || 1) === 1) {
           out.level = 1
@@ -205,6 +214,7 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
       keywords: [] as string[],
       pattern: [] as string[],
       semantic_analysis: false,
+      controls: ["OWASP_LLM.LLM01", "SOC2.CC7.2", "GDPR.Art_32"],
     }]);
     onClose();
   };
@@ -218,6 +228,8 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
       description={"Create a new security rule pack with custom rules and configurations."}
       contentClassName="max-h-[90vh] overflow-y-auto"
     >
+      {/* RBAC banner */}
+      {(() => { try { const raw = localStorage.getItem('ps_roles'); const r = raw ? JSON.parse(raw) : []; const can = Array.isArray(r) && (r.includes('tenant_admin') || r.includes('security_engineer')); return can ? null : (<div className="px-4 pt-4 text-xs text-muted-foreground">Read-only preview: you do not have permission to create or edit rules.</div>); } catch { return null; } })()}
       <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
             {/* No metadata section — rulepack will auto-name and auto-activate */}
@@ -364,6 +376,52 @@ export function RulePackModal({ isOpen, onClose, onSubmit, isLoading }: RulePack
                         </div>
                       </div>
 
+                      {/* Controls (Compliance Tags) */}
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-2">Controls (Compliance Tags)</label>
+                        <div className="space-y-2">
+                          <Input
+                            placeholder="Add control tags like OWASP_LLM.LLM01, SOC2.CC7.2 (comma or Enter to add)"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ',') {
+                                e.preventDefault();
+                                const input = e.currentTarget as HTMLInputElement;
+                                const value = input.value.trim();
+                                if (value) {
+                                  const newTags = value.split(',').map(v => v.trim()).filter(Boolean);
+                                  const current = Array.isArray((rule as any).controls) ? (rule as any).controls as string[] : [];
+                                  const all = [...current, ...newTags];
+                                  updateRule(index, 'controls', all);
+                                  input.value = '';
+                                }
+                              }
+                            }}
+                            data-testid={`input-rule-controls-${index}`}
+                          />
+                          <p className="text-xs text-muted-foreground">Examples: OWASP_LLM.LLM01, SOC2.CC7.2, HIPAA.164.312(b), GDPR.Art_32, NIST_AI_RMF.MAN.3</p>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {Array.isArray((rule as any).controls) && (rule as any).controls.length > 0 ? (
+                              ((rule as any).controls as string[]).map((tag: string, tIdx: number) => (
+                                <Badge key={`${index}-ctl-${tIdx}-${tag}`} variant="secondary" className="text-xs">
+                                  {tag}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const curr: string[] = Array.isArray((rule as any).controls) ? (rule as any).controls : [];
+                                      const next = curr.filter((_, i) => i !== tIdx);
+                                      updateRule(index, 'controls', next);
+                                    }}
+                                    className="ml-1 hover:text-destructive"
+                                  >
+                                    ×
+                                  </button>
+                                </Badge>
+                              ))
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
                       {/* Regex Pattern Section */}
                       <div>
                         <label className="text-sm font-medium text-foreground mb-2 flex items-center">
@@ -480,8 +538,9 @@ Semantic analysis uses ProtectAI DeBERTa v2. No API key required.
               <Button 
                 type="button"
                 onClick={() => form.handleSubmit(handleSubmit)()} 
-                disabled={isLoading} 
+                disabled={isLoading || !(() => { try { const raw = localStorage.getItem('ps_roles'); const r = raw ? JSON.parse(raw) : []; return Array.isArray(r) && (r.includes('tenant_admin') || r.includes('security_engineer')); } catch { return false; } })()} 
                 data-testid="button-create-rulepack"
+                title={(() => { try { const raw = localStorage.getItem('ps_roles'); const r = raw ? JSON.parse(raw) : []; const can = Array.isArray(r) && (r.includes('tenant_admin') || r.includes('security_engineer')); return can ? undefined : 'Read-only: insufficient permissions'; } catch { return undefined; } })()}
               >
                 {isLoading ? "Creating..." : "Create RulePack"}
               </Button>

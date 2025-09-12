@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  promptshield:
+    image: ghcr.io/promptshield/enforcer:0.2.0
+    environment:
+      # Network and mode
+      PS_ENFORCER_ADDR: ":9090"
+      PS_ENFORCER_GRPC_ADDR: ":9091"
+      PS_ENFORCER_MODE: "enforce"
+
+      # Database (Aurora IAM + RDS Proxy)
+      PS_DB_IAM_USER: ${PS_DB_IAM_USER}
+      AURORA_REGION: ${AURORA_REGION}
+      AURORA_DB_NAME: ${AURORA_DB_NAME}
+      AURORA_PROXY_ENDPOINT: ${AURORA_PROXY_ENDPOINT}
+      PS_PG_DSN: postgres://@${AURORA_PROXY_ENDPOINT}:5432/${AURORA_DB_NAME}?sslmode=require
+
+      # Admin token & security
+      PS_ENFORCER_ADMIN_TOKEN: ${PS_ADMIN_TOKEN}
+
+      # Offline DeBERTa (air-gapped, high throughput)
+      PS_SEMANTIC_ENABLED: "true"
+      PS_DEBERTA_ENDPOINT: "http://deberta-offline:8089/infer"
+      PS_DEBERTA_TOKENIZER_JSON: "/app/assets/tokenizers/tokenizer.json"
+      PS_DEBERTA_LOWERCASE: "true"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+
+      # Metrics (single global switch)
+      # Leave PS_DISABLE_METRICS unset to enable metrics
+
+    volumes:
+      - ./assets/tokenizers:/app/assets/tokenizers:ro
+    ports:
+      - "9090:9090"
+      - "9091:9091"
+    restart: unless-stopped
+    depends_on:
+      - deberta-offline
+    networks:
+      - promptshield-net
+
+  deberta-offline:
+    image: python:3.11-slim
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      TOKENIZER_DIR: /app/assets/tokenizers
+      MODEL_DIR: /models
+    volumes:
+      - /models/deberta-onnx:/models:ro
+      - ./:/app:ro
+      - ./assets/tokenizers:/app/assets/tokenizers:ro
+    working_dir: /app/tools/deberta-offline
+    command: /bin/sh -c "pip install --no-cache-dir fastapi uvicorn onnxruntime transformers numpy && uvicorn app:app --host 0.0.0.0 --port 8089 --workers 4"
+    restart: unless-stopped
+    networks:
+      - promptshield-net
+
+networks:
+  promptshield-net:
+    driver: bridge
+

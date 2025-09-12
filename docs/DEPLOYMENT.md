@@ -1,6 +1,69 @@
-# PromptShield Production Deployment Guide
+# PromptShield Deployment (Clean, DeBERTa-only)
 
-## Cloud Database Setup
+Overview
+- Control plane: UI + Gateway/Enforcer + Aurora Postgres. Users define RulePacks, protected endpoints, and tools. No default RulePacks are shipped.
+- Data plane (optional): Egress proxy overlay for zero‑code enforcement. Intercepts outbound HTTP from protected apps and calls the Gateway.
+- Semantics: DeBERTa-only. Configure PS_DEBERTA_ENDPOINT (HF token optional; your environment does not require one).
+- Telemetry: OpenTelemetry Collector enabled by default (OTLP gRPC 4317, HTTP 4318, Prometheus on 8889).
+
+Prereqs
+- Docker / Docker Compose
+- Aurora PostgreSQL (prod) with PromptShield tables
+
+Production (base)
+1) Configure .env.production
+- Required
+  - PS_PG_DSN=postgresql://USER:PASSWORD@AURORA_ENDPOINT:5432/DB?sslmode=require
+  - PS_TENANT_ID=<tenant-uuid>
+  - PS_ADMIN_TOKEN=<admin-token>
+  - PS_BFF_JWT_PRIVATE_KEY=<PEM private key>
+  - PS_BFF_JWT_PUBLIC_KEY=<PEM public key>
+  - CLERK_SECRET_KEY=<clerk-secret>
+  - CLERK_PUBLISHABLE_KEY=<clerk-publishable>
+  - PS_DEBERTA_ENDPOINT=http://host.docker.internal:8089/infer
+- Optional
+  - PS_TELEMETRY=1 (default)
+  - PS_TELEMETRY_ENDPOINT=otel-collector:4317
+  - PS_TRACE_SAMPLE=1.0 (0.0-1.0)
+  - PS_GATEWAY_DISABLE_TRACING=false
+  - PS_ENFORCER_ENFORCEMENT_MODE=enforce
+  - PS_ENFORCER_TIMEOUT=300ms
+  - PS_ENFORCER_MAX_BODY_BYTES=10485760
+
+2) Start
+```bash
+docker compose up -d --build
+```
+
+3) Verify
+```bash
+# Gateway
+curl -s http://localhost:9090/healthz
+
+# OTEL metrics endpoint from collector
+curl -s http://localhost:8889/metrics | head
+
+# BFF
+open http://localhost:3000
+```
+
+Development overlay
+- Adds local Postgres and exposes gateway ports.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+Zero‑code egress overlay (optional)
+- Intercepts outbound HTTP from protected apps with no SDK or code changes.
+- See docs/EGRESS_PROXY.md for details.
+```bash
+docker compose -f docker-compose.yml -f docker-compose.egress.yml up -d
+```
+
+Notes
+- No RulePacks are shipped. All policy must be created by users in the UI and will be stored in Aurora.
+- If no policies exist, the Gateway operates fail‑open by default.
+- You removed Nginx and provider clusters; deployment is simplified and DeBERTa-only.
 
 ### Option 1: Supabase (Recommended)
 

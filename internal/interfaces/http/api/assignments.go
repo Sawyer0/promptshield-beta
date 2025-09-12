@@ -2,12 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgconn"
 	"github.com/promptshield/promptshield/internal/domain"
 )
 
@@ -28,6 +31,47 @@ func registerAssignmentHandlers(r chi.Router, opt Options) {
 		ar.Put("/{assignmentId}", updateAssignmentHandler(opt))
 		ar.Delete("/{assignmentId}", deleteAssignmentHandler(opt))
 	})
+}
+
+// validHTTPMethod returns true for supported HTTP methods and "*".
+func validHTTPMethod(m string) bool {
+	m = strings.ToUpper(strings.TrimSpace(m))
+	switch m {
+	case "", "*", "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+		return true
+	default:
+		return false
+	}
+}
+
+// isValidEndpointPattern validates assignment target_scope patterns.
+// Rules:
+// - "*" or "/" allowed to match all
+// - Must start with "/" (when not "*")
+// - Allowed chars: letters, digits, "-", "_", "/"
+// - Optional single trailing "*" wildcard, only at the end
+// - Disallow full URLs (no "://")
+var endpointRe = regexp.MustCompile(`^/[A-Za-z0-9_\-/]*(\*)?$`)
+
+func isValidEndpointPattern(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" || p == "*" || p == "/" {
+		return true
+	}
+	if strings.Contains(p, "://") {
+		return false
+	}
+	if !strings.HasPrefix(p, "/") {
+		return false
+	}
+	// Only allow single trailing *
+	if strings.Count(p, "*") > 1 {
+		return false
+	}
+	if strings.Contains(p, "*") && !strings.HasSuffix(p, "*") {
+		return false
+	}
+	return endpointRe.MatchString(p)
 }
 
 // createAssignmentHandler handles POST /v1/admin/tenants/{id}/assignments
@@ -83,6 +127,18 @@ func createAssignmentHandler(opt Options) http.HandlerFunc {
 			req.Priority = 100 // Default priority
 		}
 
+		// Validate method and target scope
+		if !validHTTPMethod(req.Method) {
+			writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"Invalid HTTP method", map[string]any{"method": req.Method}, r)
+			return
+		}
+		if !isValidEndpointPattern(req.TargetScope) {
+			writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"Invalid target_scope pattern", map[string]any{"target_scope": req.TargetScope}, r)
+			return
+		}
+
 		// Verify tenant exists if repository is available
 		if opt.TenantRepository != nil {
 			_, err = opt.TenantRepository.Get(r.Context(), tenantID)
@@ -108,6 +164,26 @@ func createAssignmentHandler(opt Options) http.HandlerFunc {
 
 		err = opt.AssignmentRepository.Create(r.Context(), assignment)
 		if err != nil {
+			// Map unique violations to 409 Conflict
+			if pgErr, ok := err.(*pgconn.PgError); ok && pgErr.Code == "23505" {
+				writeErrorJSON(w, http.StatusConflict, "ALREADY_EXISTS",
+					"Assignment already exists", map[string]any{
+						"tenant_id": tenantID.String(),
+						"rulepack_id": req.RulepackID.String(),
+						"target_scope": req.TargetScope,
+						"method": strings.ToUpper(strings.TrimSpace(req.Method)),
+					}, r)
+				return
+			}
+			// Log structured error for diagnostics
+			slog.Error("assignment.create failed",
+				"error", err,
+				"tenant_id", tenantID.String(),
+				"rulepack_id", req.RulepackID.String(),
+				"target_scope", req.TargetScope,
+				"method", strings.ToUpper(strings.TrimSpace(req.Method)),
+				"priority", req.Priority,
+			)
 			writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR",
 				"Failed to create assignment", map[string]interface{}{"error": err.Error()}, r)
 			return
