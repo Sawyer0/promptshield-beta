@@ -1,0 +1,9 @@
+{
+  "requirement_id": "req_1234",
+  "detectors": [
+    { "id": "presidio_phi", "config": { "threshold": 0.8, "mode": "block" } },
+    { "id": "promptguard_v2", "config": { "threshold": 0.7, "mode": "block" } }
+  ],
+  "endpoints": ["chatbot-prod", "rag-api"]
+}
+

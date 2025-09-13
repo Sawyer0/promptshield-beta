@@ -1,0 +1,10 @@
+{
+  "id": "req_1234",
+  "control_ref": { "framework_key": "gdpr", "control_key": "GDPR-ART-32-1" },
+  "intent": "block",
+  "internal_name": "GDPR-32 Outbound PII Control",
+  "notes": "Applies to customer-facing chat in EU region",
+  "status": "published",
+  "version": "1.0.0"
+}
+

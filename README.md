@@ -1,3 +1,21 @@
+## PromptShield — Security & Compliance Orchestration for LLM Apps
+
+PromptShield is the compliance control plane for LLM applications — orchestrating detectors, mapping them to frameworks (SOC 2, HIPAA, GDPR, NIST AI RMF, EU AI Act), and generating audit‑ready, tamper‑evident evidence.
+
+What it is now:
+- Compliance orchestration: bridge developer policies and auditor evidence.
+- Detector orchestration: unify any filters/guardrails under one policy per endpoint.
+- Automated evidence: hash‑chained audit logs and exportable reports (JSON/CSV/PDF).
+- Zero/low‑code integration: Envoy egress proxy, REST API, IaC (K8s/Terraform).
+- Multi‑role access: developers (API), security (policies), compliance (evidence), auditors (read‑only).
+
+PromptShield does not replace model hardening or point detectors — it leverages them and turns enforcement activity into regulator‑grade evidence.
+
+See also:
+- docs/COMPLIANCE_ORCHESTRATION.md (architecture & roles)
+- docs/policies/Compliance-Mapping.md (RulePack → framework mapping)
+- docs/api/Compliance-API.md (compliance and audit endpoints)
+
 ## Quick Demo
 
 ### Option A: Docker Compose (local Envoy + Enforcer + Backend)

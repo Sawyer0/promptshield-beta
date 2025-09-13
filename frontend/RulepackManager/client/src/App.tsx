@@ -49,6 +49,13 @@ import AdminSystem from "@/pages/AdminSystem";
 import License from "@/pages/License";
 import DebugDiagnostics from "@/pages/DebugDiagnostics";
 import LiveEvents from "@/pages/LiveEvents";
+import AccountSecurity from "@/pages/AccountSecurity";
+import { TenantRequiredBanner } from "@/components/TenantRequiredBanner";
+import { Privacy } from "@/pages/Privacy";
+import FeaturesOverview from "@/pages/FeaturesOverview";
+import SolutionsCompliance from "@/pages/SolutionsCompliance";
+import SolutionsSecurity from "@/pages/SolutionsSecurity";
+import Trust from "@/pages/Trust";
 
 function useRoles(): string[] {
   try {
@@ -65,9 +72,6 @@ function RequireRoles({ roles, children }: { roles: string[]; children: any }) {
   const allow = roles.some(r => my.includes(r));
   return allow ? children : <NotFound />;
 }
-import AccountSecurity from "@/pages/AccountSecurity";
-import { TenantRequiredBanner } from "@/components/TenantRequiredBanner";
-import { Privacy } from "@/pages/Privacy";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -193,11 +197,7 @@ function Router() {
   // Show tenant selector if authenticated but no tenant selected (except for platform admins)
   const userRole = localStorage.getItem('user_system_role');
   if (isAuthenticated && !tenantId && userRole !== 'admin') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <TenantSelector />
-      </div>
-    );
+    return <Redirect to="/auth?mode=signin" />;
   }
 
 
@@ -210,26 +210,19 @@ function Router() {
           <>
             <Route path="/" component={WaitlistLanding} />
             <Route path="/landing" component={WaitlistLanding} />
+            <Route path="/waitlist" component={WaitlistLanding} />
+            {/* Marketing pages */}
+            <Route path="/features" component={FeaturesOverview} />
+            <Route path="/solutions/compliance" component={SolutionsCompliance} />
+            <Route path="/solutions/security" component={SolutionsSecurity} />
+            <Route path="/trust" component={Trust} />
+            <Route path="/onboard/role">{() => <Redirect to="/onboarding/role" />}</Route>
             {/* Friendly aliases */}
             <Route path="/signin">{() => <Redirect to="/sign-in" />}</Route>
             <Route path="/signup">{() => <Redirect to="/sign-up" />}</Route>
-            {/* Clerk auth routes */}
-            <Route path="/sign-in">
-              {() => (
-                <SignIn 
-                  onBack={() => setLocation("/landing")} 
-                  onSignUp={() => setLocation("/sign-up")} 
-                />
-              )}
-            </Route>
-            <Route path="/sign-up">
-              {() => (
-                <SignUp 
-                  onBack={() => setLocation("/sign-in")} 
-                  onSignIn={() => setLocation("/sign-in")} 
-                />
-              )}
-            </Route>
+            {/* Brand-only auth: redirect to modal-styled auth page */}
+            <Route path="/sign-in">{() => <Redirect to="/auth?mode=signin" />}</Route>
+            <Route path="/sign-up">{() => <Redirect to="/auth?mode=signup" />}</Route>
             <Route path="/orgs">
               {() => (
                 <div className="min-h-screen flex items-center justify-center bg-background">
@@ -252,10 +245,20 @@ function Router() {
             </Route>
             {/* Onboarding role selection */}
             <Route path="/onboarding/role" component={RoleSetup} />
+            {/* Allow auth modal even when authenticated, to handle org selection/request */}
+            <Route path="/auth" component={AuthModalPage} />
+            <Route path="/onboard/role">{() => <Redirect to="/onboarding/role" />}</Route>
             {/* Route based on user role */}
             {localStorage.getItem('user_system_role') === 'admin' ? (
               <>
                 {/* Platform Owner routes only */}
+                <Route path="/landing" component={WaitlistLanding} />
+                <Route path="/waitlist" component={WaitlistLanding} />
+                {/* Marketing pages (accessible while signed in) */}
+                <Route path="/features" component={FeaturesOverview} />
+                <Route path="/solutions/compliance" component={SolutionsCompliance} />
+                <Route path="/solutions/security" component={SolutionsSecurity} />
+                <Route path="/trust" component={Trust} />
                 <RequireRoles roles={["platform_admin"]}><Route path="/" component={PlatformDashboard} /></RequireRoles>
                 <RequireRoles roles={["platform_admin"]}><Route path="/platform" component={PlatformDashboard} /></RequireRoles>
                 <RequireRoles roles={["platform_admin"]}><Route path="/users" component={Users} /></RequireRoles>
@@ -273,6 +276,13 @@ function Router() {
             ) : (
               <>
                 {/* Tenant views with granular RBAC */}
+                <Route path="/landing" component={WaitlistLanding} />
+                <Route path="/waitlist" component={WaitlistLanding} />
+                {/* Marketing pages (accessible while signed in) */}
+                <Route path="/features" component={FeaturesOverview} />
+                <Route path="/solutions/compliance" component={SolutionsCompliance} />
+                <Route path="/solutions/security" component={SolutionsSecurity} />
+                <Route path="/trust" component={Trust} />
                 <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/" component={Dashboard} /></RequireRoles>
                 <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/dashboard" component={Dashboard} /></RequireRoles>
                 <RequireRoles roles={["tenant_admin","security_engineer","developer","auditor"]}><Route path="/monitoring/enforcer" component={EnforcerMonitoring} /></RequireRoles>

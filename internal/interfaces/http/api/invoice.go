@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application"
 	"github.com/promptshield/promptshield/internal/domain"
-	sharedcontext "github.com/promptshield/promptshield/internal/shared/context"
+	"github.com/promptshield/promptshield/internal/shared/context"
 	"github.com/promptshield/promptshield/internal/shared/httputil"
 )
 
@@ -43,9 +43,9 @@ func (h *InvoiceHandler) RegisterRoutes(r chi.Router) {
 
 // ListInvoices handles GET /invoices
 func (h *InvoiceHandler) ListInvoices(w http.ResponseWriter, r *http.Request) {
-	tenantID, err := sharedcontext.GetTenantID(r.Context())
-	if err != nil {
-		httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "tenant ID required", nil)
+	tenantID, ok := context.GetTenantID(r.Context())
+	if !ok {
+		httputil.WriteError(w, http.StatusUnauthorized, "tenant ID required", nil)
 		return
 	}
 
@@ -83,7 +83,7 @@ func (h *InvoiceHandler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 
 	invoices, err := h.invoiceService.ListInvoices(r.Context(), tenantID, filters)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to list invoices", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to list invoices", err)
 		return
 	}
 
@@ -95,15 +95,15 @@ func (h *InvoiceHandler) ListInvoices(w http.ResponseWriter, r *http.Request) {
 
 // GenerateInvoice handles POST /invoices/generate
 func (h *InvoiceHandler) GenerateInvoice(w http.ResponseWriter, r *http.Request) {
-	tenantID, err := sharedcontext.GetTenantID(r.Context())
-	if err != nil {
-		httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "tenant ID required", nil)
+	tenantID, ok := context.GetTenantID(r.Context())
+	if !ok {
+		httputil.WriteError(w, http.StatusUnauthorized, "tenant ID required", nil)
 		return
 	}
 
 	var req domain.InvoiceGenerationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid JSON", err)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *InvoiceHandler) GenerateInvoice(w http.ResponseWriter, r *http.Request)
 
 	invoice, err := h.invoiceService.GenerateInvoice(r.Context(), req)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate invoice", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to generate invoice", err)
 		return
 	}
 
@@ -124,13 +124,13 @@ func (h *InvoiceHandler) GetInvoice(w http.ResponseWriter, r *http.Request) {
 	invoiceIDStr := chi.URLParam(r, "invoiceID")
 	invoiceID, err := uuid.Parse(invoiceIDStr)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid invoice ID", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid invoice ID", err)
 		return
 	}
 
 	invoice, err := h.invoiceService.GetInvoice(r.Context(), invoiceID)
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "NOT_FOUND", "invoice not found", err)
+		httputil.WriteError(w, http.StatusNotFound, "invoice not found", err)
 		return
 	}
 
@@ -142,7 +142,7 @@ func (h *InvoiceHandler) UpdateInvoiceStatus(w http.ResponseWriter, r *http.Requ
 	invoiceIDStr := chi.URLParam(r, "invoiceID")
 	invoiceID, err := uuid.Parse(invoiceIDStr)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid invoice ID", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid invoice ID", err)
 		return
 	}
 
@@ -150,12 +150,12 @@ func (h *InvoiceHandler) UpdateInvoiceStatus(w http.ResponseWriter, r *http.Requ
 		Status domain.InvoiceStatus `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid JSON", err)
 		return
 	}
 
 	if err := h.invoiceService.UpdateInvoiceStatus(r.Context(), invoiceID, req.Status); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to update invoice status", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to update invoice status", err)
 		return
 	}
 
@@ -169,13 +169,13 @@ func (h *InvoiceHandler) GenerateInvoicePDF(w http.ResponseWriter, r *http.Reque
 	invoiceIDStr := chi.URLParam(r, "invoiceID")
 	invoiceID, err := uuid.Parse(invoiceIDStr)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid invoice ID", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid invoice ID", err)
 		return
 	}
 
 	pdfURL, err := h.invoiceService.GenerateInvoicePDF(r.Context(), invoiceID)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to generate PDF", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to generate PDF", err)
 		return
 	}
 
@@ -189,12 +189,12 @@ func (h *InvoiceHandler) SendInvoiceEmail(w http.ResponseWriter, r *http.Request
 	invoiceIDStr := chi.URLParam(r, "invoiceID")
 	invoiceID, err := uuid.Parse(invoiceIDStr)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid invoice ID", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid invoice ID", err)
 		return
 	}
 
 	if err := h.invoiceService.SendInvoiceEmail(r.Context(), invoiceID); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to send invoice email", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to send invoice email", err)
 		return
 	}
 
@@ -208,7 +208,7 @@ func (h *InvoiceHandler) MarkInvoiceAsPaid(w http.ResponseWriter, r *http.Reques
 	invoiceIDStr := chi.URLParam(r, "invoiceID")
 	invoiceID, err := uuid.Parse(invoiceIDStr)
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid invoice ID", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid invoice ID", err)
 		return
 	}
 
@@ -217,12 +217,12 @@ func (h *InvoiceHandler) MarkInvoiceAsPaid(w http.ResponseWriter, r *http.Reques
 		StripeInvoiceID *string   `json:"stripe_invoice_id,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON", err)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid JSON", err)
 		return
 	}
 
 	if err := h.invoiceService.MarkInvoiceAsPaid(r.Context(), invoiceID, req.PaidAt, req.StripeInvoiceID); err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to mark invoice as paid", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to mark invoice as paid", err)
 		return
 	}
 
@@ -233,9 +233,9 @@ func (h *InvoiceHandler) MarkInvoiceAsPaid(w http.ResponseWriter, r *http.Reques
 
 // GetInvoiceSummary handles GET /invoices/summary
 func (h *InvoiceHandler) GetInvoiceSummary(w http.ResponseWriter, r *http.Request) {
-	tenantID, err := sharedcontext.GetTenantID(r.Context())
-	if err != nil {
-		httputil.WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "tenant ID required", nil)
+	tenantID, ok := context.GetTenantID(r.Context())
+	if !ok {
+		httputil.WriteError(w, http.StatusUnauthorized, "tenant ID required", nil)
 		return
 	}
 
@@ -259,13 +259,13 @@ func (h *InvoiceHandler) GetInvoiceSummary(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err1 != nil || err2 != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid date format", nil)
+		httputil.WriteError(w, http.StatusBadRequest, "invalid date format", nil)
 		return
 	}
 
 	summary, err := h.invoiceService.GetInvoiceSummary(r.Context(), tenantID, startDate, endDate)
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to get invoice summary", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to get invoice summary", err)
 		return
 	}
 

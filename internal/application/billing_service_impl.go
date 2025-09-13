@@ -54,8 +54,13 @@ func (s *billingService) CreateSubscription(ctx context.Context, tenantID uuid.U
 	return sub, nil
 }
 
-// GetSubscription retrieves a tenant's subscription
-func (s *billingService) GetSubscription(ctx context.Context, tenantID uuid.UUID) (*domain.Subscription, error) {
+// GetSubscription retrieves a subscription by ID
+func (s *billingService) GetSubscription(ctx context.Context, subscriptionID uuid.UUID) (*domain.Subscription, error) {
+	return s.subscriptionRepo.GetByID(ctx, subscriptionID)
+}
+
+// GetSubscriptionByTenant retrieves a tenant's subscription
+func (s *billingService) GetSubscriptionByTenant(ctx context.Context, tenantID uuid.UUID) (*domain.Subscription, error) {
 	return s.subscriptionRepo.GetByTenantID(ctx, tenantID)
 }
 

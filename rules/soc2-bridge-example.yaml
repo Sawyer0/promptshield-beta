@@ -1,0 +1,48 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: soc2-bridge-example
+  version: 0.1.0
+  description: Example RulePack showing compliance control mapping (SOC2/GDPR)
+  authors:
+    - PromptShield
+  compliance:
+    SOC2: ["CC6.6", "CC7.2", "CC7.3"]
+    GDPR: ["Art. 32", "Art. 33"]
+
+rules:
+  - id: access-logging-required
+    name: Access events must be logged
+    description: Ensure access and failed access attempts are recorded
+    level: 1
+    severity: HIGH
+    category: compliance
+    keywords: ["login", "access", "failed", "denied"]
+    controls:
+      SOC2: ["CC6.6", "CC7.2"]
+      GDPR: ["Art. 32"]
+    response:
+      action: observe
+      message: "Access logging control observed"
+
+  - id: pii-leakage-detection
+    name: Detect PII leakage
+    description: Detect likely PII patterns for compliance safeguards
+    level: 2
+    severity: CRITICAL
+    category: data_protection
+    patterns:
+      - regex: "\\b(?!000|666|9\\d{2})\\d{3}[-\\s]?(?!00)\\d{2}[-\\s]?(?!0000)\\d{4}\\b" # US SSN
+    controls:
+      SOC2: ["CC6.1", "CC6.6"]
+      GDPR: ["Art. 32"]
+    response:
+      action: quarantine
+      message: "Possible PII detected"
+
+composition:
+  strategy: all_matches
+
+performance:
+  per_rule_timeout: 50ms
+  total_scan_timeout: 300ms

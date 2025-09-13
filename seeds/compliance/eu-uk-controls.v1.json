@@ -1,0 +1,167 @@
+{
+  "frameworks": [
+    {
+      "key": "gdpr",
+      "name": "General Data Protection Regulation",
+      "jurisdiction": ["EU", "UK"],
+      "publisher": "EU",
+      "version": "2024.12",
+      "license_type": "public_domain",
+      "default_locale": "en-GB",
+      "references": ["https://gdpr.eu"]
+    },
+    {
+      "key": "eu_ai_act",
+      "name": "EU AI Act",
+      "jurisdiction": ["EU"],
+      "publisher": "EU",
+      "version": "2025.01",
+      "license_type": "public_domain",
+      "default_locale": "en-GB",
+      "references": ["https://eur-lex.europa.eu/eli/reg/ai_act/2024"]
+    },
+    {
+      "key": "iso_27001",
+      "name": "ISO/IEC 27001",
+      "jurisdiction": ["Global"],
+      "publisher": "ISO",
+      "version": "2022",
+      "license_type": "summary_only",
+      "default_locale": "en-GB",
+      "references": []
+    },
+    {
+      "key": "owasp_llm_top10",
+      "name": "OWASP LLM Top 10",
+      "jurisdiction": ["Global"],
+      "publisher": "OWASP",
+      "version": "2024.1",
+      "license_type": "public_domain",
+      "default_locale": "en-GB",
+      "references": ["https://owasp.org/www-project-top-10-for-large-language-model-applications/"]
+    }
+  ],
+  "controls": [
+    {
+      "framework_key": "gdpr",
+      "control_key": "GDPR-ART-5",
+      "title": "Principles",
+      "summary_plain": "Principles including data minimization and integrity/confidentiality.",
+      "suggested_intents": ["log_all_decisions", "redact_optional"],
+      "required_evidence": ["tamper_evident_logs", "policy_change_history"],
+      "version": "1.0.0",
+      "status": "active"
+    },
+    {
+      "framework_key": "gdpr",
+      "control_key": "GDPR-ART-25",
+      "title": "Privacy by design/default",
+      "summary_plain": "Integrate data protection by design and by default.",
+      "suggested_intents": ["log_all_decisions"],
+      "required_evidence": ["configuration_snapshots", "change_logs"],
+      "version": "1.0.0",
+      "status": "active"
+    },
+    {
+      "framework_key": "gdpr",
+      "control_key": "GDPR-ART-32-1",
+      "title": "Security of processing",
+      "summary_plain": "Appropriate measures to ensure confidentiality, integrity, availability of personal data.",
+      "suggested_intents": ["block_outbound_pii", "log_all_decisions"],
+      "required_evidence": ["tamper_evident_logs", "runtime_block_counts", "retention_policy"],
+      "version": "1.0.0",
+      "status": "active"
+    },
+    {
+      "framework_key": "gdpr",
+      "control_key": "GDPR-ART-35",
+      "title": "DPIA for high-risk processing",
+      "summary_plain": "Data Protection Impact Assessment for high-risk processing.",
+      "suggested_intents": ["log_all_decisions"],
+      "required_evidence": ["dpia_link", "event_sampling"],
+      "version": "1.0.0",
+      "status": "active"
+    },
+    {
+      "framework_key": "eu_ai_act",
+      "control_key": "AI-ACT-ART-9",
+      "title": "Risk management system",
+      "summary_plain": "Establish and maintain a risk management system for high-risk AI.",
+      "suggested_intents": ["log_all_decisions"],
+      "required_evidence": ["runtime_event_logs", "risk_register_link"],
+      "version": "1.0.0",
+      "status": "active"
+    },
+    {
+      "framework_key": "eu_ai_act",
+      "control_key": "AI-ACT-ART-12",
+      "title": "Record-keeping / logs",
+      "summary_plain": "Maintain logs and record-keeping for AI systems.",
+      "suggested_intents": ["log_all_decisions"],
+      "required_evidence": ["tamper_evident_logs", "retention_policy"],
+      "version": "1.0.0",
+      "status": "active"
+    },
+    {
+      "framework_key": "eu_ai_act",
+      "control_key": "AI-ACT-ART-13",
+      "title": "Transparency & instructions",
+      "summary_plain": "Provide transparency and instructions to users.",
+      "suggested_intents": ["log_all_decisions"],
+      "required_evidence": ["detector_docs", "policy_docs"],
+      "version": "1.0.0",
+      "status": "active"
+    },
+    {
+      "framework_key": "iso_27001",
+      "control_key": "A.9",
+      "title": "Access control",
+      "summary_plain": "Limit who can change policies and access sensitive configurations.",
+      "suggested_intents": ["log_all_decisions"],
+      "required_evidence": ["rbac_changes", "approvals"],
+      "version": "2022",
+      "status": "active"
+    },
+    {
+      "framework_key": "iso_27001",
+      "control_key": "A.12",
+      "title": "Operations security",
+      "summary_plain": "Monitoring and logging for operations security.",
+      "suggested_intents": ["log_all_decisions"],
+      "required_evidence": ["health_coverage_metrics"],
+      "version": "2022",
+      "status": "active"
+    },
+    {
+      "framework_key": "owasp_llm_top10",
+      "control_key": "OWASP-LLM-01",
+      "title": "Prompt Injection",
+      "summary_plain": "Detect and mitigate prompt injection.",
+      "suggested_intents": ["alert_or_block_on_injection"],
+      "required_evidence": ["detector_verdicts", "incident_timelines"],
+      "version": "2024.1",
+      "status": "active"
+    },
+    {
+      "framework_key": "owasp_llm_top10",
+      "control_key": "OWASP-LLM-02",
+      "title": "Sensitive Info Disclosure",
+      "summary_plain": "Prevent disclosure of PII and secrets.",
+      "suggested_intents": ["block_outbound_pii/secrets"],
+      "required_evidence": ["masked_snippets", "counts"],
+      "version": "2024.1",
+      "status": "active"
+    },
+    {
+      "framework_key": "owasp_llm_top10",
+      "control_key": "OWASP-LLM-07",
+      "title": "Model Misuse/Overreach",
+      "summary_plain": "Detect anomalous or out-of-scope model behaviors.",
+      "suggested_intents": ["alert"],
+      "required_evidence": ["detector_verdicts", "playbook_actions"],
+      "version": "2024.1",
+      "status": "active"
+    }
+  ]
+}
+

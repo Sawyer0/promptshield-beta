@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptshield.io/schemas/requirement.schema.json",
+  "title": "Compliance Requirement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "control_ref", "intent", "internal_name", "status", "version"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "control_ref": {
+      "type": "object",
+      "required": ["framework_key", "control_key"],
+      "additionalProperties": false,
+      "properties": {
+        "framework_key": { "type": "string" },
+        "control_key": { "type": "string" }
+      }
+    },
+    "intent": { "type": "string", "enum": ["block", "alert", "redact", "log_only"] },
+    "internal_name": { "type": "string" },
+    "notes": { "type": "string" },
+    "status": { "type": "string", "enum": ["draft", "approved", "published", "archived"] },
+    "version": { "type": "string" }
+  }
+}
+

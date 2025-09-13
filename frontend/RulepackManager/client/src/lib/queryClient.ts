@@ -28,48 +28,10 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-// Get current user ID for X-PS-User-ID header
-const getUserId = (): string | null => {
-  return localStorage.getItem('user_id');
-};
-
-// Get current user name for X-PS-User-Name header
-const getUserName = (): string | null => {
-  return localStorage.getItem('user_name');
-};
-
-// Get current tenant ID for X-Tenant-ID header
-const getTenantId = (): string | null => {
-  return localStorage.getItem('promptshield_tenant_id');
-};
-
-// Dev fallback values (used when user/tenant not yet selected)
-const DEV_FALLBACK_TENANT = '6f4d338d-f0c0-4091-b54e-f71752c8f568';
-const DEV_FALLBACK_USER_ID = 'frontend-dev-user';
-const DEV_FALLBACK_USER_NAME = 'frontend-dev';
-
 // Get headers for your backend with frontend bypass authentication
 const getApiHeaders = () => {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-PS-Frontend-Auth': 'verified'  // Backend trusts frontend auth
-  };
-  
-  // User context headers (required by your middleware)
-  const userId = getUserId() || DEV_FALLBACK_USER_ID;
-  if (userId) {
-    headers['X-PS-User-ID'] = userId;
-  }
-  
-  const userName = getUserName() || DEV_FALLBACK_USER_NAME;
-  if (userName) {
-    headers['X-PS-User-Name'] = userName;
-  }
-  
-  // Tenant context header (required for RLS)
-  const tenantId = getTenantId() || DEV_FALLBACK_TENANT;
-  headers['X-Tenant-ID'] = tenantId;
-  
+  // Minimal headers; rely on same-origin cookies (Clerk) and server-issued JWT to gateway
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   return headers;
 };
 

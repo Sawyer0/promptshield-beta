@@ -53,11 +53,27 @@ export function WaitlistForm({ inline }: { inline?: boolean }) {
   };
 
   if (success) {
+    const calendlyUrl = (import.meta as any)?.env?.VITE_CALENDLY_URL || "";
+    const contactEmail = (import.meta as any)?.env?.VITE_CONTACT_EMAIL || "hello@polisynguard.com";
     return (
       <div className="rounded-xl border bg-card p-6 shadow-sm">
-        <h3 className="text-lg font-semibold">You’re on the list.</h3>
-        <p className="text-sm text-muted-foreground mt-1">We’ll email early access and our LLM Security & Compliance Checklist.</p>
-        <div className="mt-4">
+        <h3 className="text-lg font-semibold">You’re on the list—book white‑glove setup</h3>
+        <p className="text-sm text-muted-foreground mt-1">Pick a time with our team to plan your rollout and policy mappings.</p>
+        {calendlyUrl ? (
+          <div className="mt-6">
+            <iframe
+              title="Schedule white‑glove setup"
+              src={`${calendlyUrl}${calendlyUrl.includes('?') ? '&' : '?'}hide_gdpr_banner=1`}
+              style={{ width: '100%', height: '720px', border: '0' }}
+              loading="lazy"
+            />
+          </div>
+        ) : (
+          <div className="mt-6 text-sm">
+            Can’t see the scheduler? Email us at <a href={`mailto:${contactEmail}`} className="underline">{contactEmail}</a> and we’ll set you up.
+          </div>
+        )}
+        <div className="mt-6">
           <Button variant="outline" className="gap-2" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
             Back to top
           </Button>

@@ -1,14 +1,19 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Hero, SolutionSection, FeatureGrid, PromptRiskDemo, FAQ, WaitlistForm } from "@/components/landing";
+import { MarketingHeader, MarketingFooter, Hero, UserStories, FAQ, WaitlistForm } from "@/components/landing";
 import { isDevBypassClient } from "@/lib/dev";
+import { useTrack } from "@/hooks/useTrack";
 
 export default function WaitlistLanding() {
   const [openWaitlist, setOpenWaitlist] = useState(false);
   const [, setLocation] = useLocation();
 
+  const track = useTrack();
+
   const onGoToApp = () => {
+    track('MarketingCtaClick', { page: 'home', cta: 'go_to_app' });
     try {
       const isDev = isDevBypassClient();
       if (!isDev) {
@@ -27,16 +32,24 @@ export default function WaitlistLanding() {
     }
   };
 
+  useEffect(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('open') === 'waitlist' || p.get('waitlist') === 'true') {
+        setOpenWaitlist(true);
+      }
+    } catch {}
+    try { track('MarketingPageView', { page: 'home' }); } catch {}
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-sky-50 dark:from-gray-950 dark:via-gray-925 dark:to-gray-950">
+    <div className="marketing-root min-h-screen bg-gradient-to-br from-emerald-100 via-emerald-50 to-emerald-75 dark:from-emerald-950 dark:via-emerald-900 dark:to-emerald-950">
+      <MarketingHeader />
       <Hero
-        onTryDemo={() => {
-          const el = document.getElementById('prompt-demo');
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }}
-        onCta={() => setOpenWaitlist(true)}
+        onCta={() => { track('MarketingCtaClick', { page: 'home', cta: 'join_waitlist' }); setOpenWaitlist(true); }}
         onGoToApp={onGoToApp}
         onSignUp={() => {
+          track('MarketingCtaClick', { page: 'home', cta: 'create_account' });
           const isDev = isDevBypassClient();
           if (isDev) {
             setLocation('/onboarding/role');
@@ -46,18 +59,12 @@ export default function WaitlistLanding() {
           }
         }}
       />
-
-      <SolutionSection />
-      <FeatureGrid />
-
-      <div id="prompt-demo">
-        <PromptRiskDemo />
-      </div>
+      <UserStories />
 
       <FAQ />
 
       <Dialog open={openWaitlist} onOpenChange={setOpenWaitlist}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="marketing-root sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Join the waitlist</DialogTitle>
           </DialogHeader>
@@ -66,20 +73,7 @@ export default function WaitlistLanding() {
       </Dialog>
 
 
-      <footer className="border-t mt-8">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8 text-sm text-muted-foreground">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div>© {new Date().getFullYear()} Promptshield</div>
-            <div className="flex items-center gap-4">
-              <a href="#" className="hover:underline">Security</a>
-              <a href="#" className="hover:underline">Compliance</a>
-              <a href="/privacy" className="hover:underline">Privacy</a>
-              <a href="#" className="hover:underline">Terms</a>
-              <a href="#" className="hover:underline">Contact</a>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }

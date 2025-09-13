@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	texttemplate "text/template"
 	"time"
 
 	"github.com/promptshield/promptshield/internal/application"
@@ -27,7 +28,7 @@ func (s *SimpleEmailService) SendInvoiceEmail(ctx context.Context, invoice *doma
 	// In production, you would use a proper email service
 
 	// Render email template
-	subject, body, err := s.renderEmailTemplate(invoice, template)
+	subject, _, err := s.renderEmailTemplate(invoice, template)
 	if err != nil {
 		return fmt.Errorf("failed to render email template: %w", err)
 	}
@@ -61,7 +62,7 @@ func (s *SimpleEmailService) renderEmailTemplate(invoice *domain.Invoice, templa
 	}
 
 	// Render subject
-	subjectTmpl, err := template.New("subject").Parse(template.SubjectTemplate)
+	subjectTmpl, err := texttemplate.New("subject").Parse(template.SubjectTemplate)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to parse subject template: %w", err)
 	}
@@ -72,7 +73,7 @@ func (s *SimpleEmailService) renderEmailTemplate(invoice *domain.Invoice, templa
 	}
 
 	// Render body
-	bodyTmpl, err := template.New("body").Parse(template.BodyTemplate)
+	bodyTmpl, err := texttemplate.New("body").Parse(template.BodyTemplate)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to parse body template: %w", err)
 	}
@@ -84,7 +85,7 @@ func (s *SimpleEmailService) renderEmailTemplate(invoice *domain.Invoice, templa
 
 	// Add footer if present
 	if template.FooterTemplate != nil {
-		footerTmpl, err := template.New("footer").Parse(*template.FooterTemplate)
+		footerTmpl, err := texttemplate.New("footer").Parse(*template.FooterTemplate)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to parse footer template: %w", err)
 		}

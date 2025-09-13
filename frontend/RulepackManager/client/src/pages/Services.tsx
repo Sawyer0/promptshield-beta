@@ -75,7 +75,7 @@ export default function Services() {
 
   const scaleService = useMutation({
     mutationFn: ({ serviceId, replicas }: { serviceId: string; replicas: number }) => 
-      api.services.scale ? (api.services as any).scale(serviceId, replicas) : api.services.restart(serviceId),
+      (api.services as any).scale(serviceId, replicas),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/v1/services'] });
       toast({ title: "Service Updated", description: "Service configuration updated" });

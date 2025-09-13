@@ -11,14 +11,14 @@ export function FeatureGrid() {
     { icon: Zap, title: "Developer friendly", desc: "Works with your stack; minimal code changes." },
   ];
   return (
-    <section className="mx-auto max-w-6xl px-4 sm:px-6 py-12">
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    <section className="mx-auto max-w-[1600px] 2xl:max-w-[1760px] px-8 sm:px-12 xl:px-16 py-24">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-10">
         {items.map(({ icon: Icon, title, desc }) => (
           <Card key={title} className="card-hover">
-            <CardContent className="p-6">
-              <Icon className="h-6 w-6 mb-4" style={{ color: "var(--brand-accent)" }} />
-              <h3 className="font-semibold mb-1">{title}</h3>
-              <p className="text-sm text-muted-foreground">{desc}</p>
+            <CardContent className="p-10">
+              <Icon className="h-8 w-8 mb-6" style={{ color: "var(--brand-accent)" }} />
+              <h3 className="font-semibold mb-3 text-lg">{title}</h3>
+              <p className="text-base text-muted-foreground leading-relaxed">{desc}</p>
             </CardContent>
           </Card>
         ))}

@@ -45,12 +45,9 @@ export function createGatewayProxy(mountPath?: string) {
    */
   const proxyToGateway = async (req: any, res: any) => {
     try {
-      // Extract user context and generate JWT unless in dev bypass
-      let token: string | undefined = undefined;
-      if (!devBypass) {
-        const userContext = extractUserContext(req);
-        token = generateGatewayJWT(userContext);
-      }
+      // Always attach a gateway JWT (even in dev bypass)
+      const userContext = extractUserContext(req);
+      const token: string = generateGatewayJWT(userContext);
 
       // Build target URL
       let targetPath = req.originalUrl;
@@ -66,12 +63,22 @@ export function createGatewayProxy(mountPath?: string) {
       for (const [k, v] of Object.entries(req.headers)) {
         const key = k.toLowerCase();
         if (key === 'authorization') continue;
+        // Do not forward any client-provided identity or tenant hints
+        if (key === 'x-tenant-id' || key === 'x-ps-tenant-id' || key === 'x-ps-frontend-auth' || key === 'x-ps-user-id' || key === 'x-ps-user-name') continue;
         if (typeof v === 'string') fwdHeaders[k] = v;
       }
+      // Prefer tenant from signed cookie for RLS
+      try {
+        const tenantId = (req.signedCookies && req.signedCookies.ps_tenant_id) || (req.cookies && req.cookies.ps_tenant_id);
+        if (tenantId) fwdHeaders['X-PS-Tenant-ID'] = tenantId as string;
+      } catch {}
       if (token) {
         fwdHeaders['Authorization'] = `Bearer ${token}`;
       }
       if ((process.env.PS_ENABLE_ADMIN_TOKEN_FORWARD || '').toLowerCase() === 'true' && process.env.PS_ADMIN_TOKEN) {
+        if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+          console.warn('[SECURITY] Admin token forward is enabled in production. This is not recommended.');
+        }
         fwdHeaders['X-PS-Admin-Token'] = process.env.PS_ADMIN_TOKEN;
       }
 
@@ -123,13 +130,18 @@ export function createGatewayProxy(mountPath?: string) {
     }
   });
 
-  // Protected endpoints that require authentication
-  router.use('/rulepacks', requireAuth, requireTenantContext);
-  router.use('/admin', requireAuth);
-  router.use('/api/v1', requireAuth, requireTenantContext);
-
-  // Proxy all requests to the gateway
-  router.all('*', requireAuth, requireTenantContext, proxyToGateway);
+  // In dev-bypass, do not require auth/tenant context for any proxied endpoints
+  if (!devBypass) {
+    // Protected endpoints that require authentication
+    router.use('/rulepacks', requireAuth, requireTenantContext);
+    router.use('/admin', requireAuth);
+    router.use('/api/v1', requireAuth, requireTenantContext);
+    // Proxy all requests to the gateway with guards
+    router.all('*', requireAuth, requireTenantContext, proxyToGateway);
+  } else {
+    // Dev-bypass: proxy everything without guards
+    router.all('*', proxyToGateway);
+  }
 
   return router;
 }

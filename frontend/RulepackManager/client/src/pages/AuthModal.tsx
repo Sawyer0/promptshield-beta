@@ -5,6 +5,8 @@ import { SignUpModal } from '@/components/auth/SignUpModal';
 import { AccessRequest } from '@/components/auth/AccessRequest';
 import { Button } from '@/components/ui/button';
 import { Shield } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { isDevBypassClient } from '@/lib/dev';
 import { useTenant } from '@/contexts/TenantContext';
 
@@ -13,33 +15,27 @@ export default function AuthModalPage() {
   const { setTenant } = useTenant();
   const qs = useMemo(() => new URLSearchParams(window.location.search), []);
   const mode = (qs.get('mode') || qs.get('m') || 'signin').toLowerCase();
+  const nextPath = (qs.get('next') || '/').toString();
+  const invitedOrg = (qs.get('org') || qs.get('orgId') || '').toString();
   // Do not auto-open modals on page load; buttons on this page will open them
   const [openSignIn, setOpenSignIn] = useState(false);
   const [openSignUp, setOpenSignUp] = useState(false);
 
+  // Auto-open correct modal based on mode (brand-only auth)
   useEffect(() => {
-    // In dev bypass, send users directly through onboarding flows
-    if (isDevBypassClient()) {
-      try {
-        const hasRoles = !!localStorage.getItem('ps_roles');
-        const hasTenant = !!localStorage.getItem('promptshield_tenant_id');
-        if (!hasRoles) { setLocation('/onboarding/role'); return; }
-        if (!hasTenant) { setLocation('/choose-tenant'); return; }
-        const role = localStorage.getItem('user_system_role');
-        if (role === 'admin') setLocation('/platform'); else setLocation('/dashboard');
-      } catch {
-        setLocation('/');
-      }
-    }
-  }, [setLocation]);
+    if (mode === 'signin') setOpenSignIn(true);
+    if (mode === 'signup') setOpenSignUp(true);
+  }, [mode]);
 
   const closeModal = () => {
     // Stay on this page when closing the modal for a consistent experience
     // We intentionally do not navigate away
   };
 
-  const [phase, setPhase] = useState<'modal'|'request'>('modal');
+  const [phase, setPhase] = useState<'modal'|'select'|'request'>('modal');
   const [discovered, setDiscovered] = useState<Array<{id:string; name:string; autoJoin?: boolean}>>([]);
+  const [memberships, setMemberships] = useState<Array<{id:string; name:string}>>([]);
+  const [selectOrgId, setSelectOrgId] = useState<string>('');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-sky-50 dark:from-gray-950 dark:via-gray-925 dark:to-gray-950">
@@ -80,6 +76,38 @@ export default function AuthModalPage() {
                   <div>Click one of the actions to continue. You can switch between Sign in and Create account.</div>
                   <div className="text-xs">After you sign in, we’ll check your organization membership and let you request access if needed.</div>
                 </div>
+              ) : phase === 'select' ? (
+                <div className="space-y-4">
+                  <Card>
+                    <CardHeader><CardTitle>Select your organization</CardTitle></CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="text-sm text-muted-foreground">We found multiple organizations associated with your account. Choose one to continue.</div>
+                      <Select value={selectOrgId} onValueChange={setSelectOrgId}>
+                        <SelectTrigger><SelectValue placeholder="Select organization" /></SelectTrigger>
+                        <SelectContent>
+                          {memberships.map(m => (
+                            <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={async () => {
+                            if (!selectOrgId) return;
+                            try {
+                              await fetch('/api/orgs/select', {
+                                method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ orgId: selectOrgId })
+                              });
+                            } catch {}
+                            setTenant(selectOrgId, memberships.find(m => m.id === selectOrgId)?.name || selectOrgId);
+                            setLocation(nextPath || '/');
+                          }}
+                        >Continue</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
               ) : (
                 <div className="space-y-4">
                   <div className="text-sm text-muted-foreground">We found that you are not a member of any organizations yet. Request access to continue.</div>
@@ -111,8 +139,35 @@ export default function AuthModalPage() {
                 const memData = await memResp.json();
                 const memberships: any[] = memData?.data || [];
                 if (Array.isArray(memberships) && memberships.length > 0) {
-                  // Let Router/TenantSelector handle selection
-                  setLocation('/');
+                  // Prefer invited org via query param
+                  if (invitedOrg) {
+                    const found = memberships.find(m => m.id === invitedOrg);
+                    if (found) {
+                      await fetch('/api/orgs/select', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orgId: invitedOrg }) }).catch(() => {});
+                      setTenant(invitedOrg, found.name || invitedOrg);
+                      setLocation(nextPath || '/');
+                      return;
+                    }
+                  }
+                  if (memberships.length === 1) {
+                    const orgId = memberships[0].id;
+                    await fetch('/api/orgs/select', {
+                      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ orgId })
+                    }).catch(() => {});
+                    setTenant(orgId, memberships[0].name || orgId);
+                    setLocation(nextPath || '/');
+                    return;
+                  }
+                  // Default select: invitedOrg > last selected > first
+                  const mapped = memberships.map(m => ({ id: m.id, name: m.name || m.id }));
+                  setMemberships(mapped);
+                  const lastId = localStorage.getItem('promptshield_tenant_id') || '';
+                  const preferred = (invitedOrg && mapped.find(m => m.id === invitedOrg)?.id)
+                    || (lastId && mapped.find(m => m.id === lastId)?.id)
+                    || mapped[0].id;
+                  setSelectOrgId(preferred);
+                  setPhase('select');
                   return;
                 }
               } catch {}
@@ -159,7 +214,7 @@ export default function AuthModalPage() {
                       }).catch(() => {});
                       setTenant(orgId, orgNameResp);
                       // After creation, route to app
-                      setLocation('/');
+                      setLocation(nextPath || '/');
                       return;
                     }
                   }
@@ -172,7 +227,31 @@ export default function AuthModalPage() {
                 const memData = await memResp.json();
                 const memberships: any[] = memData?.data || [];
                 if (Array.isArray(memberships) && memberships.length > 0) {
-                  setLocation('/');
+                  if (invitedOrg) {
+                    const found = memberships.find(m => m.id === invitedOrg);
+                    if (found) {
+                      await fetch('/api/orgs/select', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orgId: invitedOrg }) }).catch(() => {});
+                      setTenant(invitedOrg, found.name || invitedOrg);
+                      setLocation(nextPath || '/');
+                      return;
+                    }
+                  }
+                  if (memberships.length === 1) {
+                    const orgId = memberships[0].id;
+                    await fetch('/api/orgs/select', {
+                      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ orgId })
+                    }).catch(() => {});
+                    setTenant(orgId, memberships[0].name || orgId);
+                    setLocation(nextPath || '/');
+                    return;
+                  }
+                  const mapped = memberships.map(m => ({ id: m.id, name: m.name || m.id }));
+                  setMemberships(mapped);
+                  const lastId = localStorage.getItem('promptshield_tenant_id') || '';
+                  const preferred = (lastId && mapped.find(m => m.id === lastId)?.id) || mapped[0].id;
+                  setSelectOrgId(preferred);
+                  setPhase('select');
                   return;
                 }
               } catch {}

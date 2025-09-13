@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, Users, Wrench, Eye, ClipboardList, Activity, LineChart, Server, Building } from 'lucide-react';
+import { Shield, Users, Wrench, Eye, ClipboardList, Activity, LineChart, Server, Building, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ export default function RoleSetup() {
   const [industry, setIndustry] = useState<string>('');
   const [frameworks, setFrameworks] = useState<string[]>([]);
   const [environment, setEnvironment] = useState<'evaluation'|'production'>('evaluation');
+  const [step, setStep] = useState<number>(0);
 
   useEffect(() => {
     // If roles already set, skip (we still render so user can change)
@@ -128,115 +129,241 @@ export default function RoleSetup() {
     </button>
   );
 
+  function stepTitles(): string[] {
+    // Platform admin skips primary focus step
+    const titles = ['Who are you?', 'Primary focus', 'Deployment preference', 'Organization context'];
+    return role === 'platform_admin' ? ['Who are you?', 'Deployment preference', 'Organization context'] : titles;
+  }
+
+  function visibleStepIndex(idx: number): number {
+    // If platform_admin and step >= 1, map step 1->Deploy, 2->Context
+    if (role === 'platform_admin' && idx >= 1) return idx + 1; // shift
+    return idx;
+  }
+
+  function totalSteps(): number { return stepTitles().length; }
+
+  const Header = () => (
+    <div className="text-center mb-6">
+      <h1 className="text-2xl font-bold">Welcome. Let’s tailor your experience</h1>
+      <p className="text-sm text-muted-foreground">Select options step-by-step to set up your workspace.</p>
+      <div className="mt-3 text-xs text-muted-foreground">Step {Math.min(step+1, totalSteps())} of {totalSteps()}</div>
+      <ProgressDots total={totalSteps()} current={displayStepIndex()} />
+    </div>
+  );
+
+  function displayStepIndex(): number {
+    // Convert internal step to displayed index based on role
+    if (role === 'platform_admin') return Math.min(step, 2);
+    return Math.min(step, 3);
+  }
+
+  function ProgressDots({ total, current }: { total: number; current: number }) {
+    return (
+      <div className="flex items-center justify-center gap-2 mt-2">
+        {Array.from({ length: total }).map((_, i) => (
+          <span
+            key={i}
+            className={
+              'inline-block h-2.5 w-2.5 rounded-full transition-colors ' +
+              (i === current ? 'bg-emerald-500' : 'bg-muted')
+            }
+            aria-label={`Step ${i+1}`}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  const RoleStep = () => (
+    <Section title={stepTitles()[0]}>
+      {cards.roles.map((r) => (
+        <SelectCard
+          key={r.key}
+          selected={role === (r.key as RoleKey)}
+          onClick={() => {
+            const v = r.key as RoleKey;
+            setRole(v);
+            // Auto-advance; skip primary focus for platform admin
+            setStep(v === 'platform_admin' ? 1 : 1);
+          }}
+          title={r.title}
+          desc={r.desc}
+          Icon={r.icon}
+        />
+      ))}
+    </Section>
+  );
+
+  const FocusStep = () => (
+    <Section title={stepTitles()[1]}>
+      {getUseCaseOptionsForRole(role).map((u) => (
+        <SelectCard
+          key={u.key}
+          selected={useCase === (u.key as UseCaseKey)}
+          onClick={() => { setUseCase(u.key as UseCaseKey); setStep(2); }}
+          title={u.title}
+          desc={u.desc}
+          Icon={u.icon}
+        />
+      ))}
+      <div className="col-span-3 flex justify-end mt-2">
+        <Button variant="ghost" onClick={() => setStep(2)}>Skip</Button>
+      </div>
+    </Section>
+  );
+
+  function getUseCaseOptionsForRole(r: RoleKey | null): Array<{ key: UseCaseKey; title: string; desc: string; icon: any }> {
+    const all = cards.useCases as Array<{ key: UseCaseKey; title: string; desc: string; icon: any }>;
+    if (!r) return all;
+    const allow: UseCaseKey[] = ((): UseCaseKey[] => {
+      if (r === 'tenant_admin') return ['policy_enforcement','monitoring','compliance_reporting','billing_analytics'];
+      if (r === 'security_engineer') return ['policy_enforcement','monitoring'];
+      if (r === 'developer') return ['monitoring'];
+      if (r === 'auditor') return ['compliance_reporting','monitoring'];
+      if (r === 'compliance_officer') return ['compliance_reporting'];
+      return ['policy_enforcement','monitoring','compliance_reporting','billing_analytics'];
+    })();
+    return all.filter(u => allow.includes(u.key));
+  }
+
+  const DeployStep = () => (
+    <Section title={stepTitles()[visibleStepIndex(1)]}>
+      {cards.deploy.map((d) => (
+        <SelectCard
+          key={d.key}
+          selected={deploy === (d.key as DeployKey)}
+          onClick={() => {
+            setDeploy(d.key as DeployKey);
+            // Advance to next step: platform_admin -> context (2), others -> context (3)
+            setStep(role === 'platform_admin' ? 2 : 3);
+          }}
+          title={d.title}
+          desc={d.desc}
+          Icon={d.icon}
+        />
+      ))}
+      <div className="col-span-3 flex justify-between mt-2">
+        <Button variant="ghost" onClick={() => setStep(step - 1)}>Back</Button>
+        <Button variant="ghost" onClick={() => setStep(role === 'platform_admin' ? 2 : 3)}>Next</Button>
+      </div>
+    </Section>
+  );
+
+  const ContextStep = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="p-4">
+          <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Organization context</div>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Industry</Label>
+              <Input placeholder="e.g., Finance" value={industry} onChange={(e) => setIndustry(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Operating environment</Label>
+              <RadioGroup value={environment} onValueChange={(v: any) => setEnvironment(v)} className="mt-1 flex gap-4">
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem id="env-eval" value="evaluation" />
+                  <Label htmlFor="env-eval">Evaluation</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem id="env-prod" value="production" />
+                  <Label htmlFor="env-prod">Production</Label>
+                </div>
+              </RadioGroup>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Compliance frameworks</div>
+          <div className="grid grid-cols-2 gap-2">
+            {['SOC2','GDPR','ISO 27001','HIPAA'].map((fw) => (
+              <label key={fw} className="flex items-center space-x-2">
+                <Checkbox
+                  checked={frameworks.includes(fw)}
+                  onCheckedChange={(checked: any) => {
+                    setFrameworks((prev) => checked ? Array.from(new Set([...prev, fw])) : prev.filter(x => x !== fw));
+                  }}
+                />
+                <span className="text-sm">{fw}</span>
+              </label>
+            ))}
+          </div>
+        </Card>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:underline"
+          onClick={async () => {
+            try {
+              setSaving(true);
+              const desiredRole = 'member';
+              const note = 'Requesting access to any tenant';
+              await fetch('/api/onboarding/request-access', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ desiredRole, note }) });
+              alert('Request sent to tenant admins. You will receive an invitation when approved.');
+            } catch {
+              alert('Failed to send request. Please contact your administrator.');
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >Need tenant access? Request access</button>
+        <div className="space-x-2">
+          <Button variant="ghost" onClick={() => setStep(step - 1)}>Back</Button>
+          <Button disabled={!role || saving} onClick={onContinue}>{saving ? 'Saving…' : 'Finish'}</Button>
+        </div>
+      </div>
+      <div className="text-xs text-muted-foreground text-center">You can change this later in Preferences.</div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-sky-50 dark:from-gray-950 dark:via-gray-925 dark:to-gray-950 flex items-center justify-center p-6">
       <div className="w-full max-w-4xl mx-auto">
-        <div className="flex justify-center mb-6">
-          <Shield className="h-10 w-10 text-primary" />
+        <div className="flex items-center justify-between mb-4">
+          <Button
+            type="button"
+            variant="ghost"
+            className="flex items-center"
+            onClick={() => {
+              if (step === 0) { window.location.href = '/landing'; }
+              else setStep(step - 1);
+            }}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+          <div className="flex justify-center flex-1"><Shield className="h-8 w-8 text-primary" /></div>
+          <div className="w-20" />
         </div>
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold">Welcome. Let’s tailor your experience</h1>
-          <p className="text-sm text-muted-foreground">Select your role and focus so we can route you to the right workspace.</p>
-        </div>
+        <Header />
         <div className="space-y-6">
-          <Section title="Who are you?">
-            {cards.roles.map((r) => (
-              <SelectCard
-                key={r.key}
-                selected={role === (r.key as RoleKey)}
-                onClick={() => setRole(r.key as RoleKey)}
-                title={r.title}
-                desc={r.desc}
-                Icon={r.icon}
-              />
-            ))}
-          </Section>
-          <Section title="Primary focus">
-            {cards.useCases.map((u) => (
-              <SelectCard
-                key={u.key}
-                selected={useCase === (u.key as UseCaseKey)}
-                onClick={() => setUseCase(u.key as UseCaseKey)}
-                title={u.title}
-                desc={u.desc}
-                Icon={u.icon}
-              />
-            ))}
-          </Section>
-          <Section title="Deployment preference">
-            {cards.deploy.map((d) => (
-              <SelectCard
-                key={d.key}
-                selected={deploy === (d.key as DeployKey)}
-                onClick={() => setDeploy(d.key as DeployKey)}
-                title={d.title}
-                desc={d.desc}
-                Icon={d.icon}
-              />
-            ))}
-          </Section>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card className="p-4">
-              <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Organization context</div>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Industry</Label>
-                  <Input placeholder="e.g., Finance" value={industry} onChange={(e) => setIndustry(e.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs">Operating environment</Label>
-                  <RadioGroup value={environment} onValueChange={(v: any) => setEnvironment(v)} className="mt-1 flex gap-4">
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem id="env-eval" value="evaluation" />
-                      <Label htmlFor="env-eval">Evaluation</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem id="env-prod" value="production" />
-                      <Label htmlFor="env-prod">Production</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
+          {step === 0 && (
+            <>
+              <RoleStep />
+              <div className="flex justify-between mt-2">
+                <Button variant="ghost" onClick={() => { window.location.href = '/landing'; }}>Back to Landing</Button>
+                <div />
               </div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Compliance frameworks</div>
-              <div className="grid grid-cols-2 gap-2">
-                {['SOC2','GDPR','ISO 27001','HIPAA'].map((fw) => (
-                  <label key={fw} className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={frameworks.includes(fw)}
-                      onCheckedChange={(checked: any) => {
-                        setFrameworks((prev) => checked ? Array.from(new Set([...prev, fw])) : prev.filter(x => x !== fw));
-                      }}
-                    />
-                    <span className="text-sm">{fw}</span>
-                  </label>
-                ))}
+            </>
+          )}
+          {step === 1 && (role === 'platform_admin' ? (
+            <>
+              <DeployStep />
+            </>
+          ) : (
+            <>
+              <FocusStep />
+              <div className="flex justify-between mt-2">
+                <Button variant="ghost" onClick={() => setStep(0)}>Back</Button>
+                <div />
               </div>
-            </Card>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="text-xs text-muted-foreground hover:underline"
-              onClick={async () => {
-                try {
-                  setSaving(true);
-                  const desiredRole = 'member';
-                  const note = 'Requesting access to any tenant';
-                  await fetch('/api/onboarding/request-access', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ desiredRole, note }) });
-                  alert('Request sent to tenant admins. You will receive an invitation when approved.');
-                } catch {
-                  alert('Failed to send request. Please contact your administrator.');
-                } finally {
-                  setSaving(false);
-                }
-              }}
-            >Need tenant access? Request access</button>
-            <Button variant="ghost" onClick={() => { window.location.href = '/landing'; }}>Back</Button>
-            <Button disabled={!role || saving} onClick={onContinue}>{saving ? 'Saving…' : 'Continue'}</Button>
-          </div>
-          <div className="text-xs text-muted-foreground text-center">You can change this later in Preferences.</div>
+            </>
+          ))}
+          {step === 2 && (role === 'platform_admin' ? <ContextStep /> : <DeployStep />)}
+          {step >= 3 && <ContextStep />}
         </div>
       </div>
     </div>

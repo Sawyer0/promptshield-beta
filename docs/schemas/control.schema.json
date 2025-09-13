@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptshield.io/schemas/control.schema.json",
+  "title": "Compliance Control",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "framework_key",
+    "control_key",
+    "title",
+    "summary_plain",
+    "version",
+    "status"
+  ],
+  "properties": {
+    "framework_key": { "type": "string", "minLength": 1 },
+    "control_key": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "summary_plain": { "type": "string", "minLength": 1 },
+    "canonical_text_ref": { "type": "string" },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "jurisdictions": { "type": "array", "items": { "type": "string" } },
+    "obligations": { "type": "array", "items": { "type": "string" } },
+    "data_categories": { "type": "array", "items": { "type": "string" } },
+    "scope_conditions": { "type": "array", "items": { "type": "string" } },
+    "suggested_intents": { "type": "array", "items": { "type": "string" } },
+    "required_evidence": { "type": "array", "items": { "type": "string" } },
+    "risk_category": { "type": "string" },
+    "cross_maps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["framework_key", "control_key"],
+        "additionalProperties": false,
+        "properties": {
+          "framework_key": { "type": "string" },
+          "control_key": { "type": "string" }
+        }
+      }
+    },
+    "locales": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["locale", "title"],
+        "additionalProperties": false,
+        "properties": {
+          "locale": { "type": "string" },
+          "title": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "version": { "type": "string" },
+    "status": { "type": "string", "enum": ["active", "superseded"] }
+  }
+}
+

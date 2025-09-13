@@ -12,7 +12,8 @@ import (
 type BillingService interface {
 	// Subscription Management
 	CreateSubscription(ctx context.Context, tenantID uuid.UUID, planID uuid.UUID, billingCycle domain.BillingCycle) (*domain.Subscription, error)
-	GetSubscription(ctx context.Context, tenantID uuid.UUID) (*domain.Subscription, error)
+	GetSubscription(ctx context.Context, subscriptionID uuid.UUID) (*domain.Subscription, error)
+	GetSubscriptionByTenant(ctx context.Context, tenantID uuid.UUID) (*domain.Subscription, error)
 	UpdateSubscription(ctx context.Context, subscriptionID uuid.UUID, updates SubscriptionUpdates) (*domain.Subscription, error)
 	CancelSubscription(ctx context.Context, subscriptionID uuid.UUID, cancelAtPeriodEnd bool) error
 

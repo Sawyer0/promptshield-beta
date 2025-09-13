@@ -113,6 +113,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // Friendly alias: redirect legacy path to onboarding role page
+  app.get('/onboard/role', (_req, res) => {
+    res.redirect(302, '/onboarding/role');
+  });
+
   // Metrics API (Prometheus-backed) — Clerk-protected upstream in gatewayProxy, but this route is local
   registerMetricsApi(app);
 
@@ -359,6 +364,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Simple waitlist endpoint: append JSONL to local file (server-only)
+  app.get('/api/waitlist', (_req: any, res: Response) => {
+    // Helpful message for GET callers; keep this public
+    res.json({ ok: true, message: 'Submit POST with { email, company, ... } to join the waitlist.' });
+  });
   app.post('/api/waitlist', async (req: any, res: Response) => {
     try {
       const body = req.body || {};

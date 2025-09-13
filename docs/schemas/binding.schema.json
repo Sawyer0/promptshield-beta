@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptshield.io/schemas/binding.schema.json",
+  "title": "Requirement Binding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requirement_id", "detectors", "endpoints"],
+  "properties": {
+    "requirement_id": { "type": "string", "minLength": 1 },
+    "detectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string" },
+          "config": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "endpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
+

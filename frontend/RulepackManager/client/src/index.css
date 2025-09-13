@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 :root {
-  /* Promptshield brand variables */
+  /* PoliSync Guard brand variables */
   --brand-accent: #ff4600; /* Custom Dark Orange 15 */
   --brand-cyan-3: #183c40; /* DarkCyan 3 */
   --brand-cyan-2: #20494d; /* DarkCyan 2 */
@@ -28,7 +28,8 @@
   --secondary: hsl(150, 12%, 92%);
   --secondary-foreground: hsl(150, 25%, 15%);
   --muted: hsl(150, 10%, 95%);
-  --muted-foreground: hsl(150, 15%, 45%);
+  /* Darken muted text in light mode for better contrast */
+  --muted-foreground: hsl(150, 20%, 28%);
   --accent: hsl(150, 12%, 94%);
   --accent-foreground: hsl(150, 25%, 15%);
   
@@ -62,16 +63,20 @@
   --chart-4: hsl(280, 60%, 55%);
   
   /* Typography */
-  --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Use Newsreader app-wide for a cohesive look */
+  --font-sans: 'Newsreader', 'Source Serif 4', 'Georgia', 'Times New Roman', Times, serif;
   --font-serif: 'Newsreader', 'Source Serif 4', 'Georgia', 'Times New Roman', Times, serif;
-  --font-security: 'Inter', 'SF Pro Text', system-ui, sans-serif;
-  --font-display: 'Inter', 'SF Pro Display', system-ui, sans-serif;
+  --font-security: 'Newsreader', 'Source Serif 4', 'Georgia', 'Times New Roman', Times, serif;
+  --font-display: 'Newsreader', 'Source Serif 4', 'Georgia', 'Times New Roman', Times, serif;
   --font-mono: 'Fira Code', 'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace;
   
   /* Effects */
   --radius: 0.5rem;
   --enterprise-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --enterprise-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+  /* Marketing surfaces */
+  --marketing-card: hsl(220, 16%, 97%); /* neutral light gray for contrast on green bg */
 }
 
 .dark {
@@ -89,7 +94,8 @@
   --secondary: hsl(150, 25%, 12%);
   --secondary-foreground: hsl(150, 8%, 82%);
   --muted: hsl(150, 25%, 10%);
-  --muted-foreground: hsl(150, 10%, 58%);
+  /* Lighten muted text in dark mode for better contrast */
+  --muted-foreground: hsl(150, 12%, 72%);
   --accent: hsl(150, 25%, 12%);
   --accent-foreground: hsl(150, 8%, 82%);
   
@@ -122,6 +128,9 @@
   --chart-3: hsl(220, 65%, 58%);
   --chart-4: hsl(280, 55%, 58%);
   --chart-5: hsl(200, 75%, 55%);
+
+  /* Marketing surfaces in dark */
+  --marketing-card: hsl(220, 15%, 14%);
 }
 
 @layer base {
@@ -132,8 +141,9 @@
   body {
     @apply antialiased bg-background text-foreground;
     font-family: var(--font-sans);
-    font-weight: 500;
-    letter-spacing: -0.015em;
+    font-weight: 500; /* boost base weight for readability across backgrounds */
+    letter-spacing: 0; /* serif looks cleaner at 0 tracking */
+    font-optical-sizing: auto; /* respect Newsreader opsz */
   }
 
   .serif-display {
@@ -143,6 +153,19 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold;
   }
+}
+
+/* Marketing type ramp and layout utilities */
+@layer components {
+  .marketing-root { font-family: var(--font-serif); font-weight: 300; letter-spacing: 0; }
+  .marketing-root strong, .marketing-root b { font-weight: 500; }
+  .marketing-container { @apply mx-auto max-w-[1600px] 2xl:max-w-[1760px] px-8 sm:px-12 xl:px-16; }
+  .marketing-section { @apply py-16 md:py-20; }
+  .marketing-hero { @apply relative overflow-hidden bg-gradient-to-br from-emerald-50 to-transparent dark:from-emerald-950/40; }
+  .marketing-h1 { @apply text-4xl md:text-5xl leading-tight tracking-tight; }
+  .marketing-h2 { @apply text-3xl md:text-4xl leading-tight tracking-tight; }
+  .marketing-h3 { @apply text-xl md:text-2xl; }
+  .marketing-body { @apply text-[15px] md:text-base leading-relaxed; }
 }
 
 /* Custom animations and transitions */
@@ -210,6 +233,12 @@
 .card-hover:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+@layer utilities {
+  .bg-marketing-card {
+    background-color: var(--marketing-card);
+  }
 }
 
 /* Utility classes for the design system */

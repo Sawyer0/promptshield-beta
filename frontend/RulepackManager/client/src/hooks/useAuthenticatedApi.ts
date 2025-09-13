@@ -68,6 +68,8 @@ export function useAuthenticatedApi() {
       start: (serviceId: string) => serviceApi.start(serviceId, userContext),
       stop: (serviceId: string) => serviceApi.stop(serviceId, userContext),
       restart: (serviceId: string) => serviceApi.restart(serviceId, userContext),
+      // expose optional scale if supported by backend
+      scale: (serviceId: string, replicas: number) => (serviceApi as any).scale?.(serviceId, replicas, userContext),
       getStatus: (serviceId: string) => serviceApi.getStatus(serviceId, userContext),
     },
     system: {

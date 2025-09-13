@@ -14,57 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/repository"
 )
-
-// mockRulepackRepo is a minimal mock for testing
-type mockRulepackRepo struct{}
-
-func (m *mockRulepackRepo) Create(ctx context.Context, tenantID uuid.UUID, name, desc string) (uuid.UUID, error) {
-	return uuid.New(), nil
-}
-
-func (m *mockRulepackRepo) CreateVersion(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, status string, createdBy uuid.UUID) (uuid.UUID, error) {
-	return uuid.New(), nil
-}
-
-func (m *mockRulepackRepo) GetActive(ctx context.Context, packID uuid.UUID) (json.RawMessage, int, error) {
-	return json.RawMessage("{}"), 1, nil
-}
-
-func (m *mockRulepackRepo) Activate(ctx context.Context, packID, versionID uuid.UUID) error {
-	return nil
-}
-
-func (m *mockRulepackRepo) GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error) {
-	return json.RawMessage("{}"), "approved", nil
-}
-
-func (m *mockRulepackRepo) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
-	return uuid.New(), 1, nil
-}
-
-func (m *mockRulepackRepo) ActivateLatest(ctx context.Context, packID uuid.UUID) error {
-	return nil
-}
-
-func (m *mockRulepackRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]services.RulepackInfo, error) {
-	return []services.RulepackInfo{}, nil
-}
-
-func (m *mockRulepackRepo) Delete(ctx context.Context, packID uuid.UUID) error {
-	return nil
-}
-
-func (m *mockRulepackRepo) CreateVersionActivateTx(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, createdBy uuid.UUID) (uuid.UUID, error) {
-	return uuid.New(), nil
-}
-
-func (m *mockRulepackRepo) PurgeOldVersions(ctx context.Context, packID uuid.UUID, keep int) error {
-	return nil
-}
 
 func TestVersion(t *testing.T) {
 	factory, err := repository.NewTestRepositoryFactory(nil, nil)

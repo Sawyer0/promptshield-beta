@@ -2,7 +2,6 @@ import { queryClient } from "@/lib/queryClient";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { API_CONFIG } from "@/config/api";
 import type {
   RulePack,
   InsertRulePack,
@@ -33,17 +32,8 @@ interface AuditEvent {
   created_at: string;
 }
 
-// API base configuration - use config for proper port
-const API_BASE = API_CONFIG.BASE_URL;
-
-// Headers for your backend with frontend bypass authentication
-const getHeaders = (userContext?: { userId?: string; userName?: string; tenantId?: string }) => ({
-  'Content-Type': 'application/json',
-  'X-PS-Frontend-Auth': API_CONFIG.FRONTEND_AUTH_TOKEN,
-  'X-Tenant-ID': userContext?.tenantId || '6f4d338d-f0c0-4091-b54e-f71752c8f568',
-  'X-PS-User-ID': userContext?.userId || '',
-  'X-PS-User-Name': userContext?.userName || '',
-});
+// API base unused (same-origin via apiRequest)
+const API_BASE = '';
 
 // Error handling helper
 export const handleApiError = (error: Error, toast: ReturnType<typeof useToast>['toast']) => {
@@ -120,13 +110,7 @@ export const rulePackApi = {
   },
 
   get: async (id: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<RulePack>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/rulepacks/${id}`);
     const m = await response.json();
     const data: RulePack = {
       id: m.id,
@@ -159,101 +143,45 @@ export const rulePackApi = {
   },
 
   delete: async (id: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<void>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}`, {
-      method: 'DELETE',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('DELETE', `/api/rulepacks/${id}`);
     return response.json();
   },
 
   // Version Management
   createVersion: async (id: string, data: { dsl: string; status: 'draft' | 'approved' }, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}/versions`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/rulepacks/${id}/versions`, data);
     return response.json();
   },
 
   getVersion: async (id: string, versionNumber: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}/versions/${versionNumber}`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/rulepacks/${id}/versions/${versionNumber}`);
     return response.json();
   },
 
   listVersions: async (id: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any[]>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}/versions`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/rulepacks/${id}/versions`);
     return response.json();
   },
 
   // Activation Control
   activateVersion: async (id: string, versionId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}/versions/${versionId}/activate`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/rulepacks/${id}/versions/${versionId}/activate`);
     return response.json();
   },
 
   activateLatest: async (id: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}/activate-latest`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/rulepacks/${id}/activate-latest`);
     return response.json();
   },
 
   deactivate: async (id: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}/deactivate`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/rulepacks/${id}/deactivate`);
     return response.json();
   },
 
   // Management Operations
   purgeVersions: async (id: string, keep: number, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/rulepacks/${id}/purge-versions`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-      body: JSON.stringify({ keep })
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/rulepacks/${id}/purge-versions`, { keep });
     return response.json();
   },
 };
@@ -534,61 +462,25 @@ export const auditApi = {
 
   // Get recent violations for dashboard
   getRecentViolations: async (limit = 50, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<{ events: AuditEvent[] }>> => {
-    const response = await fetch(`${API_BASE}/admin/audits/search`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-      body: JSON.stringify({
-        actions: ["request.decision", "scan.decision"],
-        limit: limit
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/admin/audits/search`, { actions: ["request.decision", "scan.decision"], limit });
     return response.json();
   },
 
   // Get violation statistics for dashboard
   getViolationStats: async (startDate: Date, endDate: Date, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<{ events: AuditEvent[] }>> => {
-    const response = await fetch(`${API_BASE}/admin/audits/search`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-      body: JSON.stringify({
-        actions: ["request.decision"],
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
-        limit: 10000 // Get all for stats calculation
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/admin/audits/search`, { actions: ["request.decision"], start_time: startDate.toISOString(), end_time: endDate.toISOString(), limit: 10000 });
     return response.json();
   },
 
   // Export audit events (violations)
   exportViolations: async (format = 'json', userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<any> => {
-    const response = await fetch(`${API_BASE}/admin/audits/export?format=${format}&limit=10000`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/admin/audits/export?format=${format}&limit=10000`);
     return format === 'json' ? response.json() : response.text();
   },
 
   // Get audit history for specific object
   getObjectHistory: async (type: string, objectId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<{ events: AuditEvent[] }>> => {
-    const response = await fetch(`${API_BASE}/admin/audits/object/${type}/${objectId}`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/admin/audits/object/${type}/${objectId}`);
     return response.json();
   },
 
@@ -637,48 +529,22 @@ export const auditApi = {
 // System API functions
 export const systemApi = {
   getInfo: async (userContext?: { userId?: string; userName?: string; tenantId?: string }) => {
-    const response = await fetch(`${API_BASE}/admin/system/info`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/admin/system/info`);
     return response.json();
   },
 
   getStats: async (userContext?: { userId?: string; userName?: string; tenantId?: string }) => {
-    const response = await fetch(`${API_BASE}/admin/system/stats`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/admin/system/stats`);
     return response.json();
   },
 
   getHealth: async (userContext?: { userId?: string; userName?: string; tenantId?: string }) => {
-    const response = await fetch(`${API_BASE}/healthz`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
-    // Backend returns plain text ("ok"), not JSON
+    const response = await apiRequest('GET', `/api/healthz`);
     return response.text();
   },
 
   getReadiness: async (userContext?: { userId?: string; userName?: string; tenantId?: string }) => {
-    const response = await fetch(`${API_BASE}/readyz`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
-    // Backend returns plain text ("ready"), not JSON
+    const response = await apiRequest('GET', `/api/readyz`);
     return response.text();
   },
 };
@@ -686,75 +552,37 @@ export const systemApi = {
 // Service Management API functions (from PromptShield API guide)
 export const serviceApi = {
   getAll: async (userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any[]>> => {
-    const response = await fetch(`${API_BASE}/api/v1/services`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/v1/services`);
     return response.json();
   },
 
   start: async (serviceId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/api/v1/services/${serviceId}/start`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/v1/services/${serviceId}/start`);
     return response.json();
   },
 
   stop: async (serviceId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/api/v1/services/${serviceId}/stop`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/v1/services/${serviceId}/stop`);
     return response.json();
   },
 
   restart: async (serviceId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/api/v1/services/${serviceId}/restart`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('POST', `/api/v1/services/${serviceId}/restart`);
     return response.json();
   },
 
   getStatus: async (serviceId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
-    const response = await fetch(`${API_BASE}/api/v1/services/${serviceId}/status`, {
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      throw new Error(`${response.status}: ${response.statusText}`);
-    }
+    const response = await apiRequest('GET', `/api/v1/services/${serviceId}/status`);
     return response.json();
   },
   // Best-effort scale (if supported by backend)
   scale: async (serviceId: string, replicas: number, userContext?: { userId?: string; userName?: string; tenantId?: string }): Promise<APIResponse<any>> => {
     // Prefer explicit scale endpoint; fallback to restart if not available
-    const tryEndpoints = [`${API_BASE}/api/v1/services/${serviceId}/scale`, `${API_BASE}/api/v1/services/${serviceId}/restart`];
+    const tryEndpoints = [`/api/v1/services/${serviceId}/scale`, `/api/v1/services/${serviceId}/restart`];
     let lastError: any = null;
     for (const url of tryEndpoints) {
       try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: getHeaders(userContext),
-          credentials: 'include',
-          body: JSON.stringify({ replicas }),
-        });
+        const response = await apiRequest('POST', url, { replicas });
         if (response.ok) return response.json();
         lastError = new Error(`${response.status}: ${response.statusText}`);
       } catch (e: any) {
@@ -768,60 +596,33 @@ export const serviceApi = {
 // User Management API
 export const userApi = {
   async getAll(userContext?: { userId?: string; userName?: string; tenantId?: string }) {
-    const response = await fetch(`${API_BASE}/admin/users`, {
-      method: 'GET',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    return handleResponse(response);
+    const response = await apiRequest('GET', `/api/admin/users`);
+    return response.json();
   },
 
   async create(userData: any, userContext?: { userId?: string; userName?: string; tenantId?: string }) {
-    const response = await fetch(`${API_BASE}/admin/users`, {
-      method: 'POST',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-      body: JSON.stringify(userData),
-    });
-    return handleResponse(response);
+    const response = await apiRequest('POST', `/api/admin/users`, userData);
+    return response.json();
   },
 
   async update(userId: string, userData: any, userContext?: { userId?: string; userName?: string; tenantId?: string }) {
-    const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
-      method: 'PUT',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-      body: JSON.stringify(userData),
-    });
-    return handleResponse(response);
+    const response = await apiRequest('PUT', `/api/admin/users/${userId}`, userData);
+    return response.json();
   },
 
   async delete(userId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }) {
-    const response = await fetch(`${API_BASE}/admin/users/${userId}`, {
-      method: 'DELETE',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    return handleResponse(response);
+    const response = await apiRequest('DELETE', `/api/admin/users/${userId}`);
+    return response.json();
   },
 
   async updateStatus(userId: string, status: string, userContext?: { userId?: string; userName?: string; tenantId?: string }) {
-    const response = await fetch(`${API_BASE}/admin/users/${userId}/status`, {
-      method: 'PUT',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-      body: JSON.stringify({ status }),
-    });
-    return handleResponse(response);
+    const response = await apiRequest('PUT', `/api/admin/users/${userId}/status`, { status });
+    return response.json();
   },
 
   async getUserRole(userId: string, userContext?: { userId?: string; userName?: string; tenantId?: string }) {
-    const response = await fetch(`${API_BASE}/admin/users/${userId}/role`, {
-      method: 'GET',
-      headers: getHeaders(userContext),
-      credentials: 'include',
-    });
-    return handleResponse(response);
+    const response = await apiRequest('GET', `/api/admin/users/${userId}/role`);
+    return response.json();
   },
 };
 

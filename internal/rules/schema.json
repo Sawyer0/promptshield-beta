@@ -27,7 +27,14 @@
         "license": { "type": "string" },
         "homepage": { "type": "string" },
         "repository": { "type": "string" },
-        "tags": { "type": "array", "items": { "type": "string" } }
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "compliance": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
       }
     },
     "rules": {
@@ -145,7 +152,14 @@
         "cache": { "$ref": "#/$defs/cache" },
         "when": { "$ref": "#/$defs/condition" },
         "unless": { "$ref": "#/$defs/condition" },
-        "timeout": { "type": "string" }
+        "timeout": { "type": "string" },
+        "controls": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
       },
       "allOf": [
         {

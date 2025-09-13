@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptshield.io/schemas/seed_bundle.schema.json",
+  "title": "Compliance Seed Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["frameworks", "controls"],
+  "properties": {
+    "frameworks": {
+      "type": "array",
+      "items": { "$ref": "framework.schema.json" }
+    },
+    "controls": {
+      "type": "array",
+      "items": { "$ref": "control.schema.json" }
+    }
+  }
+}
+

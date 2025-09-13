@@ -19,26 +19,29 @@ type RulePack struct {
 }
 
 type Metadata struct {
-	Name        string   `yaml:"name" json:"name"`
-	Version     string   `yaml:"version" json:"version,omitempty"`
-	Description string   `yaml:"description" json:"description,omitempty"`
-	Author      string   `yaml:"author" json:"author,omitempty"`
-	Authors     []string `yaml:"authors" json:"authors,omitempty"`
-	License     string   `yaml:"license" json:"license,omitempty"`
-	Homepage    string   `yaml:"homepage" json:"homepage,omitempty"`
-	Repository  string   `yaml:"repository" json:"repository,omitempty"`
-	Tags        []string `yaml:"tags" json:"tags,omitempty"`
+    Name        string   `yaml:"name" json:"name"`
+    Version     string   `yaml:"version" json:"version,omitempty"`
+    Description string   `yaml:"description" json:"description,omitempty"`
+    Author      string   `yaml:"author" json:"author,omitempty"`
+    Authors     []string `yaml:"authors" json:"authors,omitempty"`
+    License     string   `yaml:"license" json:"license,omitempty"`
+    Homepage    string   `yaml:"homepage" json:"homepage,omitempty"`
+    Repository  string   `yaml:"repository" json:"repository,omitempty"`
+    Tags        []string `yaml:"tags" json:"tags,omitempty"`
+    // Compliance maps this RulePack to external compliance frameworks
+    // e.g. { "SOC2": ["CC6.6","CC7.2"], "HIPAA": ["164.312(b)"] }
+    Compliance map[string][]string `yaml:"compliance" json:"compliance,omitempty"`
 }
 
 type Rule struct {
-	ID          string `yaml:"id" json:"id"`
-	Name        string `yaml:"name" json:"name,omitempty"`
-	Description string `yaml:"description" json:"description,omitempty"`
-	Level       int    `yaml:"level" json:"level"`                 // 1=keyword, 2=regex, 3=semantic
-	Severity    string `yaml:"severity" json:"severity,omitempty"` // INFO|WARNING|ERROR|CRITICAL
-	Category    string `yaml:"category" json:"category,omitempty"`
-	Enabled     *bool  `yaml:"enabled" json:"enabled,omitempty"`
-	Verifier    string `yaml:"verifier" json:"verifier,omitempty"`
+    ID          string `yaml:"id" json:"id"`
+    Name        string `yaml:"name" json:"name,omitempty"`
+    Description string `yaml:"description" json:"description,omitempty"`
+    Level       int    `yaml:"level" json:"level"`                 // 1=keyword, 2=regex, 3=semantic
+    Severity    string `yaml:"severity" json:"severity,omitempty"` // INFO|WARNING|ERROR|CRITICAL
+    Category    string `yaml:"category" json:"category,omitempty"`
+    Enabled     *bool  `yaml:"enabled" json:"enabled,omitempty"`
+    Verifier    string `yaml:"verifier" json:"verifier,omitempty"`
 
 	Keywords []string  `yaml:"keywords" json:"keywords,omitempty"`
 	Patterns []Pattern `yaml:"patterns" json:"patterns,omitempty"`
@@ -54,8 +57,12 @@ type Rule struct {
 	When   *Condition `yaml:"when" json:"when,omitempty"`
 	Unless *Condition `yaml:"unless" json:"unless,omitempty"`
 
-	// Optional per-rule timeout (e.g., "50ms")
-	Timeout string `yaml:"timeout" json:"timeout,omitempty"`
+    // Optional per-rule timeout (e.g., "50ms")
+    Timeout string `yaml:"timeout" json:"timeout,omitempty"`
+
+    // Controls maps this specific rule to one or more compliance controls
+    // e.g. { "SOC2": ["CC7.2"], "GDPR": ["Art. 32"] }
+    Controls map[string][]string `yaml:"controls" json:"controls,omitempty"`
 }
 
 type Options struct {

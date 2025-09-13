@@ -17,6 +17,9 @@ type invoiceService struct {
 	billingSvc   BillingService
 }
 
+// Compile-time interface verification
+var _ InvoiceService = (*invoiceService)(nil)
+
 // NewInvoiceService creates a new invoice service
 func NewInvoiceService(
 	repo InvoiceRepository,
@@ -142,7 +145,12 @@ func (s *invoiceService) GenerateInvoicePDF(ctx context.Context, invoiceID uuid.
 	if err != nil {
 		return "", fmt.Errorf("failed to get line items: %w", err)
 	}
-	invoice.LineItems = lineItems
+	// Convert []*domain.InvoiceLineItem to []domain.InvoiceLineItem
+	invoiceLineItems := make([]domain.InvoiceLineItem, len(lineItems))
+	for i, item := range lineItems {
+		invoiceLineItems[i] = *item
+	}
+	invoice.LineItems = invoiceLineItems
 
 	// Generate PDF
 	pdfData, err := s.pdfGenerator.GenerateInvoicePDF(ctx, invoice)
@@ -177,14 +185,20 @@ func (s *invoiceService) SendInvoiceEmail(ctx context.Context, invoiceID uuid.UU
 		return fmt.Errorf("failed to get subscription: %w", err)
 	}
 
+	// Get plan details
+	plan, err := s.billingSvc.GetPlan(ctx, subscription.PlanID)
+	if err != nil {
+		return fmt.Errorf("failed to get plan: %w", err)
+	}
+
 	// Get invoice template
-	templates, err := s.repo.GetInvoiceTemplates(ctx, subscription.PlanName)
+	templates, err := s.repo.GetInvoiceTemplates(ctx, plan.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get invoice templates: %w", err)
 	}
 
 	if len(templates) == 0 {
-		return fmt.Errorf("no invoice template found for plan: %s", subscription.PlanName)
+		return fmt.Errorf("no invoice template found for plan: %s", plan.Name)
 	}
 
 	template := templates[0] // Use first template
@@ -236,7 +250,7 @@ func (s *invoiceService) generateInvoiceNumber(tenantID uuid.UUID, periodStart t
 	return fmt.Sprintf("INV-%d%02d-%s", year, month, tenantShort)
 }
 
-func (s *invoiceService) calculateInvoiceAmounts(ctx context.Context, subscription *domain.Subscription, usage *domain.UsageMetric, periodStart, periodEnd time.Time) (int64, []domain.InvoiceLineItem, error) {
+func (s *invoiceService) calculateInvoiceAmounts(ctx context.Context, subscription *domain.Subscription, usage *domain.LLMUsage, periodStart, periodEnd time.Time) (int64, []domain.InvoiceLineItem, error) {
 	var lineItems []domain.InvoiceLineItem
 	var subtotalCents int64
 
@@ -247,9 +261,9 @@ func (s *invoiceService) calculateInvoiceAmounts(ctx context.Context, subscripti
 	}
 
 	// Base subscription cost
-	basePriceCents := plan.PriceMonthly
-	if subscription.BillingCycle == "yearly" {
-		basePriceCents = plan.PriceYearly
+	basePriceCents := int64(plan.PriceMonthly)
+	if subscription.BillingCycle == "yearly" && plan.PriceYearly != nil {
+		basePriceCents = int64(*plan.PriceYearly)
 	}
 
 	// Add subscription line item
@@ -265,8 +279,8 @@ func (s *invoiceService) calculateInvoiceAmounts(ctx context.Context, subscripti
 	subtotalCents += basePriceCents
 
 	// Calculate LLM usage overage
-	if usage.LLMCalls > int64(plan.Limits["llm_calls_monthly"].(int)) {
-		overageCalls := usage.LLMCalls - int64(plan.Limits["llm_calls_monthly"].(int))
+	if int64(usage.LLMCalls) > int64(plan.Limits.LLMCallsMonthly) {
+		overageCalls := int64(usage.LLMCalls) - int64(plan.Limits.LLMCallsMonthly)
 		overagePriceCents := int64(0.01 * 100) // $0.01 per overage call
 		overageTotalCents := overageCalls * overagePriceCents
 
@@ -278,7 +292,7 @@ func (s *invoiceService) calculateInvoiceAmounts(ctx context.Context, subscripti
 			TotalCents:     overageTotalCents,
 			LineType:       domain.LineTypeOverage,
 			Metadata: map[string]interface{}{
-				"included_calls": plan.Limits["llm_calls_monthly"],
+				"included_calls": plan.Limits.LLMCallsMonthly,
 				"used_calls":     usage.LLMCalls,
 				"overage_calls":  overageCalls,
 			},
