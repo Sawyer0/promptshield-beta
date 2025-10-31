@@ -360,10 +360,10 @@ make test
 
 Interested in contributing? Check out:
 - [ROADMAP.md](ROADMAP.md) - See what's planned and in progress
-- [Issues](https://github.com/yourname/promptshield/issues) - Find tasks to work on
+- [Issues](https://github.com/sawyer0/promptshield-beta/issues) - Find tasks to work on
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Development guidelines (coming soon)
 
 ### License
 
-Copyright © 2025 PromptShield authors.
+Copyright © 2025 Dawan Sawyer.
 

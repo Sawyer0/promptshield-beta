@@ -199,7 +199,7 @@ This document outlines the development roadmap for PromptShield, including compl
 
 We welcome contributions! If you're interested in working on any of these features:
 
-1. Check the [Issues](https://github.com/yourname/promptshield/issues) page for open tasks
+1. Check the [Issues](https://github.com/sawyer0/promptshield-beta/issues) page for open tasks
 2. Comment on an issue to claim it
 3. Read [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines
 4. Submit a pull request with your changes
@@ -216,10 +216,6 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 ## 💬 Feedback
 
-Have ideas for features not on this roadmap? Open an issue with the `enhancement` label or start a discussion in [GitHub Discussions](https://github.com/yourname/promptshield/discussions).
+Have ideas for features not on this roadmap? Open an issue with the `enhancement` label or start a discussion in [GitHub Discussions](https://github.com/sawyer0/promptshield-beta/discussions).
 
----
 
-**Last Updated**: January 2025  
-**Current Version**: v0.2.0  
-**Next Release**: v0.3.0

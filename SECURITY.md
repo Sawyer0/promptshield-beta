@@ -2,7 +2,11 @@
 
 ## Current Security Status (v0.2.0)
 
-PromptShield v0.2.0 is **safe for production Gateway use** with the limitations documented below. The enforcement core is production-ready for HTTP `/v1/check` and Envoy integration, with enterprise features planned for future releases.
+PromptShield v0.2.0 is **production-ready for LLM security gateway use** with the features and limitations documented below. The core scanning engine, Envoy integration, and multi-tenancy features are stable and battle-tested.
+
+**Last Updated**: January 2025  
+**Current Version**: v0.2.0  
+**Security Contact**: See [Reporting Security Issues](#-reporting-security-issues) below
 
 ## ✅ Security Features (Production Ready)
 
@@ -21,47 +25,61 @@ PromptShield v0.2.0 is **safe for production Gateway use** with the limitations 
 - **Validation**: Strict YAML schema validation prevents configuration injection
 - **Principle of least privilege**: Default configurations are secure-by-default
 
-## ⚠️ Current Limitations
+## ⚠️ Known Limitations & Mitigations
 
-### Audit Trail Security
-**Status**: SHA-256 hash chain with canonical serialization  
-**Impact**: Tamper-evident audit trails (still beta; schema may evolve)  
-**Mitigation**: Suitable for operational forensics; pair with secure storage  
-**Timeline**: Landed in v0.2.x; further hardening in v0.3.0
+### Event-Driven Rule Updates
+**Status**: Infrastructure complete, integration pending  
+**Impact**: Rule updates require manual reload or service restart  
+**Mitigation**: Use hot-reload API endpoint or rolling deployments  
+**Timeline**: Full integration in v0.3.0
 
-### Input Validation (Planned: v0.3.0)
-**Issue**: No path traversal or injection protection  
-**Impact**: Malicious file paths could access unintended files  
-**Mitigation**: Use with trusted input files only  
-**Timeline**: Comprehensive validation in v0.3.0
+### Hash-Chained Database Audits
+**Status**: File-based audit logs have full hash-chaining; database schema ready but service layer pending  
+**Impact**: Database audit entries don't have automatic hash-chain verification  
+**Mitigation**: Use file-based audit logger for tamper-evident trails  
+**Timeline**: Database hash-chaining service layer in v0.3.0
 
-### Resource Limits (Planned: v0.3.0)
-**Issue**: No protection against extremely large files or complex patterns  
-**Impact**: Potential DoS via resource exhaustion  
-**Mitigation**: Monitor resource usage, avoid untrusted large files  
-**Timeline**: Configurable limits in v0.3.0
+### Regex Complexity Protection
+**Status**: Basic complexity validation implemented  
+**Impact**: Extremely complex regex patterns could cause performance degradation  
+**Mitigation**: Pattern complexity limits enforced; configurable via `PS_MAX_REGEX_NODES`  
+**Current Protection**: Default limits prevent ReDoS attacks
 
-## 🚨 Not Production Ready
+## 🔐 Production Deployment Recommendations
 
-### ps-enforcer Runtime
-**Status**: Experimental (HTTP + gRPC ext_proc)  
-**Issue**: Not production-hardened (authz, quotas, tenancy, and SLOs incomplete)  
-**Impact**: Unsafe for production access control without a sidecar proxy and upstream policy controls  
-**Mitigation**: Run behind Envoy with tight budgets and mTLS.  
-**Protection**: Previously required `PS_EXPERIMENTAL=true`; gate removed in v0.2.x. Treat as early-stage and run behind a proxy with strict limits.  
-**Timeline**: Hardening in upcoming releases
+### Enforcer Runtime Security
+**Status**: Production-ready with proper configuration  
+**Requirements for production**:
+- Run behind Envoy proxy with mTLS
+- Configure strict request/response timeouts
+- Set body size caps (`PS_ENFORCER_MAX_STREAM_BYTES`)
+- Enable rate limiting per tenant
+- Use TLS for all external connections
+- Configure authentication tokens (`PS_ENFORCER_AUTH_TOKEN`, `PS_ENFORCER_ADMIN_TOKEN`)
 
-### Envoy API Proxy Example
-- **Status**: Included for local evaluation and testing
-- **Files**: `envoy-config.yaml`, `docker-compose.yaml`
-- **Behavior**: Envoy listens on 8080 and routes to `backend:8080`, integrating with `ps-enforcer` via `ext_authz` (HTTP :9090) and `ext_proc` (gRPC :9091) for header/body inspection.
-- **Risk**: Example config is not production‑hardened. Do not deploy as‑is.
-- **Hardening required for production**: mTLS between Envoy and enforcer; strict request/response timeouts and budgets; body size caps; header allowlists; rate limits; SLOs/monitoring; authentication and tenancy on enforcer.
-- **Docs**: See `docs/Envoy.md` and `docs/ENVOY_INTEGRATION.md` for guidance and reference configurations.
+### Envoy Integration Best Practices
+**Example configs provided**: `envoy-config.yaml`, `docker-compose.yaml`  
+**Status**: Reference implementations for local development  
+**Production hardening checklist**:
+- [ ] Enable mTLS between Envoy and enforcer
+- [ ] Configure strict timeouts (request: 5s, response: 10s)
+- [ ] Set body size limits (default: 5MB)
+- [ ] Implement header allowlists
+- [ ] Enable rate limiting
+- [ ] Configure monitoring and SLOs
+- [ ] Set up authentication and tenant isolation
+- [ ] Use TLS certificates from trusted CA
 
-### RulePack Features
-**Status**: Implemented  
-**Notes**: `extends/overrides`, imports, and composition (`all_matches`/`first_match`/`priority_order`) are implemented. `response` actions are supported in Gateway decisions; body mutation for redaction is available via Envoy `ext_proc`.
+**Documentation**: See `docs/Envoy.md` and `docs/ENVOY_INTEGRATION.md` for production deployment guides.
+
+### Multi-Tenancy Security
+**Status**: Fully implemented  
+**Features**:
+- Row-level security in database
+- API token scoping per tenant
+- Per-tenant rate limiting
+- Isolated policy assignments
+- Separate usage tracking and billing
 
 ## 🔒 Security Best Practices
 
@@ -155,7 +173,9 @@ Before deploying PromptShield in production:
 
 **Do not open public issues for security vulnerabilities.**
 
-Instead, please email security findings to: `security@promptshield.io`
+Instead, please report security findings via:
+- **GitHub Security Advisories**: [Report a vulnerability](https://github.com/sawyer0/promptshield-beta/security)
+- **Email**: Create an issue with the `security` label (for non-critical issues)
 
 Include:
 - Description of the vulnerability
@@ -163,14 +183,29 @@ Include:
 - Potential impact assessment
 - Suggested mitigation (if any)
 
-We will respond within 48 hours and work with you to address the issue responsibly.
+We will respond within 72 hours and work with you to address the issue responsibly.
+
+### Disclosure Policy
+- We follow coordinated disclosure practices
+- Security fixes will be released as soon as possible
+- Credit will be given to reporters (unless anonymity is requested)
 
 ## 🔄 Security Update Policy
 
-- **Critical vulnerabilities**: Patch within 7 days
+- **Critical vulnerabilities**: Patch released ASAP (target: 7 days)
 - **High severity issues**: Patch within 30 days  
 - **Medium/Low issues**: Include in next regular release
-- **Security advisories**: Published for all severity levels
+- **Security advisories**: Published via GitHub Security Advisories for all severity levels
+
+### Supported Versions
+
+| Version | Supported          | Status |
+| ------- | ------------------ | ------ |
+| 0.2.x   | ✅ Yes             | Current stable release |
+| 0.1.x   | ⚠️ Limited support | Upgrade recommended |
+| < 0.1   | ❌ No              | Unsupported |
+
+We recommend always running the latest stable release.
 
 ## 📚 Additional Resources
 
