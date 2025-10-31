@@ -1,0 +1,327 @@
+# PromptShield API Gateway Design - Production Ready
+
+## Core Concept: LLM API Gateway Proxy
+
+PromptShield acts as a security enforcement layer between your applications and LLM providers (OpenAI, Anthropic, etc.). It should transparently proxy requests while applying security policies.
+
+## API Gateway Architecture
+
+```
+┌──────────────┐      ┌─────────────────┐      ┌──────────────┐
+│              │      │  PromptShield   │      │              │
+│  Application ├─────►│   API Gateway   ├─────►│ LLM Provider │
+│              │      │                 │      │   (OpenAI,   │
+└──────────────┘      │ • Auth          │      │  Anthropic)  │
+                      │ • Policy        │      └──────────────┘
+                      │ • Scanning      │
+                      │ • Rate Limiting │
+                      │ • Monitoring    │
+                      └─────────────────┘
+```
+
+## Core Proxy Endpoints (What PromptShield Should Actually Do)
+
+### 1. LLM Provider Proxies
+
+#### OpenAI Proxy
+```
+POST   /v1/openai/chat/completions           # Proxy to OpenAI Chat API
+POST   /v1/openai/completions                # Proxy to OpenAI Completions
+POST   /v1/openai/embeddings                 # Proxy to OpenAI Embeddings
+POST   /v1/openai/images/generations         # Proxy to DALL-E
+POST   /v1/openai/audio/transcriptions       # Proxy to Whisper
+POST   /v1/openai/moderations                # Proxy to Moderation API
+
+# Streaming support
+POST   /v1/openai/chat/completions/stream    # SSE streaming responses
+```
+
+#### Anthropic Proxy
+```
+POST   /v1/anthropic/messages                # Proxy to Claude Messages API
+POST   /v1/anthropic/completions             # Proxy to Claude Completions
+POST   /v1/anthropic/messages/stream         # SSE streaming responses
+```
+
+#### Azure OpenAI Proxy
+```
+POST   /v1/azure/{deployment}/chat/completions    # Azure OpenAI deployments
+POST   /v1/azure/{deployment}/completions
+POST   /v1/azure/{deployment}/embeddings
+```
+
+#### Custom/Generic LLM Proxy
+```
+POST   /v1/proxy/{provider}/{endpoint}       # Generic proxy with policy enforcement
+```
+
+### 2. Policy Enforcement APIs
+
+#### Real-time Enforcement
+```
+POST   /v1/enforce/pre-request               # Validate before sending to LLM
+{
+  "provider": "openai",
+  "endpoint": "chat/completions",
+  "tenant_id": "uuid",
+  "request_body": { ... },
+  "metadata": {
+    "user_id": "string",
+    "session_id": "string",
+    "application": "string"
+  }
+}
+
+POST   /v1/enforce/post-response             # Validate LLM response
+{
+  "provider": "openai", 
+  "endpoint": "chat/completions",
+  "tenant_id": "uuid",
+  "response_body": { ... },
+  "request_metadata": { ... }
+}
+```
+
+#### Policy Testing
+```
+POST   /v1/policies/test                     # Test policies without proxying
+{
+  "content": "test prompt",
+  "policies": ["policy_id"],
+  "mode": "simulate"
+}
+
+POST   /v1/policies/validate                 # Validate policy configuration
+{
+  "policy": { ... },
+  "test_cases": [ ... ]
+}
+```
+
+### 3. Security Controls
+
+#### API Key Management
+```
+POST   /v1/providers/keys                    # Register provider API keys
+{
+  "provider": "openai",
+  "key_alias": "production",
+  "encrypted_key": "...",
+  "tenant_id": "uuid"
+}
+
+GET    /v1/providers/keys                    # List registered keys
+PUT    /v1/providers/keys/{alias}/rotate     # Rotate API key
+DELETE /v1/providers/keys/{alias}            # Remove API key
+```
+
+#### Token Management
+```
+POST   /v1/tokens                            # Generate client tokens
+{
+  "tenant_id": "uuid",
+  "scopes": ["openai:chat", "anthropic:*"],
+  "expires_in": 3600
+}
+
+POST   /v1/tokens/revoke                     # Revoke token
+GET    /v1/tokens/validate                   # Validate token
+```
+
+### 4. Rate Limiting & Quotas
+
+#### Per-Tenant/Per-User Controls
+```
+GET    /v1/limits                            # Get current limits
+{
+  "tenant": {
+    "requests_per_minute": 100,
+    "tokens_per_hour": 100000,
+    "current_usage": { ... }
+  },
+  "user": {
+    "requests_per_minute": 10,
+    "tokens_per_hour": 10000,
+    "current_usage": { ... }
+  }
+}
+
+PUT    /v1/limits                            # Update limits
+{
+  "tenant_id": "uuid",
+  "limits": {
+    "requests_per_minute": 100,
+    "tokens_per_hour": 100000,
+    "max_prompt_tokens": 4000,
+    "max_completion_tokens": 2000
+  }
+}
+```
+
+### 5. Monitoring & Analytics
+
+#### Real-time Metrics
+```
+GET    /v1/metrics/stream                    # SSE stream of metrics
+GET    /v1/metrics/requests                  # Request metrics
+GET    /v1/metrics/tokens                    # Token usage metrics
+GET    /v1/metrics/violations                # Policy violation metrics
+GET    /v1/metrics/latency                   # Latency breakdown
+```
+
+#### Analytics Queries
+```
+POST   /v1/analytics/query                   # Query historical data
+{
+  "metrics": ["requests", "tokens", "violations"],
+  "group_by": ["tenant", "provider", "hour"],
+  "filters": {
+    "start_time": "2024-01-01T00:00:00Z",
+    "end_time": "2024-01-02T00:00:00Z",
+    "tenant_id": "uuid"
+  }
+}
+```
+
+### 6. Policy Management
+
+#### Policy CRUD
+```
+POST   /v1/policies                          # Create policy
+GET    /v1/policies                          # List policies
+GET    /v1/policies/{id}                     # Get policy
+PUT    /v1/policies/{id}                     # Update policy
+DELETE /v1/policies/{id}                     # Delete policy
+```
+
+#### Policy Assignment
+```
+POST   /v1/policies/{id}/assign              # Assign to tenant/route
+{
+  "tenant_id": "uuid",
+  "routes": ["/v1/openai/*"],
+  "priority": 100
+}
+
+GET    /v1/policies/assignments              # List assignments
+DELETE /v1/policies/{id}/assignments/{aid}   # Remove assignment
+```
+
+### 7. Audit & Compliance
+
+#### Audit Logs
+```
+GET    /v1/audit/logs                        # Query audit logs
+GET    /v1/audit/export                      # Export for compliance
+POST   /v1/audit/search                      # Advanced search
+{
+  "filters": {
+    "event_types": ["policy_violation", "rate_limit"],
+    "severity": ["high", "critical"],
+    "time_range": { ... }
+  }
+}
+```
+
+#### Compliance Reports
+```
+GET    /v1/compliance/report                 # Generate compliance report
+GET    /v1/compliance/violations/summary     # Violation summary
+GET    /v1/compliance/data-residency         # Data residency info
+```
+
+## Request Flow Example
+
+### Application Makes Request:
+```http
+POST /v1/openai/chat/completions
+Authorization: Bearer ps_token_xxx
+X-PS-Tenant-ID: tenant-uuid
+Content-Type: application/json
+
+{
+  "model": "gpt-4",
+  "messages": [
+    {"role": "user", "content": "Hello, how are you?"}
+  ]
+}
+```
+
+### PromptShield Processing:
+1. **Authentication**: Validate token and tenant
+2. **Pre-Request Scanning**: Check prompt for violations
+3. **Rate Limiting**: Check quotas
+4. **Request Enrichment**: Add metadata, sanitize
+5. **Provider Routing**: Select API key, endpoint
+6. **Proxy Request**: Forward to OpenAI
+7. **Response Scanning**: Check response for violations
+8. **Response Enrichment**: Add headers, metadata
+9. **Audit Logging**: Log request/response
+10. **Metrics Recording**: Update usage metrics
+
+### Response to Application:
+```http
+HTTP/1.1 200 OK
+X-PS-Request-ID: req-uuid
+X-PS-Tokens-Used: 150
+X-PS-Cache-Status: MISS
+X-PS-Policy-Applied: standard-policy-v2
+
+{
+  "id": "chatcmpl-xxx",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "I'm doing well, thank you!"
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 8,
+    "total_tokens": 18
+  }
+}
+```
+
+## Key Differentiators from Current Design
+
+1. **Transparent Proxying**: Acts as a drop-in replacement for LLM APIs
+2. **Provider Agnostic**: Supports multiple LLM providers with unified interface
+3. **Real-time Enforcement**: Inline request/response filtering
+4. **Streaming Support**: Handles SSE/WebSocket streaming responses
+5. **Token Accounting**: Tracks and limits token usage per tenant/user
+6. **Caching Layer**: Optional response caching for identical requests
+7. **Circuit Breaking**: Automatic failover between providers
+8. **Request Routing**: Smart routing based on model availability/cost
+
+## Implementation Priority
+
+### Phase 1: Core Proxy (MVP)
+- OpenAI proxy endpoints
+- Basic authentication
+- Pre-request scanning
+- Simple rate limiting
+
+### Phase 2: Enterprise Features
+- Multi-provider support
+- Advanced policies
+- Token management
+- Audit logging
+
+### Phase 3: Advanced Capabilities
+- Streaming support
+- Response caching
+- Circuit breaking
+- Analytics dashboard
+
+## Security Considerations
+
+1. **Zero Trust**: Never trust input from applications or LLMs
+2. **Defense in Depth**: Multiple layers of security checks
+3. **Fail Secure**: Deny by default on any error
+4. **Data Privacy**: No logging of sensitive content by default
+5. **Key Rotation**: Automatic provider key rotation
+6. **Rate Limiting**: Prevent abuse and cost overruns
+7. **Audit Trail**: Complete audit log for compliance

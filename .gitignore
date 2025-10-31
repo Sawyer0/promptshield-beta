@@ -7,9 +7,23 @@
 bin/
 dist/
 *.exe
+*.test
+*-test
+*-clean
+controlplane
+ps-enforcer
+enforcer
+kubectl
+
+# Test artifacts
+coverage.out
+*.out
+results.bin
+*.test.exe
 
 # Logs
 *.log
+*.pid
 enforcer.pid
 
 # OS generated files
