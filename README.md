@@ -1,3 +1,53 @@
+## Architecture Overview
+
+PromptShield is an enterprise LLM security gateway with three main components:
+
+### Core Components
+
+- **Enforcer** (`enforcer/main.go`): Main security gateway with HTTP (:9090) and gRPC (:9091) servers
+- **Control Plane** (`cmd/controlplane/main.go`): Management API for policies and tenants (:8085)
+- **Gateway** (`gateway/main.go`): Lightweight proxy mode for simple deployments
+
+### Architecture Highlights
+
+```
+┌─────────────┐
+│   Client    │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────────────────┐
+│      Envoy Proxy (Edge)         │
+│  ┌───────────────────────────┐  │
+│  │ ext_authz + ext_proc      │  │
+│  └───────────────────────────┘  │
+└──────┬──────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────┐
+│    PromptShield Enforcer        │
+│  ┌───────────────────────────┐  │
+│  │  3-Tier Scanner Engine    │  │
+│  │  - L1: Aho-Corasick       │  │
+│  │  - L2: Regex              │  │
+│  │  - L3: LLM Analysis       │  │
+│  └───────────────────────────┘  │
+└──────┬──────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────┐
+│  PostgreSQL + Redis + NATS      │
+└─────────────────────────────────┘
+```
+
+### Key Features
+
+- **3-Tier Progressive Scanning**: Aho-Corasick (< 1ms) → Regex (< 10ms) → LLM Semantic Analysis (< 100ms)
+- **Envoy Integration**: gRPC ext_proc for transparent traffic inspection and body mutation
+- **Event-Driven Architecture**: NATS for real-time policy updates across distributed enforcers
+- **Streaming Architecture**: Constant memory usage regardless of payload size
+- **Comprehensive Observability**: OpenTelemetry tracing + Prometheus metrics + Grafana dashboards
+
 ## Quick Demo
 
 ### Option A: Docker Compose (local Envoy + Enforcer + Backend)

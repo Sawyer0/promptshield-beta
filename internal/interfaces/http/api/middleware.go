@@ -12,7 +12,6 @@ import (
 func adminAuth(opt Options) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			println("DEBUG: AdminToken='", opt.AdminToken, "' AllowInsecure=", opt.AllowInsecureAdmin)
 			if opt.AdminToken == "" {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin token required", nil)
 				return
