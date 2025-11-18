@@ -43,3 +43,7 @@ Thumbs.db
 
 # Go
 vendor/
+
+# Frontend
+frontend/node_modules/
+frontend/package-lock.json
