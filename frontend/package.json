@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "drizzle-orm": "^0.44.7",
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.10.1",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  }
+}

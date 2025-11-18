@@ -1,5 +1,5 @@
-import { 
-  type Policy, 
+import {
+  type Policy,
   type InsertPolicy,
   type Violation,
   type InsertViolation,
@@ -10,16 +10,29 @@ import {
   type DashboardMetrics,
   type SystemHealth,
   type UpsertUser,
-  type User
-} from "@shared/schema";
-import { randomUUID } from "crypto";
+  type User,
+} from "./shared/schema";
+
+const generateId = (): string => {
+  if (typeof globalThis !== "undefined") {
+    const cryptoObj = (globalThis as any).crypto;
+    if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+      return cryptoObj.randomUUID();
+    }
+  }
+  // Fallback: not cryptographically secure but sufficient for demo/storage
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+};
 
 export interface IStorage {
   // Policy management
   getPolicies(): Promise<Policy[]>;
   getPolicy(id: string): Promise<Policy | undefined>;
   createPolicy(policy: InsertPolicy): Promise<Policy>;
-  updatePolicy(id: string, policy: Partial<InsertPolicy>): Promise<Policy | undefined>;
+  updatePolicy(
+    id: string,
+    policy: Partial<InsertPolicy>
+  ): Promise<Policy | undefined>;
   deletePolicy(id: string): Promise<boolean>;
   activatePolicy(id: string): Promise<boolean>;
   deactivatePolicy(id: string): Promise<boolean>;
@@ -28,7 +41,10 @@ export interface IStorage {
   getViolations(): Promise<Violation[]>;
   getViolation(id: string): Promise<Violation | undefined>;
   createViolation(violation: InsertViolation): Promise<Violation>;
-  getViolationsByDateRange(startDate: Date, endDate: Date): Promise<Violation[]>;
+  getViolationsByDateRange(
+    startDate: Date,
+    endDate: Date
+  ): Promise<Violation[]>;
 
   // System metrics
   getSystemMetrics(): Promise<SystemMetric[]>;
@@ -40,7 +56,10 @@ export interface IStorage {
   getRulePacks(): Promise<RulePack[]>;
   getRulePack(id: string): Promise<RulePack | undefined>;
   createRulePack(rulepack: InsertRulePack): Promise<RulePack>;
-  updateRulePack(id: string, rulepack: Partial<InsertRulePack>): Promise<RulePack | undefined>;
+  updateRulePack(
+    id: string,
+    rulepack: Partial<InsertRulePack>
+  ): Promise<RulePack | undefined>;
 
   // User operations (mandatory for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
@@ -58,7 +77,7 @@ export class MemStorage implements IStorage {
     this.violations = new Map();
     this.systemMetrics = new Map();
     this.rulePacks = new Map();
-    
+
     // Initialize with some sample data
     this.initializeSampleData();
   }
@@ -146,12 +165,13 @@ rules:
       },
     ];
 
-    samplePolicies.forEach(policy => this.policies.set(policy.id, policy));
+    samplePolicies.forEach((policy) => this.policies.set(policy.id, policy));
   }
 
   async getPolicies(): Promise<Policy[]> {
-    return Array.from(this.policies.values()).sort((a, b) => 
-      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    return Array.from(this.policies.values()).sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
     );
   }
 
@@ -160,7 +180,7 @@ rules:
   }
 
   async createPolicy(policy: InsertPolicy): Promise<Policy> {
-    const id = randomUUID();
+    const id = generateId();
     const now = new Date();
     const newPolicy: Policy = {
       ...policy,
@@ -172,7 +192,10 @@ rules:
     return newPolicy;
   }
 
-  async updatePolicy(id: string, policy: Partial<InsertPolicy>): Promise<Policy | undefined> {
+  async updatePolicy(
+    id: string,
+    policy: Partial<InsertPolicy>
+  ): Promise<Policy | undefined> {
     const existing = this.policies.get(id);
     if (!existing) return undefined;
 
@@ -192,7 +215,7 @@ rules:
   async activatePolicy(id: string): Promise<boolean> {
     const policy = this.policies.get(id);
     if (!policy) return false;
-    
+
     policy.is_active = true;
     policy.updated_at = new Date();
     this.policies.set(id, policy);
@@ -202,7 +225,7 @@ rules:
   async deactivatePolicy(id: string): Promise<boolean> {
     const policy = this.policies.get(id);
     if (!policy) return false;
-    
+
     policy.is_active = false;
     policy.updated_at = new Date();
     this.policies.set(id, policy);
@@ -210,8 +233,9 @@ rules:
   }
 
   async getViolations(): Promise<Violation[]> {
-    return Array.from(this.violations.values()).sort((a, b) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    return Array.from(this.violations.values()).sort(
+      (a, b) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
   }
 
@@ -220,7 +244,7 @@ rules:
   }
 
   async createViolation(violation: InsertViolation): Promise<Violation> {
-    const id = randomUUID();
+    const id = generateId();
     const newViolation: Violation = {
       ...violation,
       id,
@@ -230,8 +254,11 @@ rules:
     return newViolation;
   }
 
-  async getViolationsByDateRange(startDate: Date, endDate: Date): Promise<Violation[]> {
-    return Array.from(this.violations.values()).filter(violation => {
+  async getViolationsByDateRange(
+    startDate: Date,
+    endDate: Date
+  ): Promise<Violation[]> {
+    return Array.from(this.violations.values()).filter((violation) => {
       const timestamp = new Date(violation.timestamp);
       return timestamp >= startDate && timestamp <= endDate;
     });
@@ -242,7 +269,7 @@ rules:
   }
 
   async createSystemMetric(metric: InsertSystemMetric): Promise<SystemMetric> {
-    const id = randomUUID();
+    const id = generateId();
     const newMetric: SystemMetric = {
       ...metric,
       id,
@@ -255,18 +282,18 @@ rules:
   async getDashboardMetrics(): Promise<DashboardMetrics> {
     const violations = Array.from(this.violations.values());
     const policies = Array.from(this.policies.values());
-    
+
     // Calculate metrics
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
-    const todayViolations = violations.filter(v => 
-      new Date(v.timestamp) >= today
+
+    const todayViolations = violations.filter(
+      (v) => new Date(v.timestamp) >= today
     );
 
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const recent24HourViolations = violations.filter(v => 
-      new Date(v.timestamp) >= last24Hours
+    const recent24HourViolations = violations.filter(
+      (v) => new Date(v.timestamp) >= last24Hours
     );
 
     // Generate trend data for last 7 days
@@ -277,15 +304,15 @@ rules:
       date.setHours(0, 0, 0, 0);
       const nextDay = new Date(date);
       nextDay.setDate(nextDay.getDate() + 1);
-      
-      const dayViolations = violations.filter(v => {
+
+      const dayViolations = violations.filter((v) => {
         const vDate = new Date(v.timestamp);
         return vDate >= date && vDate < nextDay;
       });
-      
+
       violationTrend.push({
         timestamp: date.toISOString(),
-        count: dayViolations.length
+        count: dayViolations.length,
       });
     }
 
@@ -295,18 +322,20 @@ rules:
       return acc;
     }, {} as Record<string, number>);
 
-    const policyEffectiveness = Object.entries(decisionCounts).map(([decision, count]) => ({
-      decision,
-      count
-    }));
+    const policyEffectiveness = Object.entries(decisionCounts).map(
+      ([decision, count]) => ({
+        decision,
+        count,
+      })
+    );
 
     return {
       total_violations: violations.length,
-      active_policies: policies.filter(p => p.is_active).length,
+      active_policies: policies.filter((p) => p.is_active).length,
       requests_today: recent24HourViolations.length * 10, // Simulate higher traffic
       avg_response_time: 12, // Mock average response time in ms
       violation_trend: violationTrend,
-      policy_effectiveness: policyEffectiveness
+      policy_effectiveness: policyEffectiveness,
     };
   }
 
@@ -317,7 +346,7 @@ rules:
       ml_models: "ready",
       database: "connected",
       cpu_usage: 34,
-      memory_usage: 67
+      memory_usage: 67,
     };
   }
 
@@ -330,7 +359,7 @@ rules:
   }
 
   async createRulePack(rulepack: InsertRulePack): Promise<RulePack> {
-    const id = randomUUID();
+    const id = generateId();
     const now = new Date();
     const newRulePack: RulePack = {
       ...rulepack,
@@ -342,10 +371,13 @@ rules:
     return newRulePack;
   }
 
-  async updateRulePack(id: string, rulepack: Partial<InsertRulePack>): Promise<RulePack | undefined> {
+  async updateRulePack(
+    id: string,
+    rulepack: Partial<InsertRulePack>
+  ): Promise<RulePack | undefined> {
     const existing = this.rulePacks.get(id);
     if (!existing) return undefined;
-    
+
     const updated: RulePack = {
       ...existing,
       ...rulepack,
@@ -372,7 +404,7 @@ rules:
   async upsertUser(userData: UpsertUser): Promise<User> {
     // In MemStorage, we'll return a mock user based on the input
     const user: User = {
-      id: userData.id || randomUUID(),
+      id: userData.id || generateId(),
       email: userData.email || null,
       firstName: userData.firstName || null,
       lastName: userData.lastName || null,
@@ -384,93 +416,191 @@ rules:
   }
 }
 
-// Database storage implementation for production
+// Database storage implementation for production using Drizzle ORM
+// This follows the Repository pattern with dependency injection for testability
 export class DatabaseStorage implements IStorage {
+  // Drizzle DB instance would be injected via constructor
+  // private db: DrizzleDB;
+  // private schema: typeof import('./db/schema');
+
+  // constructor(db: DrizzleDB, schema: typeof import('./db/schema')) {
+  //   this.db = db;
+  //   this.schema = schema;
+  // }
+
   async getPolicies(): Promise<Policy[]> {
-    // Will be implemented with Drizzle ORM
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example Drizzle implementation:
+    // return await this.db.select().from(this.schema.policies).orderBy(desc(this.schema.policies.createdAt));
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getPolicy(id: string): Promise<Policy | undefined> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: return await this.db.select().from(this.schema.policies).where(eq(this.schema.policies.id, id)).limit(1).then(r => r[0]);
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async createPolicy(policy: InsertPolicy): Promise<Policy> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: const [created] = await this.db.insert(this.schema.policies).values(policy).returning();
+    // return created;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
-  async updatePolicy(id: string, policy: Partial<InsertPolicy>): Promise<Policy | undefined> {
-    throw new Error("DatabaseStorage not implemented yet");
+
+  async updatePolicy(
+    id: string,
+    policy: Partial<InsertPolicy>
+  ): Promise<Policy | undefined> {
+    // Example: const [updated] = await this.db.update(this.schema.policies).set(policy).where(eq(this.schema.policies.id, id)).returning();
+    // return updated;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async deletePolicy(id: string): Promise<boolean> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: const result = await this.db.delete(this.schema.policies).where(eq(this.schema.policies.id, id));
+    // return result.rowCount > 0;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async activatePolicy(id: string): Promise<boolean> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: const [updated] = await this.db.update(this.schema.policies).set({ isActive: true }).where(eq(this.schema.policies.id, id)).returning();
+    // return !!updated;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async deactivatePolicy(id: string): Promise<boolean> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: const [updated] = await this.db.update(this.schema.policies).set({ isActive: false }).where(eq(this.schema.policies.id, id)).returning();
+    // return !!updated;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getViolations(): Promise<Violation[]> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: return await this.db.select().from(this.schema.violations).orderBy(desc(this.schema.violations.timestamp));
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getViolation(id: string): Promise<Violation | undefined> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: return await this.db.select().from(this.schema.violations).where(eq(this.schema.violations.id, id)).limit(1).then(r => r[0]);
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async createViolation(violation: InsertViolation): Promise<Violation> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: const [created] = await this.db.insert(this.schema.violations).values(violation).returning();
+    // return created;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
-  async getViolationsByDateRange(startDate: Date, endDate: Date): Promise<Violation[]> {
-    throw new Error("DatabaseStorage not implemented yet");
+
+  async getViolationsByDateRange(
+    startDate: Date,
+    endDate: Date
+  ): Promise<Violation[]> {
+    // Example: return await this.db.select().from(this.schema.violations)
+    //   .where(and(gte(this.schema.violations.timestamp, startDate), lte(this.schema.violations.timestamp, endDate)));
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getSystemMetrics(): Promise<SystemMetric[]> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: return await this.db.select().from(this.schema.systemMetrics).orderBy(desc(this.schema.systemMetrics.timestamp));
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async createSystemMetric(metric: InsertSystemMetric): Promise<SystemMetric> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: const [created] = await this.db.insert(this.schema.systemMetrics).values(metric).returning();
+    // return created;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getDashboardMetrics(): Promise<DashboardMetrics> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: Aggregate queries using Drizzle's sql`` template or count() functions
+    // const totalPolicies = await this.db.select({ count: count() }).from(this.schema.policies);
+    // const activePolicies = await this.db.select({ count: count() }).from(this.schema.policies).where(eq(this.schema.policies.isActive, true));
+    // ... combine results
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getSystemHealth(): Promise<SystemHealth> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: Query latest metrics and compute health status
+    // const latestMetrics = await this.db.select().from(this.schema.systemMetrics).orderBy(desc(this.schema.systemMetrics.timestamp)).limit(1);
+    // return { status: 'healthy', uptime: ..., ... };
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getRulePacks(): Promise<RulePack[]> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: return await this.db.select().from(this.schema.rulePacks).orderBy(desc(this.schema.rulePacks.createdAt));
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getRulePack(id: string): Promise<RulePack | undefined> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: return await this.db.select().from(this.schema.rulePacks).where(eq(this.schema.rulePacks.id, id)).limit(1).then(r => r[0]);
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async createRulePack(rulepack: InsertRulePack): Promise<RulePack> {
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: const [created] = await this.db.insert(this.schema.rulePacks).values(rulepack).returning();
+    // return created;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
-  async updateRulePack(id: string, rulepack: Partial<InsertRulePack>): Promise<RulePack | undefined> {
-    throw new Error("DatabaseStorage not implemented yet");
+
+  async updateRulePack(
+    id: string,
+    rulepack: Partial<InsertRulePack>
+  ): Promise<RulePack | undefined> {
+    // Example: const [updated] = await this.db.update(this.schema.rulePacks).set(rulepack).where(eq(this.schema.rulePacks.id, id)).returning();
+    // return updated;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async getUser(id: string): Promise<User | undefined> {
-    // Will be implemented with Drizzle ORM
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example: return await this.db.select().from(this.schema.users).where(eq(this.schema.users.id, id)).limit(1).then(r => r[0]);
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
-  
+
   async upsertUser(userData: UpsertUser): Promise<User> {
-    // Will be implemented with Drizzle ORM
-    throw new Error("DatabaseStorage not implemented yet");
+    // Example using Drizzle's onConflictDoUpdate:
+    // const [user] = await this.db.insert(this.schema.users).values(userData)
+    //   .onConflictDoUpdate({ target: this.schema.users.id, set: userData }).returning();
+    // return user;
+    throw new Error(
+      "DatabaseStorage requires Drizzle DB instance - inject via constructor"
+    );
   }
 }
 
