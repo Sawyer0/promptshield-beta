@@ -8,10 +8,8 @@ import (
 )
 
 // Options represents runtime tunables for the gRPC enforcer server.
-// This duplicates the definition that previously lived in the sub-package
-// `server` so that callers can depend on the top-level package without
-// introducing import cycles.
-// TODO: Consolidate the two copies during follow-up refactor.
+// This is the consolidated definition that previously lived in a sub-package.
+// Callers can now depend on the top-level package without import cycles.
 
 type Options struct {
 	Timeout         time.Duration

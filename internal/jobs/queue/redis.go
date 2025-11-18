@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/promptshield/promptshield/internal/util/tracing"
 	redis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
 )
 
 // RedisQueue is a durable queue backed by Redis using a stream/consumer group.
@@ -20,6 +22,8 @@ type RedisQueue struct {
 	consumer string
 	visTTL   time.Duration
 }
+
+var redisQueueTracer = otel.Tracer("promptshield/redis/queue")
 
 type redisPayload struct {
 	ID       string                 `json:"id"`
@@ -48,6 +52,8 @@ func NewRedisQueue(addr, password string, db int, stream, group, consumer string
 func (q *RedisQueue) ensureGroup(ctx context.Context) error {
 	// Create stream implicitly if needed; MKSTREAM
 	// Try creating group; ignore BUSYGROUP
+	ctx, span := tracing.TraceRedisCommand(redisQueueTracer, ctx, "XGROUP CREATE", q.stream)
+	defer span.End()
 	if err := q.client.XGroupCreateMkStream(ctx, q.stream, q.group, "$").Err(); err != nil {
 		if !strings.Contains(err.Error(), "BUSYGROUP") {
 			return fmt.Errorf("create group: %w", err)
@@ -63,7 +69,9 @@ func (q *RedisQueue) Enqueue(ctx context.Context, msg Message) (string, error) {
 		return "", err
 	}
 	args := &redis.XAddArgs{Stream: q.stream, Values: map[string]any{"data": raw}}
-	id, err := q.client.XAdd(ctx, args).Result()
+	ctxAdd, span := tracing.TraceRedisCommand(redisQueueTracer, ctx, "XADD", q.stream)
+	id, err := q.client.XAdd(ctxAdd, args).Result()
+	span.End()
 	if err != nil {
 		return "", err
 	}
@@ -85,13 +93,15 @@ func (q *RedisQueue) RunConsumers(ctx context.Context, n int, handler Handler) e
 				default:
 				}
 				// Read from stream using consumer group; block for visTTL/2
-				msgs, err := q.client.XReadGroup(ctx, &redis.XReadGroupArgs{
+				ctxRead, spanRead := tracing.TraceRedisCommand(redisQueueTracer, ctx, "XREADGROUP", q.stream)
+				msgs, err := q.client.XReadGroup(ctxRead, &redis.XReadGroupArgs{
 					Group:    q.group,
 					Consumer: q.consumer,
 					Streams:  []string{q.stream, ">"},
 					Count:    10,
 					Block:    q.visTTL / 2,
 				}).Result()
+				spanRead.End()
 				if err != nil && !errors.Is(err, redis.Nil) {
 					// brief backoff on error
 					select {

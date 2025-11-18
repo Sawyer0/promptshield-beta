@@ -5,7 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
@@ -20,14 +22,14 @@ import (
 type Collector struct {
 	config *types.TelemetryConfig
 	mu     sync.Mutex
-	
+
 	// Instance-based providers (no globals)
 	meterProvider  metric.MeterProvider
 	tracerProvider trace.TracerProvider
 	meter          metric.Meter
 	tracer         trace.Tracer
 	conn           *grpc.ClientConn
-	
+
 	// Event exporter
 	exporter *eventExporter
 }
@@ -71,6 +73,7 @@ func (c *Collector) Initialize(ctx context.Context, config *types.TelemetryConfi
 
 	if mp != nil {
 		c.meter = mp.Meter("promptshield/telemetry")
+		otel.SetMeterProvider(mp)
 	}
 
 	// Create tracer provider if meter provider succeeded
@@ -82,6 +85,11 @@ func (c *Collector) Initialize(ctx context.Context, config *types.TelemetryConfi
 		c.tracerProvider = tp
 		if tp != nil {
 			c.tracer = tp.Tracer("promptshield/telemetry")
+			otel.SetTracerProvider(tp)
+			otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+				propagation.TraceContext{},
+				propagation.Baggage{},
+			))
 		}
 	}
 
@@ -140,7 +148,7 @@ func (c *Collector) GetMetrics(ctx context.Context, timeRange types.TimeRange) (
 	if c == nil {
 		return nil, nil
 	}
-	
+
 	return &types.MetricsSnapshot{
 		Timestamp: time.Now(),
 		Service:   c.config.Service,
@@ -198,19 +206,19 @@ func (c *Collector) Shutdown(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	var err1, err2, err3 error
-	
+
 	if c.meterProvider != nil {
 		if mp, ok := c.meterProvider.(*sdkmetric.MeterProvider); ok {
 			err1 = mp.Shutdown(ctx)
 		}
 	}
-	
+
 	if c.tracerProvider != nil {
 		if tp, ok := c.tracerProvider.(*sdktrace.TracerProvider); ok {
 			err2 = tp.Shutdown(ctx)
 		}
 	}
-	
+
 	if c.conn != nil {
 		err3 = c.conn.Close()
 	}
@@ -237,6 +245,6 @@ func (c *Collector) StartSpan(ctx context.Context, name string, opts ...trace.Sp
 		// Return no-op span if tracer not initialized
 		return ctx, trace.SpanFromContext(ctx)
 	}
-	
+
 	return c.tracer.Start(ctx, name, opts...)
 }

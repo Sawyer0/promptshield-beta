@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,6 +15,10 @@ import (
 	"github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/interfaces/http/controlplane"
+	"github.com/promptshield/promptshield/internal/observability/telemetry"
+	"github.com/promptshield/promptshield/internal/shared/types"
+	"github.com/promptshield/promptshield/internal/version"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
@@ -39,9 +45,9 @@ func main() {
 	assignmentRepo := pg.PolicyAssignmentRepo(db)
 	auditRepo := pg.AuditRepo(db)
 
-	// Initialize NATS publisher
-	natsURL := os.Getenv("PS_NATS_URL") // Optional - will be no-op if empty
-	publisher, err := nats.NewPublisher(natsURL)
+	// Initialize Redis-based rule update publisher (historical package name "nats")
+	redisAddr := os.Getenv("PS_REDIS_ADDR") // Optional - will be no-op if empty
+	publisher, err := nats.NewPublisher(redisAddr)
 	if err != nil {
 		logger.Error("Failed to initialize NATS publisher", "error", err)
 		os.Exit(1)
@@ -64,7 +70,13 @@ func main() {
 	)
 
 	// Setup HTTP router
+	telemetryCollector := buildTelemetryCollector()
 	mux := controlplane.NewMux(handler)
+	if telemetryCollector != nil {
+		mux = otelhttp.NewHandler(mux, "ps_control_plane_http", otelhttp.WithFilter(func(r *http.Request) bool {
+			return r.URL.Path != "/healthz"
+		}))
+	}
 
 	// HTTP server setup
 	addr := os.Getenv("PS_CONTROL_PLANE_ADDR")
@@ -98,11 +110,45 @@ func main() {
 	// Graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("Server forced to shutdown", "error", err)
 		os.Exit(1)
 	}
 
 	logger.Info("Server exited")
+}
+
+func buildTelemetryCollector() *telemetry.Collector {
+	if strings.EqualFold(os.Getenv("PS_TELEMETRY"), "false") || os.Getenv("PS_TELEMETRY") == "0" {
+		return nil
+	}
+
+	endpoint := os.Getenv("PS_TELEMETRY_ENDPOINT")
+	if strings.TrimSpace(endpoint) == "" {
+		return nil
+	}
+
+	sample := 1.0
+	if v := os.Getenv("PS_TELEMETRY_SAMPLE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			sample = f
+		}
+	}
+
+	config := &types.TelemetryConfig{
+		Enabled:  true,
+		Endpoint: endpoint,
+		Sample:   sample,
+		Service:  "ps-control-plane",
+		Version:  version.Version,
+	}
+
+	collector := telemetry.NewCollector(config)
+	if err := collector.Initialize(context.Background(), config); err != nil {
+		slog.With("component", "telemetry").Warn("Failed to initialize control plane telemetry", "error", err)
+		return nil
+	}
+
+	return collector
 }

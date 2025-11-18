@@ -44,15 +44,35 @@ type RulepackInfo = contracts.RulepackInfo
 
 // RulepackService contains business logic around rulepacks.
 type RulepackService struct {
-	repo  contracts.RulepackRepository
-	pub   *nats.Publisher
-	audit audit.Logger
+	repo       contracts.RulepackRepository
+	pub        *nats.Publisher
+	audit      audit.Logger
+	auditClose func() error
 }
 
 // RulepackServiceCstor creates a RulepackService with auditing configured from environment.
 func RulepackServiceCstor(r contracts.RulepackRepository, pub *nats.Publisher) *RulepackService {
-	auditLogger, _, _ := audit.NewLoggerFromEnv() // TODO: Handle close func and error properly
-	return &RulepackService{repo: r, pub: pub, audit: auditLogger}
+	auditLogger, closeFunc, err := audit.NewLoggerFromEnv()
+	if err != nil {
+		// Log error but continue with nil audit logger (graceful degradation)
+		// In production, you might want to fail fast or use a fallback logger
+		auditLogger = nil
+		closeFunc = func() error { return nil }
+	}
+	return &RulepackService{
+		repo:       r,
+		pub:        pub,
+		audit:      auditLogger,
+		auditClose: closeFunc,
+	}
+}
+
+// Close gracefully shuts down the service and closes audit logger
+func (s *RulepackService) Close() error {
+	if s.auditClose != nil {
+		return s.auditClose()
+	}
+	return nil
 }
 
 func checksumJSON(raw json.RawMessage) string {

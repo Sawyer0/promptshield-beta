@@ -197,7 +197,7 @@ func NewWithOptions(opt Options) *Server {
 			// Start subscriber in background
 			go func() {
 				if err := sub.Start(context.Background()); err != nil {
-					logger := slog.With("component","grpc-enforcer")
+					logger := slog.With("component", "grpc-enforcer")
 					logger.Error("Rule update subscriber stopped", "error", err)
 				}
 			}()
@@ -219,7 +219,6 @@ func LoadRulesFromDatabase(ctx context.Context, repo contracts.RulepackRepositor
 	if repo == nil {
 		return nil, nil
 	}
-	
 
 	// Get list of all rulepacks for tenant
 	rulepackInfos, err := repo.ListByTenant(ctx, tenantID)
@@ -253,12 +252,16 @@ func LoadRulesFromDatabase(ctx context.Context, repo contracts.RulepackRepositor
 
 // Build creates a gRPC server with the enforcer registered and starts listening on the given address.
 // This is a convenience function that combines gRPC server creation, enforcer registration, and listener setup.
-func Build(addr string, opts Options) (*grpc.Server, error) {
+func Build(addr string, opts Options, serverOpts ...grpc.ServerOption) (*grpc.Server, error) {
+	return buildWithServerOptions(addr, opts, serverOpts...)
+}
+
+func buildWithServerOptions(addr string, opts Options, serverOpts ...grpc.ServerOption) (*grpc.Server, error) {
 	// Create the enforcer server
 	server := NewWithOptions(opts)
 
 	// Create gRPC server
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(serverOpts...)
 
 	// Register the external processor service
 	extproc.RegisterExternalProcessorServer(grpcServer, server)
@@ -275,7 +278,7 @@ func Build(addr string, opts Options) (*grpc.Server, error) {
 	// Start serving in a goroutine
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
-			logger := slog.With("component","grpc-enforcer")
+			logger := slog.With("component", "grpc-enforcer")
 			logger.Error("gRPC server error", "error", err)
 		}
 	}()

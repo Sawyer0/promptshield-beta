@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/promptshield/promptshield/internal/contracts"
+	"github.com/promptshield/promptshield/internal/util/tracing"
+	"go.opentelemetry.io/otel"
 )
 
 // RulepackRepository exposes persistence operations needed by services.
@@ -26,11 +28,15 @@ type RulepackRepository interface {
 	Delete(ctx context.Context, packID uuid.UUID) error
 }
 
+var rulepackTracer = otel.Tracer("promptshield/postgres/rulepacks")
+
 type pgRulepackRepo struct{ db *Pool }
 
 func RulepackRepo(db *Pool) *pgRulepackRepo { return &pgRulepackRepo{db: db} }
 
 func (r *pgRulepackRepo) Create(ctx context.Context, tenantID uuid.UUID, name, desc string) (uuid.UUID, error) {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "INSERT", "rulepacks")
+	defer span.End()
 	var id uuid.UUID
 	q := `INSERT INTO rulepacks (id, tenant_id, name, description) VALUES (gen_random_uuid(), $1, $2, $3) RETURNING id`
 	if err := r.db.Raw().QueryRow(ctx, q, tenantID, name, desc).Scan(&id); err != nil {
@@ -40,6 +46,8 @@ func (r *pgRulepackRepo) Create(ctx context.Context, tenantID uuid.UUID, name, d
 }
 
 func (r *pgRulepackRepo) CreateVersion(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, status string, createdBy uuid.UUID) (uuid.UUID, error) {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "INSERT", "rulepack_versions")
+	defer span.End()
 	var id uuid.UUID
 	q := `INSERT INTO rulepack_versions (id, rulepack_id, version, dsl, status, created_by)
 		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5) RETURNING id`
@@ -50,6 +58,8 @@ func (r *pgRulepackRepo) CreateVersion(ctx context.Context, packID uuid.UUID, ve
 }
 
 func (r *pgRulepackRepo) CreateVersionActivateTx(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, createdBy uuid.UUID) (uuid.UUID, error) {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "TX", "rulepack_versions")
+	defer span.End()
 	// Start transaction
 	tx, err := r.db.Raw().Begin(ctx)
 	if err != nil {
@@ -75,6 +85,8 @@ func (r *pgRulepackRepo) CreateVersionActivateTx(ctx context.Context, packID uui
 }
 
 func (r *pgRulepackRepo) GetActive(ctx context.Context, packID uuid.UUID) (json.RawMessage, int, error) {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "SELECT", "rulepacks")
+	defer span.End()
 	q := `SELECT v.dsl, v.version FROM rulepacks p JOIN rulepack_versions v ON p.current_version_id = v.id WHERE p.id=$1`
 	var (
 		dsl json.RawMessage
@@ -90,6 +102,8 @@ func (r *pgRulepackRepo) GetActive(ctx context.Context, packID uuid.UUID) (json.
 }
 
 func (r *pgRulepackRepo) Activate(ctx context.Context, packID, versionID uuid.UUID) error {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "UPDATE", "rulepacks")
+	defer span.End()
 	q := `UPDATE rulepacks SET current_version_id=$1 WHERE id=$2`
 	ct, err := r.db.Raw().Exec(ctx, q, versionID, packID)
 	if err != nil {
@@ -113,6 +127,8 @@ func (r *pgRulepackRepo) HealthCheck(ctx context.Context) error {
 
 // GetVersion fetches DSL JSON and status for a given version.
 func (r *pgRulepackRepo) GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error) {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "SELECT", "rulepack_versions")
+	defer span.End()
 	var dsl json.RawMessage
 	var status string
 	q := `SELECT dsl, status FROM rulepack_versions WHERE rulepack_id=$1 AND version=$2`
@@ -128,6 +144,8 @@ func (r *pgRulepackRepo) GetVersion(ctx context.Context, packID uuid.UUID, versi
 
 // ApproveVersion sets status='approved' when currently 'draft'.
 func (r *pgRulepackRepo) ApproveVersion(ctx context.Context, packID uuid.UUID, version int) error {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "UPDATE", "rulepack_versions")
+	defer span.End()
 	q := `UPDATE rulepack_versions SET status='approved' WHERE rulepack_id=$1 AND version=$2 AND status='draft'`
 	ct, err := r.db.Raw().Exec(ctx, q, packID, version)
 	if err != nil {
@@ -141,6 +159,8 @@ func (r *pgRulepackRepo) ApproveVersion(ctx context.Context, packID uuid.UUID, v
 
 // ListByTenant returns all rulepacks for a tenant with their active version info.
 func (r *pgRulepackRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]contracts.RulepackInfo, error) {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "SELECT", "rulepacks")
+	defer span.End()
 	q := `SELECT p.id, p.name, p.description, 
 	         COALESCE(v.version, 0) as version,
 	         (p.current_version_id IS NOT NULL) as active
@@ -169,6 +189,8 @@ func (r *pgRulepackRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID) (
 
 // GetLatestVersion returns the latest version ID and number for a rulepack.
 func (r *pgRulepackRepo) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "SELECT", "rulepack_versions")
+	defer span.End()
 	q := `SELECT id, version FROM rulepack_versions WHERE rulepack_id = $1 ORDER BY version DESC LIMIT 1`
 	var versionID uuid.UUID
 	var version int
@@ -185,6 +207,8 @@ func (r *pgRulepackRepo) GetLatestVersion(ctx context.Context, packID uuid.UUID)
 
 // ActivateLatest activates the latest version of a rulepack.
 func (r *pgRulepackRepo) ActivateLatest(ctx context.Context, packID uuid.UUID) error {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "UPDATE", "rulepacks")
+	defer span.End()
 	versionID, _, err := r.GetLatestVersion(ctx, packID)
 	if err != nil {
 		return err
@@ -195,6 +219,8 @@ func (r *pgRulepackRepo) ActivateLatest(ctx context.Context, packID uuid.UUID) e
 
 // Delete removes a rulepack and all its versions.
 func (r *pgRulepackRepo) Delete(ctx context.Context, packID uuid.UUID) error {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "DELETE", "rulepacks")
+	defer span.End()
 	// Use a transaction to ensure consistency
 	tx, err := r.db.Raw().Begin(ctx)
 	if err != nil {
@@ -225,6 +251,8 @@ func (r *pgRulepackRepo) Delete(ctx context.Context, packID uuid.UUID) error {
 // PurgeOldVersions deletes versions older than the most recent 'keep' versions.
 // Active/current version is always preserved regardless of retain count.
 func (r *pgRulepackRepo) PurgeOldVersions(ctx context.Context, packID uuid.UUID, keep int) error {
+	ctx, span := tracing.TraceDatabaseQuery(rulepackTracer, ctx, "DELETE", "rulepack_versions")
+	defer span.End()
 	if keep <= 0 {
 		return nil
 	}

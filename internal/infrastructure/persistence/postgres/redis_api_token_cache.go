@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	redis "github.com/redis/go-redis/v9"
 	"github.com/promptshield/promptshield/internal/domain"
+	"github.com/promptshield/promptshield/internal/util/tracing"
+	redis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
 )
 
 // RedisAPITokenRepository implements APITokenRepository with Redis write-through cache
@@ -18,6 +20,8 @@ type RedisAPITokenRepository struct {
 	redis *redis.Client
 	ttl   time.Duration
 }
+
+var redisTokenCacheTracer = otel.Tracer("promptshield/redis/api_tokens")
 
 func NewRedisAPITokenRepository(pg APITokenRepository, redisClient *redis.Client, ttl time.Duration) APITokenRepository {
 	if ttl == 0 {
@@ -54,7 +58,10 @@ func (r *RedisAPITokenRepository) Create(ctx context.Context, token *domain.APIT
 func (r *RedisAPITokenRepository) Get(ctx context.Context, id uuid.UUID) (*domain.APIToken, error) {
 	// Check Redis cache first
 	key := r.tokenKey(id)
+	ctx, span := tracing.TraceRedisCommand(redisTokenCacheTracer, ctx, "GET", key)
 	cached, err := r.redis.Get(ctx, key).Result()
+	span.End()
+
 	if err == nil {
 		var token domain.APIToken
 		if json.Unmarshal([]byte(cached), &token) == nil {
@@ -77,7 +84,10 @@ func (r *RedisAPITokenRepository) Get(ctx context.Context, id uuid.UUID) (*domai
 func (r *RedisAPITokenRepository) GetByHash(ctx context.Context, tokenHash string) (*domain.APIToken, error) {
 	// Check hash->token mapping in Redis first
 	hashKey := r.tokenHashKey(tokenHash)
+	ctx, span := tracing.TraceRedisCommand(redisTokenCacheTracer, ctx, "GET", hashKey)
 	cached, err := r.redis.Get(ctx, hashKey).Result()
+	span.End()
+
 	if err == nil {
 		var token domain.APIToken
 		if json.Unmarshal([]byte(cached), &token) == nil {
@@ -113,7 +123,10 @@ func (r *RedisAPITokenRepository) UpdateLastUsed(ctx context.Context, id uuid.UU
 
 	// Update cached token's last_used field if it exists
 	key := r.tokenKey(id)
+	ctx, span := tracing.TraceRedisCommand(redisTokenCacheTracer, ctx, "GET", key)
 	cached, err := r.redis.Get(ctx, key).Result()
+	span.End()
+
 	if err == nil {
 		var token domain.APIToken
 		if json.Unmarshal([]byte(cached), &token) == nil {
@@ -165,14 +178,22 @@ func (r *RedisAPITokenRepository) cacheToken(ctx context.Context, token *domain.
 
 	// Cache token by ID
 	tokenKey := r.tokenKey(token.ID)
-	r.redis.Set(ctx, tokenKey, data, r.ttl)
+	ctxSetID, spanSetID := tracing.TraceRedisCommand(redisTokenCacheTracer, ctx, "SET", tokenKey)
+	r.redis.Set(ctxSetID, tokenKey, data, r.ttl)
+	spanSetID.End()
 
 	// Cache hash->token mapping (most important for auth)
 	hashKey := r.tokenHashKey(token.TokenHash)
-	r.redis.Set(ctx, hashKey, data, r.ttl)
+	ctxSetHash, spanSetHash := tracing.TraceRedisCommand(redisTokenCacheTracer, ctx, "SET", hashKey)
+	r.redis.Set(ctxSetHash, hashKey, data, r.ttl)
+	spanSetHash.End()
 }
 
 func (r *RedisAPITokenRepository) invalidateToken(ctx context.Context, token *domain.APIToken) {
-	r.redis.Del(ctx, r.tokenKey(token.ID))
-	r.redis.Del(ctx, r.tokenHashKey(token.TokenHash))
+	ctxDelID, spanDelID := tracing.TraceRedisCommand(redisTokenCacheTracer, ctx, "DEL", r.tokenKey(token.ID))
+	r.redis.Del(ctxDelID, r.tokenKey(token.ID))
+	spanDelID.End()
+	ctxDelHash, spanDelHash := tracing.TraceRedisCommand(redisTokenCacheTracer, ctx, "DEL", r.tokenHashKey(token.TokenHash))
+	r.redis.Del(ctxDelHash, r.tokenHashKey(token.TokenHash))
+	spanDelHash.End()
 }

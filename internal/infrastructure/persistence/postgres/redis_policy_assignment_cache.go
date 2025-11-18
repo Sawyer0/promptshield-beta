@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	redis "github.com/redis/go-redis/v9"
 	"github.com/promptshield/promptshield/internal/domain"
+	"github.com/promptshield/promptshield/internal/util/tracing"
+	redis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
 )
 
 // RedisPolicyAssignmentRepository implements PolicyAssignmentRepository with Redis write-through cache
@@ -18,6 +20,8 @@ type RedisPolicyAssignmentRepository struct {
 	redis *redis.Client
 	ttl   time.Duration
 }
+
+var redisPolicyAssignmentTracer = otel.Tracer("promptshield/redis/policy_assignments")
 
 func NewRedisPolicyAssignmentRepository(pg domain.PolicyAssignmentRepository, redisClient *redis.Client, ttl time.Duration) domain.PolicyAssignmentRepository {
 	if ttl == 0 {
@@ -61,7 +65,10 @@ func (r *RedisPolicyAssignmentRepository) Create(ctx context.Context, assignment
 func (r *RedisPolicyAssignmentRepository) Get(ctx context.Context, id uuid.UUID) (*domain.PolicyAssignment, error) {
 	// Check Redis cache first
 	key := r.assignmentKey(id)
+	ctx, span := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "GET", key)
 	cached, err := r.redis.Get(ctx, key).Result()
+	span.End()
+
 	if err == nil {
 		var assignment domain.PolicyAssignment
 		if json.Unmarshal([]byte(cached), &assignment) == nil {
@@ -83,7 +90,10 @@ func (r *RedisPolicyAssignmentRepository) Get(ctx context.Context, id uuid.UUID)
 func (r *RedisPolicyAssignmentRepository) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]*domain.PolicyAssignment, error) {
 	// Check Redis cache first
 	key := r.tenantKey(tenantID)
+	ctx, span := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "GET", key)
 	cached, err := r.redis.Get(ctx, key).Result()
+	span.End()
+
 	if err == nil {
 		var assignments []*domain.PolicyAssignment
 		if json.Unmarshal([]byte(cached), &assignments) == nil {
@@ -105,7 +115,10 @@ func (r *RedisPolicyAssignmentRepository) ListByTenant(ctx context.Context, tena
 func (r *RedisPolicyAssignmentRepository) ListByPolicy(ctx context.Context, policyID uuid.UUID) ([]*domain.PolicyAssignment, error) {
 	// Check Redis cache first
 	key := r.policyKey(policyID)
+	ctx, span := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "GET", key)
 	cached, err := r.redis.Get(ctx, key).Result()
+	span.End()
+
 	if err == nil {
 		var assignments []*domain.PolicyAssignment
 		if json.Unmarshal([]byte(cached), &assignments) == nil {
@@ -128,7 +141,10 @@ func (r *RedisPolicyAssignmentRepository) ListByPolicy(ctx context.Context, poli
 func (r *RedisPolicyAssignmentRepository) ListByScope(ctx context.Context, tenantID uuid.UUID, scope string) ([]*domain.PolicyAssignment, error) {
 	// Check Redis cache first
 	key := r.tenantScopeKey(tenantID, scope)
+	ctx, span := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "GET", key)
 	cached, err := r.redis.Get(ctx, key).Result()
+	span.End()
+
 	if err == nil {
 		var assignments []*domain.PolicyAssignment
 		if json.Unmarshal([]byte(cached), &assignments) == nil {
@@ -159,12 +175,12 @@ func (r *RedisPolicyAssignmentRepository) Update(ctx context.Context, assignment
 	// Update cache and invalidate affected collections
 	r.cacheAssignment(ctx, assignment)
 	r.invalidateTenantCollections(ctx, assignment.TenantID)
-	
+
 	// If tenant changed, invalidate old tenant collections too
 	if oldAssignment != nil && oldAssignment.TenantID != assignment.TenantID {
 		r.invalidateTenantCollections(ctx, oldAssignment.TenantID)
 	}
-	
+
 	return nil
 }
 
@@ -178,11 +194,15 @@ func (r *RedisPolicyAssignmentRepository) Delete(ctx context.Context, id uuid.UU
 	}
 
 	// Remove from cache and invalidate collections
-	r.redis.Del(ctx, r.assignmentKey(id))
+	assignKey := r.assignmentKey(id)
+	ctxDel, spanDel := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "DEL", assignKey)
+	r.redis.Del(ctxDel, assignKey)
+	spanDel.End()
+
 	if assignment != nil {
 		r.invalidateTenantCollections(ctx, assignment.TenantID)
 	}
-	
+
 	return nil
 }
 
@@ -194,8 +214,11 @@ func (r *RedisPolicyAssignmentRepository) DeleteByTenantAndPolicy(ctx context.Co
 
 	// Invalidate collections (we don't know which specific assignments were deleted)
 	r.invalidateTenantCollections(ctx, tenantID)
-	r.redis.Del(ctx, r.policyKey(policyID))
-	
+	policyKey := r.policyKey(policyID)
+	ctxDel, spanDel := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "DEL", policyKey)
+	r.redis.Del(ctxDel, policyKey)
+	spanDel.End()
+
 	return nil
 }
 
@@ -206,7 +229,9 @@ func (r *RedisPolicyAssignmentRepository) cacheAssignment(ctx context.Context, a
 	}
 
 	key := r.assignmentKey(assignment.ID)
-	r.redis.Set(ctx, key, data, r.ttl)
+	ctxSet, spanSet := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "SET", key)
+	r.redis.Set(ctxSet, key, data, r.ttl)
+	spanSet.End()
 }
 
 func (r *RedisPolicyAssignmentRepository) cacheTenantAssignments(ctx context.Context, tenantID uuid.UUID, assignments []*domain.PolicyAssignment) {
@@ -216,7 +241,9 @@ func (r *RedisPolicyAssignmentRepository) cacheTenantAssignments(ctx context.Con
 	}
 
 	key := r.tenantKey(tenantID)
-	r.redis.Set(ctx, key, data, r.ttl)
+	ctxSet, spanSet := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "SET", key)
+	r.redis.Set(ctxSet, key, data, r.ttl)
+	spanSet.End()
 }
 
 func (r *RedisPolicyAssignmentRepository) cachePolicyAssignments(ctx context.Context, policyID uuid.UUID, assignments []*domain.PolicyAssignment) {
@@ -226,7 +253,9 @@ func (r *RedisPolicyAssignmentRepository) cachePolicyAssignments(ctx context.Con
 	}
 
 	key := r.policyKey(policyID)
-	r.redis.Set(ctx, key, data, r.ttl)
+	ctxSet, spanSet := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "SET", key)
+	r.redis.Set(ctxSet, key, data, r.ttl)
+	spanSet.End()
 }
 
 func (r *RedisPolicyAssignmentRepository) cacheScopeAssignments(ctx context.Context, tenantID uuid.UUID, scope string, assignments []*domain.PolicyAssignment) {
@@ -236,16 +265,23 @@ func (r *RedisPolicyAssignmentRepository) cacheScopeAssignments(ctx context.Cont
 	}
 
 	key := r.tenantScopeKey(tenantID, scope)
-	r.redis.Set(ctx, key, data, r.ttl)
+	ctxSet, spanSet := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "SET", key)
+	r.redis.Set(ctxSet, key, data, r.ttl)
+	spanSet.End()
 }
 
 func (r *RedisPolicyAssignmentRepository) invalidateTenantCollections(ctx context.Context, tenantID uuid.UUID) {
 	// Invalidate all cached collections for this tenant
 	pattern := fmt.Sprintf("assignments:tenant:%s*", tenantID.String())
-	
+
 	// Use SCAN to find and delete matching keys
-	iter := r.redis.Scan(ctx, 0, pattern, 0).Iterator()
-	for iter.Next(ctx) {
-		r.redis.Del(ctx, iter.Val())
+	ctxScan, spanScan := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctx, "SCAN", pattern)
+	iter := r.redis.Scan(ctxScan, 0, pattern, 0).Iterator()
+	for iter.Next(ctxScan) {
+		key := iter.Val()
+		ctxDel, spanDel := tracing.TraceRedisCommand(redisPolicyAssignmentTracer, ctxScan, "DEL", key)
+		r.redis.Del(ctxDel, key)
+		spanDel.End()
 	}
+	spanScan.End()
 }

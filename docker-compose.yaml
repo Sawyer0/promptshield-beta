@@ -11,6 +11,45 @@ services:
       ps-enforcer:
         condition: service_healthy
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    environment:
+      - COLLECTOR_ZIPKIN_HTTP_PORT=9411
+    ports:
+      - "16686:16686" # UI
+      - "14268:14268"
+      - "14250:14250"
+      - "9411:9411"
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.97.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "13133:13133"
+    depends_on:
+      jaeger:
+        condition: service_started
+      tempo:
+        condition: service_started
+    env_file:
+      - .env
+
   # Your enforcer - ONE LINE to add LLM security
   ps-enforcer:
     build:
@@ -20,8 +59,11 @@ services:
         ENABLE_HYPERSCAN: ${ENABLE_HYPERSCAN:-0}
     env_file:
       - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      - PS_ENFORCER_RULEPACK=/rules/essentials.yaml
+      - PS_ENFORCER_RULEPACK=/rules
       - PS_ENFORCER_MODE=enforce
       - PS_ENFORCER_ENFORCEMENT_MODE=enforce
       - PS_HYPERSCAN=${PS_HYPERSCAN:-false}
@@ -32,6 +74,9 @@ services:
       - PS_SEMANTIC_ENABLED=${PS_SEMANTIC_ENABLED:-true}
       - PS_SEMANTIC_PROVIDER=${PS_SEMANTIC_PROVIDER:-openai}
       - PS_DEV_MODE=${PS_DEV_MODE:-false}
+      - PS_TELEMETRY=true
+      - PS_TELEMETRY_ENDPOINT=otel-collector:4317
+      - PS_TELEMETRY_SAMPLE=1.0
     volumes:
       - ./rules:/rules:ro
     ports:
@@ -48,3 +93,75 @@ services:
     image: ghcr.io/mccutchen/go-httpbin:latest
     ports:
       - "8000:8080"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=promptshield
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d promptshield"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  nats:
+    image: nats:2-alpine
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile.controlplane
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_started
+      nats:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    ports:
+      - "8085:8085"
+    environment:
+      - PS_TELEMETRY=true
+      - PS_TELEMETRY_ENDPOINT=otel-collector:4317
+      - PS_TELEMETRY_SAMPLE=1.0
+
+  ps-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    env_file:
+      - .env
+    environment:
+      - PS_ENFORCER_RULEPACK=/rules
+      - PS_ENFORCER_RULEPACK=/rules/comprehensive.yaml
+      - PS_ENFORCER_MODE=observe
+      - PS_ENFORCER_ENFORCEMENT_MODE=observe
+      - PS_ENFORCER_TLS_MODE=disable
+      - PS_ENFORCER_GRPC_TLS_MODE=disable
+      - PS_TELEMETRY=true
+      - PS_TELEMETRY_ENDPOINT=otel-collector:4317
+      - PS_TELEMETRY_SAMPLE=1.0
+    volumes:
+      - ./rules:/rules:ro
+    ports:
+      - "9190:9090"
+      - "9191:9091"
+
+volumes:
+  tempo-data:

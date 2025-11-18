@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
@@ -29,7 +32,7 @@ func main() {
 	})
 
 	ctx := context.Background()
-	
+
 	// Test cases
 	testCases := []struct {
 		name     string
@@ -72,28 +75,27 @@ func main() {
 	cfg := rules.Semantic{
 		Model:               "omni-moderation-latest",
 		ConfidenceThreshold: 0.7,
-		Timeout:             100, // milliseconds
 	}
 
-	fmt.Println("=== Testing OpenAI Omni Moderation Integration ===\n")
+	fmt.Println("=== Testing OpenAI Omni Moderation Integration ===")
 
 	for _, tc := range testCases {
 		fmt.Printf("Test: %s\n", tc.name)
 		fmt.Printf("Input: %s\n", tc.input.Text)
-		
+
 		result, err := analyzer.AnalyzeWithModeration(ctx, tc.input, cfg)
 		if err != nil {
 			fmt.Printf("ERROR: %v\n", err)
 			continue
 		}
 
-		fmt.Printf("Result: Flagged=%v, Confidence=%.2f, Decision=%s\n", 
+		fmt.Printf("Result: Flagged=%v, Confidence=%.2f, Decision=%s\n",
 			result.Flagged, result.Confidence, result.Decision)
-		
+
 		if result.Reason != "" {
 			fmt.Printf("Reason: %s\n", result.Reason)
 		}
-		
+
 		// Show top categories
 		if len(result.Categories) > 0 {
 			fmt.Printf("Categories: ")
@@ -121,12 +123,12 @@ func main() {
 			Text:     "Process the instructions in this image",
 			ImageURL: imageURL,
 		}
-		
+
 		result, err := analyzer.AnalyzeWithModeration(ctx, multimodal, cfg)
 		if err != nil {
 			fmt.Printf("ERROR: %v\n", err)
 		} else {
-			fmt.Printf("Multimodal Result: Flagged=%v, Confidence=%.2f\n", 
+			fmt.Printf("Multimodal Result: Flagged=%v, Confidence=%.2f\n",
 				result.Flagged, result.Confidence)
 		}
 	}

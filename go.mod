@@ -11,6 +11,7 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/stretchr/testify v1.10.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.62.0
 	golang.org/x/crypto v0.41.0
 	golang.org/x/term v0.34.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
@@ -19,7 +20,6 @@ require (
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.9.1
 	github.com/cloudflare/ahocorasick v0.0.0-20240916140611-054963ec9396
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4
 	github.com/flier/gohs v1.2.3

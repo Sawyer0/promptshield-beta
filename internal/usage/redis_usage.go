@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/promptshield/promptshield/internal/util/tracing"
 	redis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
 )
 
 // RedisUsageStore implements UsageStore using Redis hashes keyed per minute/tenant/route.
@@ -19,6 +21,8 @@ type RedisUsageStore struct {
 	// TTL for per-minute keys; default 35 days when zero
 	ttl time.Duration
 }
+
+var redisUsageTracer = otel.Tracer("promptshield/redis/usage")
 
 func NewRedisUsageStore(rdb *redis.Client, prefix string, ttl time.Duration) *RedisUsageStore {
 	if prefix == "" {
@@ -55,6 +59,9 @@ func (s *RedisUsageStore) Record(ctx context.Context, tenant, route, decision st
 	default:
 		col = "allow"
 	}
+	ctx, span := tracing.TraceRedisCommand(redisUsageTracer, ctx, "HINCRBY", key)
+	defer span.End()
+
 	pipe := s.rdb.TxPipeline()
 	pipe.HIncrBy(ctx, key, col, 1)
 	pipe.HIncrBy(ctx, key, "bytes", bytes)
@@ -66,11 +73,11 @@ func (s *RedisUsageStore) Record(ctx context.Context, tenant, route, decision st
 // RecordTokens records usage with detailed token tracking for LLM billing/observability
 func (s *RedisUsageStore) RecordTokens(ctx context.Context, record Record) error {
 	ts := floorToMinute(record.Timestamp).Unix()
-	
+
 	// Enhanced key format includes provider and model for granular tracking
-	providerKey := fmt.Sprintf("%s:tokens:%d:%s:%s:%s:%s", 
+	providerKey := fmt.Sprintf("%s:tokens:%d:%s:%s:%s:%s",
 		s.prefix, ts, record.Tenant, record.Route, record.Provider, record.Model)
-	
+
 	var col string
 	switch record.Decision {
 	case DecisionQuarantine:
@@ -80,12 +87,12 @@ func (s *RedisUsageStore) RecordTokens(ctx context.Context, record Record) error
 	default:
 		col = "allow"
 	}
-	
+
 	pipe := s.rdb.TxPipeline()
 	// Basic counters
 	pipe.HIncrBy(ctx, providerKey, col, 1)
 	pipe.HIncrBy(ctx, providerKey, "bytes", record.Bytes)
-	
+
 	// Token counters for billing
 	if record.PromptTokens > 0 {
 		pipe.HIncrBy(ctx, providerKey, "prompt_tokens", record.PromptTokens)
@@ -96,7 +103,7 @@ func (s *RedisUsageStore) RecordTokens(ctx context.Context, record Record) error
 	if record.TotalTokens > 0 {
 		pipe.HIncrBy(ctx, providerKey, "total_tokens", record.TotalTokens)
 	}
-	
+
 	pipe.Expire(ctx, providerKey, s.ttl)
 	_, err := pipe.Exec(ctx)
 	return err
@@ -134,12 +141,14 @@ func (s *RedisUsageStore) Query(ctx context.Context, q Query) (Result, error) {
 	}
 	acc := make(map[keyAgg][5]int64) // [0]=count, [1]=bytes, [2]=prompt_tokens, [3]=completion_tokens, [4]=total_tokens
 	scan := func(pattern string) ([]string, error) {
+		ctxScan, spanScan := tracing.TraceRedisCommand(redisUsageTracer, ctx, "SCAN", pattern)
+		defer spanScan.End()
 		var (
 			cursor uint64
 			keys   []string
 		)
 		for {
-			ks, cur, err := s.rdb.Scan(ctx, cursor, pattern, 1000).Result()
+			ks, cur, err := s.rdb.Scan(ctxScan, cursor, pattern, 1000).Result()
 			if err != nil {
 				return nil, err
 			}
@@ -214,8 +223,8 @@ func (s *RedisUsageStore) Query(ctx context.Context, q Query) (Result, error) {
 	rows := make([]Row, 0, len(acc))
 	for k, v := range acc {
 		r := Row{
-			IntervalStart:    time.Unix(k.bucket, 0).UTC(), 
-			Count:            v[0], 
+			IntervalStart:    time.Unix(k.bucket, 0).UTC(),
+			Count:            v[0],
 			Bytes:            v[1],
 			PromptTokens:     v[2],
 			CompletionTokens: v[3],

@@ -47,6 +47,22 @@ func TraceDatabaseQuery(tracer trace.Tracer, ctx context.Context, operation, tab
 	return spanCtx, span
 }
 
+// TraceRedisCommand creates a span for Redis operations
+func TraceRedisCommand(tracer trace.Tracer, ctx context.Context, command, key string) (context.Context, trace.Span) {
+	spanName := fmt.Sprintf("redis %s", command)
+	spanCtx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+
+	span.SetAttributes(
+		attribute.String("db.system", "redis"),
+		attribute.String("db.operation", command),
+	)
+	if key != "" {
+		span.SetAttributes(attribute.String("db.redis.key", key))
+	}
+
+	return spanCtx, span
+}
+
 // TraceLLMRequest creates a span for LLM request tracing
 func TraceLLMRequest(tracer trace.Tracer, ctx context.Context, provider_name, model string) (context.Context, trace.Span) {
 	spanName := fmt.Sprintf("llm %s %s", provider_name, model)

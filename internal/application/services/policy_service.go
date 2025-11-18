@@ -9,15 +9,16 @@ import (
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/events"
 	"github.com/promptshield/promptshield/internal/shared/types"
+	ctxutil "github.com/promptshield/promptshield/internal/util/context"
 )
 
 // PolicyServiceImpl implements the PolicyService interface
 type PolicyServiceImpl struct {
-	repository      contracts.PolicyRepository
-	validator       contracts.RuleCompiler
-	scanEngine      contracts.ScanEngine
-	auditLogger     contracts.AuditLogger
-	scannerService  *PolicyScannerService
+	repository     contracts.PolicyRepository
+	validator      contracts.RuleCompiler
+	scanEngine     contracts.ScanEngine
+	auditLogger    contracts.AuditLogger
+	scannerService *PolicyScannerService
 }
 
 // NewPolicyService creates a new policy service instance
@@ -28,7 +29,7 @@ func NewPolicyService(
 	auditLogger contracts.AuditLogger,
 ) contracts.PolicyService {
 	scannerService := NewPolicyScannerService(repository)
-	
+
 	service := &PolicyServiceImpl{
 		repository:     repository,
 		validator:      validator,
@@ -36,7 +37,7 @@ func NewPolicyService(
 		auditLogger:    auditLogger,
 		scannerService: scannerService,
 	}
-	
+
 	// Initialize scanner with active policies on startup
 	go func() {
 		ctx := context.Background()
@@ -55,7 +56,7 @@ func NewPolicyService(
 			}
 		}
 	}()
-	
+
 	return service
 }
 
@@ -124,7 +125,7 @@ func (s *PolicyServiceImpl) UpdatePolicy(ctx context.Context, policy *types.Poli
 	if s.auditLogger != nil {
 		auditEvent := &types.AuditEvent{
 			Action:     "policy.update",
-			ObjectType: "policy", 
+			ObjectType: "policy",
 			ObjectID:   policy.ID,
 			Before: map[string]interface{}{
 				"version": existing.Version,
@@ -216,15 +217,22 @@ func (s *PolicyServiceImpl) ActivatePolicy(ctx context.Context, id uuid.UUID) er
 			return fmt.Errorf("failed to activate policy in scanner: %w", err)
 		}
 	}
-	
+
 	// Publish policy activation event for real-time enforcement
+	var activatedBy *uuid.UUID
+	if userIDStr, ok := ctxutil.GetUserID(ctx); ok {
+		if userID, err := uuid.Parse(userIDStr); err == nil {
+			activatedBy = &userID
+		}
+	}
+
 	activationEvent := &events.PolicyActivated{
 		BaseEvent:   events.NewBaseEvent(events.EventTypePolicyActivated, nil),
 		PolicyID:    policy.ID,
 		PolicyData:  *policy,
-		ActivatedBy: nil, // TODO: Add user context
+		ActivatedBy: activatedBy,
 	}
-	
+
 	// Publish asynchronously so API response isn't delayed
 	if err := events.GlobalEventBus().Publish(ctx, activationEvent); err != nil {
 		// Log error but don't fail the activation
@@ -242,7 +250,7 @@ func (s *PolicyServiceImpl) ActivatePolicy(ctx context.Context, id uuid.UUID) er
 			_ = s.auditLogger.LogWithContext(ctx, *auditEvent)
 		}
 	}
-	
+
 	// Audit the activation
 	if s.auditLogger != nil {
 		auditEvent := &types.AuditEvent{
@@ -280,16 +288,23 @@ func (s *PolicyServiceImpl) DeactivatePolicy(ctx context.Context, id uuid.UUID) 
 			return fmt.Errorf("failed to deactivate policy in scanner: %w", err)
 		}
 	}
-	
+
 	// Publish policy deactivation event for real-time enforcement
+	var deactivatedBy *uuid.UUID
+	if userIDStr, ok := ctxutil.GetUserID(ctx); ok {
+		if userID, err := uuid.Parse(userIDStr); err == nil {
+			deactivatedBy = &userID
+		}
+	}
+
 	deactivationEvent := &events.PolicyDeactivated{
 		BaseEvent:     events.NewBaseEvent(events.EventTypePolicyDeactivated, nil),
 		PolicyID:      policy.ID,
 		PolicyData:    *policy,
-		DeactivatedBy: nil, // TODO: Add user context
+		DeactivatedBy: deactivatedBy,
 	}
-	
-	// Publish asynchronously 
+
+	// Publish asynchronously
 	if err := events.GlobalEventBus().Publish(ctx, deactivationEvent); err != nil {
 		// Log error but don't fail the deactivation
 		if s.auditLogger != nil {
@@ -306,7 +321,7 @@ func (s *PolicyServiceImpl) DeactivatePolicy(ctx context.Context, id uuid.UUID) 
 			_ = s.auditLogger.LogWithContext(ctx, *auditEvent)
 		}
 	}
-	
+
 	// Audit the deactivation
 	if s.auditLogger != nil {
 		auditEvent := &types.AuditEvent{
@@ -363,12 +378,12 @@ func (s *PolicyServiceImpl) TestPolicy(ctx context.Context, policyID uuid.UUID, 
 	if s.scannerService != nil {
 		// Create a temporary scanner with just this policy for testing
 		tempScannerService := NewPolicyScannerService(s.repository)
-		
+
 		// Temporarily activate this policy in the test scanner
 		if err := tempScannerService.ActivatePolicy(ctx, policyID); err != nil {
 			return nil, fmt.Errorf("failed to activate policy for testing: %w", err)
 		}
-		
+
 		// Scan the content
 		return tempScannerService.ScanText(ctx, content, policyCtx)
 	}
@@ -400,10 +415,10 @@ func (s *PolicyServiceImpl) HasActivePolicies() bool {
 	if s.scannerService == nil {
 		return false
 	}
-	
+
 	s.scannerService.mu.RLock()
 	defer s.scannerService.mu.RUnlock()
-	
+
 	return len(s.scannerService.activePolicies) > 0
 }
 

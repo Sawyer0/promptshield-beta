@@ -93,8 +93,12 @@ func createResource(config *types.TelemetryConfig) (*resource.Resource, error) {
 		attrs = append(attrs, semconv.ServiceInstanceIDKey.String(config.MachineID))
 	}
 
-	return resource.Merge(resource.Default(), resource.NewWithAttributes(
+	// Use a single resource definition to avoid schema URL conflicts between
+	// resource.Default() (which may use a newer schema URL) and our semconv
+	// version. This still sets service.name and service.version correctly.
+	res := resource.NewWithAttributes(
 		semconv.SchemaURL,
 		attrs...,
-	))
+	)
+	return res, nil
 }

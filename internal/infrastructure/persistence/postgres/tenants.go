@@ -8,7 +8,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/promptshield/promptshield/internal/domain"
+	"github.com/promptshield/promptshield/internal/util/tracing"
+	"go.opentelemetry.io/otel"
 )
+
+var tenantTracer = otel.Tracer("promptshield/postgres/tenants")
 
 type TenantRepository interface {
 	Create(ctx context.Context, tenant *domain.Tenant) error
@@ -24,6 +28,8 @@ type pgTenantRepo struct{ db *Pool }
 func TenantRepo(db *Pool) TenantRepository { return &pgTenantRepo{db: db} }
 
 func (r *pgTenantRepo) Create(ctx context.Context, tenant *domain.Tenant) error {
+	ctx, span := tracing.TraceDatabaseQuery(tenantTracer, ctx, "INSERT", "tenants")
+	defer span.End()
 	if tenant.ID == uuid.Nil {
 		tenant.ID = uuid.New()
 	}
@@ -39,9 +45,9 @@ func (r *pgTenantRepo) Create(ctx context.Context, tenant *domain.Tenant) error 
 
 	q := `INSERT INTO tenants (id, name, status, metadata, created_at, updated_at) 
 		VALUES ($1, $2, $3, $4, $5, $6)`
-	
-	_, err := r.db.Raw().Exec(ctx, q, 
-		tenant.ID, tenant.Name, tenant.Status, tenant.Metadata, 
+
+	_, err := r.db.Raw().Exec(ctx, q,
+		tenant.ID, tenant.Name, tenant.Status, tenant.Metadata,
 		tenant.CreatedAt, tenant.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create tenant: %w", err)
@@ -50,10 +56,12 @@ func (r *pgTenantRepo) Create(ctx context.Context, tenant *domain.Tenant) error 
 }
 
 func (r *pgTenantRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Tenant, error) {
+	ctx, span := tracing.TraceDatabaseQuery(tenantTracer, ctx, "SELECT", "tenants")
+	defer span.End()
 	var t domain.Tenant
 	q := `SELECT id, name, status, metadata, created_at, updated_at 
 		FROM tenants WHERE id = $1`
-	
+
 	err := r.db.Raw().QueryRow(ctx, q, id).Scan(
 		&t.ID, &t.Name, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -66,10 +74,12 @@ func (r *pgTenantRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Tenant, e
 }
 
 func (r *pgTenantRepo) GetByName(ctx context.Context, name string) (*domain.Tenant, error) {
+	ctx, span := tracing.TraceDatabaseQuery(tenantTracer, ctx, "SELECT", "tenants")
+	defer span.End()
 	var t domain.Tenant
 	q := `SELECT id, name, status, metadata, created_at, updated_at 
 		FROM tenants WHERE name = $1`
-	
+
 	err := r.db.Raw().QueryRow(ctx, q, name).Scan(
 		&t.ID, &t.Name, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -82,6 +92,8 @@ func (r *pgTenantRepo) GetByName(ctx context.Context, name string) (*domain.Tena
 }
 
 func (r *pgTenantRepo) List(ctx context.Context, offset, limit int) ([]*domain.Tenant, int, error) {
+	ctx, span := tracing.TraceDatabaseQuery(tenantTracer, ctx, "SELECT", "tenants")
+	defer span.End()
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
@@ -96,7 +108,7 @@ func (r *pgTenantRepo) List(ctx context.Context, offset, limit int) ([]*domain.T
 	// Get paginated results
 	q := `SELECT id, name, status, metadata, created_at, updated_at 
 		FROM tenants ORDER BY name LIMIT $1 OFFSET $2`
-	
+
 	rows, err := r.db.Raw().Query(ctx, q, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list tenants: %w", err)
@@ -116,12 +128,14 @@ func (r *pgTenantRepo) List(ctx context.Context, offset, limit int) ([]*domain.T
 }
 
 func (r *pgTenantRepo) Update(ctx context.Context, tenant *domain.Tenant) error {
+	ctx, span := tracing.TraceDatabaseQuery(tenantTracer, ctx, "UPDATE", "tenants")
+	defer span.End()
 	tenant.UpdatedAt = time.Now()
-	
+
 	q := `UPDATE tenants SET name = $2, status = $3, metadata = $4, updated_at = $5 
 		WHERE id = $1`
-	
-	result, err := r.db.Raw().Exec(ctx, q, 
+
+	result, err := r.db.Raw().Exec(ctx, q,
 		tenant.ID, tenant.Name, tenant.Status, tenant.Metadata, tenant.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("update tenant: %w", err)
@@ -133,6 +147,8 @@ func (r *pgTenantRepo) Update(ctx context.Context, tenant *domain.Tenant) error 
 }
 
 func (r *pgTenantRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, span := tracing.TraceDatabaseQuery(tenantTracer, ctx, "DELETE", "tenants")
+	defer span.End()
 	q := `DELETE FROM tenants WHERE id = $1`
 	result, err := r.db.Raw().Exec(ctx, q, id)
 	if err != nil {

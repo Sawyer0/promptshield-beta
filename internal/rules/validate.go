@@ -3,7 +3,6 @@ package rules
 import (
 	"bytes"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -55,11 +54,18 @@ func ValidatePack(p RulePack) []error {
 			}
 		}
 		if generic == nil {
-			// Convert struct to JSON then back to generic interface
-			if jsonData, jerr := json.Marshal(p); jerr == nil {
-				_ = json.Unmarshal(jsonData, &generic)
+			// Convert struct to a generic map using YAML tags so field names
+			// match the schema (apiVersion, kind, metadata, rules, ...).
+			// The jsonschema library works over generic Go values regardless
+			// of whether they originated from JSON or YAML.
+			if yamlData, yerr := yaml.Marshal(p); yerr == nil {
+				_ = yaml.Unmarshal(yamlData, &generic)
 			}
 		}
+		// Remove any nulls so optional fields are treated as absent rather
+		// than as explicit nulls, which would violate object/boolean types
+		// in the JSON Schema for optional properties.
+		generic = pruneNulls(generic)
 		if vErr := sch.Validate(generic); vErr != nil {
 			errs = append(errs, flattenValidationError(vErr)...)
 		}
@@ -132,8 +138,6 @@ func ValidatePack(p RulePack) []error {
 	return errs
 }
 
-
-
 func flattenValidationError(err error) []error {
 	// Try to unwrap the jsonschema.ValidationError tree; if not available, return the error as-is.
 	var out []error
@@ -183,6 +187,39 @@ func normalizeInstanceLocation(ptr string) string {
 		parts[i] = p
 	}
 	return strings.Join(parts, ".")
+}
+
+// pruneNulls walks the generic value produced from YAML and removes any
+// map entries whose value is nil, so that optional fields are omitted
+// rather than encoded as explicit null values.
+func pruneNulls(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, val := range x {
+			if val == nil {
+				delete(x, k)
+				continue
+			}
+			x[k] = pruneNulls(val)
+		}
+		return x
+	case map[any]any:
+		for k, val := range x {
+			if val == nil {
+				delete(x, k)
+				continue
+			}
+			x[k] = pruneNulls(val)
+		}
+		return x
+	case []any:
+		for i, elem := range x {
+			x[i] = pruneNulls(elem)
+		}
+		return x
+	default:
+		return v
+	}
 }
 
 func compileRegexStrict(expr string, flags []string) (*regexp.Regexp, error) {

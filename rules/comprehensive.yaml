@@ -13,7 +13,7 @@ metadata:
 
 # Extend essentials with additional coverage
 extends:
-  - path: ./essentials.yaml
+  - essentials
 
 rules:
   # === ADVANCED PROMPT INJECTION ===

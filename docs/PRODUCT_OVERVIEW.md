@@ -1,4 +1,5 @@
 # PromptShield: Enterprise LLM Security Gateway
+
 ## Complete Product Documentation & Technical Overview
 
 ---
@@ -8,6 +9,7 @@
 PromptShield is a **production-ready, enterprise-grade LLM Security Gateway** that provides real-time protection for AI/LLM applications through advanced content filtering, threat detection, and policy enforcement. Built with Go 1.25 for maximum performance, it seamlessly integrates with existing infrastructure through Envoy proxy and provides sub-millisecond latency decision making.
 
 ### Key Value Propositions
+
 - **Real-time Protection**: Sub-300ms P95 latency with streaming analysis
 - **Enterprise Scale**: Handles 10,000+ requests/second per instance
 - **Zero Trust Architecture**: Every request validated, no implicit trust
@@ -21,18 +23,21 @@ PromptShield is a **production-ready, enterprise-grade LLM Security Gateway** th
 ### 1. Three-Tier Progressive Security Analysis
 
 #### Level 1: Keyword Detection (< 1ms)
+
 - **Aho-Corasick algorithm** for O(n) multi-pattern matching
 - Handles 100,000+ keywords without performance degradation
 - Case-sensitive and whole-word matching options
 - Zero false negatives for exact matches
 
 #### Level 2: Pattern Recognition (< 10ms)
+
 - **Regex engine with Bloom filter pre-screening**
 - Compiled pattern caching with LRU eviction
 - Support for complex patterns (credit cards, SSNs, API keys)
 - Automatic complexity limiting to prevent ReDoS attacks
 
 #### Level 3: Semantic Analysis (< 100ms, opt-in)
+
 - **Dual LLM provider support**: OpenAI GPT-4 and Anthropic Claude
 - Intelligent caching with 15-minute TTL
 - Automatic fallback to Level 2 on API failures
@@ -42,12 +47,14 @@ PromptShield is a **production-ready, enterprise-grade LLM Security Gateway** th
 ### 2. Streaming Architecture
 
 #### Memory-Bounded Processing
+
 - **Sliding window scanner**: 64KB default, configurable
 - Processes unlimited file sizes with constant memory
 - Overlapping windows prevent boundary-crossing evasion
 - Automatic chunk reassembly for pattern matching
 
 #### Performance Characteristics
+
 - **1GB file processing**: < 2 seconds with 50MB memory cap
 - **Parallel processing**: Worker pools with deterministic ordering
 - **Resource limits**: Configurable timeouts and concurrency bounds
@@ -57,18 +64,20 @@ PromptShield is a **production-ready, enterprise-grade LLM Security Gateway** th
 #### Deployment Models
 
 ##### A. Envoy Integration (Primary)
+
 ```yaml
 Type: External Processor (ext_proc)
 Protocol: gRPC streaming
 Port: 9091
 Features:
-- Request/response body inspection
-- Header manipulation
-- Dynamic policy enforcement
-- Streaming mode for large payloads
+  - Request/response body inspection
+  - Header manipulation
+  - Dynamic policy enforcement
+  - Streaming mode for large payloads
 ```
 
 ##### B. Direct HTTP API
+
 ```yaml
 Endpoint: POST /v1/check
 Port: 9090
@@ -78,6 +87,7 @@ Timeout: 300ms default
 ```
 
 ##### C. Kubernetes Native
+
 - **Horizontal Pod Autoscaler**: CPU-based scaling
 - **Pod Disruption Budgets**: Maintains availability during updates
 - **ServiceMonitor**: Prometheus autodiscovery
@@ -149,6 +159,7 @@ Timeout: 300ms default
 ### 1. Security & Compliance
 
 #### Authentication & Authorization
+
 - **Multi-tier auth model**:
   - User endpoints: `PS_ENFORCER_AUTH_TOKEN`
   - Admin endpoints: `PS_ENFORCER_ADMIN_TOKEN`
@@ -156,12 +167,14 @@ Timeout: 300ms default
   - mTLS client certificates
 
 #### Transport Security
+
 - **TLS 1.2+ enforced** for all connections
 - Certificate pinning support
 - Mutual TLS (mTLS) for service mesh
 - Automatic certificate rotation compatible
 
 #### Audit & Compliance
+
 - **SHA-256 hash-chained** audit logs
 - Tamper-evident with cryptographic proof
 - Daily rotation with compression
@@ -172,17 +185,19 @@ Timeout: 300ms default
 ### 2. Scalability & Performance
 
 #### Horizontal Scaling
+
 ```yaml
 Performance Metrics:
-- Single instance: 10,000 RPS
-- Response time P50: 15ms
-- Response time P95: 45ms
-- Response time P99: 120ms
-- Memory usage: 256MB baseline
-- CPU: 0.25 cores baseline
+  - Single instance: 10,000 RPS
+  - Response time P50: 15ms
+  - Response time P95: 45ms
+  - Response time P99: 120ms
+  - Memory usage: 256MB baseline
+  - CPU: 0.25 cores baseline
 ```
 
 #### Resource Management
+
 - **Bounded memory**: Streaming with fixed buffers
 - **CPU throttling**: Configurable worker pools
 - **Connection limits**: Per-client rate limiting
@@ -192,6 +207,7 @@ Performance Metrics:
 ### 3. Observability
 
 #### Metrics (Prometheus)
+
 ```prometheus
 # Decision metrics
 ps_enforcer_decisions_total{decision="allow|quarantine|deny"}
@@ -206,12 +222,65 @@ ps_cache_hit_ratio
 ```
 
 #### Distributed Tracing (OpenTelemetry)
+
 - Automatic span creation
 - Context propagation
 - Latency breakdown by component
-- Integration with Jaeger/Zipkin
+- Integration with Jaeger, Tempo, and New Relic via the OpenTelemetry Collector
+
+##### Verifying traces locally (Jaeger / Tempo / New Relic)
+
+1. **Start the local stack with tracing enabled**
+
+   - Ensure `.env` has telemetry enabled (defaults are already wired):
+     - `PS_TELEMETRY=true`
+     - `PS_TELEMETRY_ENDPOINT=otel-collector:4317`
+   - Optionally set sampling (default is `1.0` for local debugging):
+     - `PS_TELEMETRY_SAMPLE=1.0`
+   - Bring everything up:
+     - `docker-compose up --build`
+
+2. **Generate some traffic through PromptShield**
+
+   - Call the HTTP gateway or enforcer so spans are produced end-to-end:
+     - Example via Envoy (default demo route): send a few requests to `http://localhost:8080` that trigger `/v1/check`.
+   - Or hit the gateway directly:
+     - `curl -sS http://localhost:9190/healthz`
+     - `curl -sS http://localhost:9190/metrics` (to also confirm metrics).
+
+3. **Jaeger UI (local traces)**
+
+   - Open Jaeger in a browser: `http://localhost:16686`.
+   - In the **Service** dropdown, look for:
+     - `ps-enforcer`
+     - `ps-control-plane`
+     - `ps-gateway`
+   - Run a query for the last 5–15 minutes and you should see traces for:
+     - HTTP requests (gateway/enforcer)
+     - gRPC ext_proc calls
+     - Internal DB/Redis operations (as child spans).
+
+4. **Tempo (longer-term tracing)**
+
+   - Tempo runs at `http://localhost:3200` (as configured in `tempo-config.yaml`).
+   - Configure Grafana (or your existing observability stack) to use Tempo as an OTLP/Tempo datasource pointing at `tempo:3200`.
+   - In Grafana, query traces by service name (`service.name`):
+     - `ps-enforcer`, `ps-control-plane`, `ps-gateway`.
+   - Confirm that new requests through the gateway/enforcer appear as traces within a few seconds.
+
+5. **New Relic (managed tracing)**
+   - In `.env`, set your New Relic license key before starting the stack:
+     - `NEW_RELIC_LICENSE_KEY=YOUR_LICENSE_KEY_HERE`
+   - The OTEL Collector is already configured with a `newrelic` exporter pointing at `https://otlp.nr-data.net:4317`.
+   - After sending traffic:
+     - Log in to New Relic and open **APM & Services → Distributed tracing**.
+     - Filter by service names `ps-enforcer`, `ps-control-plane`, or `ps-gateway`.
+   - You should see end-to-end traces with spans for:
+     - Envoy ↔ PromptShield gateway ↔ enforcer.
+     - Downstream DB/Redis/LLM calls as child spans.
 
 #### Logging
+
 - Structured JSON with correlation IDs
 - Log levels: DEBUG, INFO, WARN, ERROR
 - Automatic PII redaction
@@ -220,12 +289,14 @@ ps_cache_hit_ratio
 ### 4. High Availability
 
 #### Deployment Topology
+
 - **Active-Active**: All instances handle traffic
 - **Stateless design**: No instance affinity required
 - **Shared cache**: Redis for distributed caching
 - **Health checks**: Liveness and readiness probes
 
 #### Failure Handling
+
 - **Graceful degradation**: L3→L2 fallback on API failure
 - **Circuit breakers**: Prevent cascade failures
 - **Retry logic**: Exponential backoff with jitter
@@ -234,6 +305,7 @@ ps_cache_hit_ratio
 ### 5. Rule Management
 
 #### RulePack System
+
 ```yaml
 apiVersion: promptshield.io/v1
 kind: RulePack
@@ -249,6 +321,7 @@ features:
 ```
 
 #### Rule Types
+
 - **Prompt Injection**: 50+ patterns
 - **PII Detection**: SSN, passport, driver's license
 - **Secrets**: API keys, passwords, tokens
@@ -256,6 +329,7 @@ features:
 - **Custom**: Domain-specific patterns
 
 #### Composition Strategies
+
 - `all_matches`: Every rule evaluated (default)
 - `first_match`: Early exit on first hit
 - `priority_order`: Weighted evaluation
@@ -263,12 +337,14 @@ features:
 ### 6. Administration
 
 #### Configuration Management
+
 - **Environment-first**: All settings via env vars
 - **GitOps ready**: Declarative configuration
 - **Dynamic updates**: Runtime reconfiguration API
 - **Feature flags**: Progressive rollout support
 
 #### License & Billing Management
+
 ```go
 Enterprise Licensing:
 - Usage tracking (requests, bytes, semantic calls)
@@ -289,6 +365,7 @@ Billing APIs:
 ```
 
 #### Usage Analytics & Business Intelligence
+
 ```go
 Capabilities:
 - Real-time usage dashboards
@@ -301,30 +378,31 @@ Capabilities:
 ```
 
 #### Operational APIs (Complete Reference)
+
 ```yaml
 Public APIs:
-- GET /v1/check (policy evaluation)
-- POST /v1/scan (synchronous scanning)
-- GET /v1/stats (performance statistics)
-- GET /v1/events (real-time SSE event stream)
-- GET /readyz (readiness probe)
-- GET /healthz (liveness probe)
-- GET /metrics (Prometheus metrics)
+  - GET /v1/check (policy evaluation)
+  - POST /v1/scan (synchronous scanning)
+  - GET /v1/stats (performance statistics)
+  - GET /v1/events (real-time SSE event stream)
+  - GET /readyz (readiness probe)
+  - GET /healthz (liveness probe)
+  - GET /metrics (Prometheus metrics)
 
 User APIs (with PS_ENFORCER_AUTH_TOKEN):
-- GET /v1/usage (billing metrics)
-- GET /v1/config (runtime configuration)
-- GET /v1/license (license status)
-- POST /v1/scan/async (background jobs)
-- GET /v1/jobs/{id} (job status)
+  - GET /v1/usage (billing metrics)
+  - GET /v1/config (runtime configuration)
+  - GET /v1/license (license status)
+  - POST /v1/scan/async (background jobs)
+  - GET /v1/jobs/{id} (job status)
 
 Admin APIs (with PS_ENFORCER_ADMIN_TOKEN):
-- PUT /v1/config (runtime reconfiguration)
-- POST /v1/config/reset (reset to defaults)
-- POST /v1/admin/drain (graceful shutdown)
-- PUT /v1/license/update (license management)
-- DELETE /v1/jobs/{id} (job cancellation)
-- GET /v1/admin/debug (internal diagnostics)
+  - PUT /v1/config (runtime reconfiguration)
+  - POST /v1/config/reset (reset to defaults)
+  - POST /v1/admin/drain (graceful shutdown)
+  - PUT /v1/license/update (license management)
+  - DELETE /v1/jobs/{id} (job cancellation)
+  - GET /v1/admin/debug (internal diagnostics)
 ```
 
 ---
@@ -334,6 +412,7 @@ Admin APIs (with PS_ENFORCER_ADMIN_TOKEN):
 ### 1. Semantic Provider Architecture
 
 #### Provider Implementation
+
 ```go
 Providers:
 - OpenAI (GPT-3.5/4)
@@ -349,6 +428,7 @@ Features:
 ```
 
 #### Security Measures
+
 - API key encryption at rest
 - Request sanitization
 - Response validation
@@ -358,6 +438,7 @@ Features:
 ### 2. Async Job Processing & Task Management
 
 #### Job Management System
+
 ```go
 Capabilities:
 - Background scanning for large datasets
@@ -378,6 +459,7 @@ API Endpoints:
 ```
 
 #### Job Types
+
 - **File Scanning**: Large document processing
 - **Bulk Analysis**: Multiple files/requests
 - **Scheduled Scans**: Periodic security checks
@@ -387,6 +469,7 @@ API Endpoints:
 ### 3. Multi-Tenancy
 
 #### Tenant Isolation
+
 - **Logical separation**: Tenant ID in all operations
 - **Resource quotas**: Per-tenant limits
 - **Usage tracking**: Individual billing
@@ -394,6 +477,7 @@ API Endpoints:
 - **Data isolation**: No cross-tenant leakage
 
 #### Quota Management
+
 ```go
 Quotas:
 - Requests per second
@@ -406,6 +490,7 @@ Quotas:
 ### 4. Content Mutation & Response Enrichment
 
 #### Redaction Capabilities
+
 - **Automatic PII removal**: SSN, credit cards, phone numbers with format preservation
 - **Secret masking**: API keys, JWT tokens, credentials with configurable strategies
 - **Selective field redaction**: JSON/XML path-based targeting
@@ -413,6 +498,7 @@ Quotas:
 - **Streaming modifications**: Real-time content rewriting without buffering
 
 #### Response Enrichment
+
 - **Security headers injection**: X-PS-Risk-Score, X-PS-Violations-Found
 - **Metadata annotation**: Rule match details, confidence scores, processing time
 - **Policy explanations**: Human-readable violation summaries for auditing
@@ -421,22 +507,25 @@ Quotas:
 ### 5. Runtime Configuration Management
 
 #### Dynamic Reconfiguration
+
 ```yaml
 Capabilities:
-- Hot-reload rule packs without restart
-- Runtime tuning via /v1/config API
-- Environment variable override
-- GitOps configuration sync
-- A/B testing enforcement modes
+  - Hot-reload rule packs without restart
+  - Runtime tuning via /v1/config API
+  - Environment variable override
+  - GitOps configuration sync
+  - A/B testing enforcement modes
 ```
 
 #### Enforcement Modes
+
 - **observe**: Log violations, allow all requests (default)
 - **warn**: Add warning headers, allow requests
 - **enforce**: Block violations based on severity
 - **audit**: Enhanced logging with full request capture
 
 #### Performance Tuning
+
 ```go
 Runtime Controls:
 - PS_ENFORCER_MODE=observe|warn|enforce|audit
@@ -450,6 +539,7 @@ Runtime Controls:
 ### 6. Distributed Transaction Support (Saga Pattern)
 
 #### Transaction Coordination
+
 - **Multi-step workflows**: Complex scanning with rollback capability
 - **Compensation logic**: Automatic cleanup on failure
 - **Retry strategies**: Configurable backoff and retry limits
@@ -461,6 +551,7 @@ Runtime Controls:
 ## Deployment Scenarios
 
 ### 1. API Gateway Protection
+
 ```yaml
 Use Case: Protecting LLM API endpoints
 Deployment: Behind API Gateway (Kong, Apigee)
@@ -469,6 +560,7 @@ Scale: 100,000+ requests/day
 ```
 
 ### 2. Kubernetes Service Mesh
+
 ```yaml
 Use Case: Inter-service LLM calls
 Deployment: Istio/Linkerd sidecar
@@ -477,6 +569,7 @@ Scale: Millions of requests/day
 ```
 
 ### 3. Edge Computing
+
 ```yaml
 Use Case: CDN-level filtering
 Deployment: Cloudflare Workers / AWS Lambda@Edge
@@ -485,6 +578,7 @@ Scale: Global distribution
 ```
 
 ### 4. On-Premise Enterprise
+
 ```yaml
 Use Case: Air-gapped environments
 Deployment: VMware, OpenShift
@@ -497,6 +591,7 @@ Scale: Dedicated hardware
 ## Performance Benchmarks
 
 ### Throughput Testing
+
 ```
 Environment: AWS c5.2xlarge (8 vCPU, 16GB RAM)
 Load Generator: k6 with 1000 virtual users
@@ -511,6 +606,7 @@ Results:
 ```
 
 ### Large File Processing
+
 ```
 Test: 1GB JSON file with mixed content
 Configuration: 64KB window, 8KB overlap
@@ -523,6 +619,7 @@ Results:
 ```
 
 ### Semantic Analysis Performance
+
 ```
 Provider: OpenAI GPT-4
 Cache hit ratio: 78%
@@ -539,6 +636,7 @@ Results:
 ## Security Certifications & Compliance
 
 ### Standards Compliance
+
 - **OWASP Top 10**: Full coverage
 - **CWE/SANS Top 25**: Addressed
 - **NIST Cybersecurity**: Framework aligned
@@ -549,6 +647,7 @@ Results:
 - **PCI DSS**: Token detection
 
 ### Security Scanning Results
+
 - **Go 1.25**: Latest security patches
 - **Dependencies**: All CVEs addressed
 - **gosec**: 19 issues (all false positives documented)
@@ -561,12 +660,14 @@ Results:
 ## Competitive Advantages
 
 ### vs. Traditional WAFs
+
 - **LLM-aware**: Understands prompt injection
 - **Semantic analysis**: Beyond pattern matching
 - **Lower latency**: Streaming architecture
 - **Better accuracy**: Three-tier validation
 
 ### vs. Cloud Provider Solutions
+
 - **Multi-cloud**: Works everywhere
 - **No vendor lock-in**: Open standards
 - **Cost-effective**: No per-request pricing
@@ -574,6 +675,7 @@ Results:
 - **Customizable**: Full source access
 
 ### vs. Open Source Alternatives
+
 - **Production-ready**: Not a research project
 - **Enterprise support**: SLAs available
 - **Performance**: 10x faster than Python alternatives
@@ -583,6 +685,7 @@ Results:
 ### Technical Innovation & Patents
 
 #### Novel Algorithms
+
 - **Progressive three-tier analysis**: Unique L1→L2→L3 evaluation with early exits
 - **Memory-bounded streaming**: Constant memory usage regardless of payload size
 - **Bloom filter pre-screening**: Patent-pending optimization for regex evaluation
@@ -590,6 +693,7 @@ Results:
 - **Semantic caching with privacy**: LLM response caching without exposing sensitive data
 
 #### Performance Breakthroughs
+
 - **Sub-millisecond L1 scanning**: Aho-Corasick with SIMD optimizations
 - **Parallel deterministic processing**: Maintains order while maximizing throughput
 - **Dynamic rule compilation**: JIT compilation of patterns for optimal performance
@@ -602,36 +706,40 @@ Results:
 ### Case Studies & Deployments
 
 #### Fortune 500 Financial Services
+
 ```yaml
 Scale: 500M+ daily transactions
 Results:
-- 99.97% uptime achieved
-- $2.3M data breach prevented
-- 85% reduction in false positives
-- SOX compliance in 3 weeks
+  - 99.97% uptime achieved
+  - $2.3M data breach prevented
+  - 85% reduction in false positives
+  - SOX compliance in 3 weeks
 ```
 
 #### Healthcare AI Platform
+
 ```yaml
 Scale: 10M+ patient records processed
 Results:
-- HIPAA compliance maintained
-- 40% faster PHI detection
-- Zero patient data exposure
-- 95% cost reduction vs cloud alternatives
+  - HIPAA compliance maintained
+  - 40% faster PHI detection
+  - Zero patient data exposure
+  - 95% cost reduction vs cloud alternatives
 ```
 
 #### SaaS AI Company
+
 ```yaml
 Scale: 1B+ API calls/month
 Results:
-- 60% reduction in prompt injection attacks
-- 99.9% API availability maintained
-- 50% lower infrastructure costs
-- 10x improvement in threat detection speed
+  - 60% reduction in prompt injection attacks
+  - 99.9% API availability maintained
+  - 50% lower infrastructure costs
+  - 10x improvement in threat detection speed
 ```
 
 ### Industry Awards & Recognition
+
 - **2024 RSA Innovation Sandbox Finalist**: AI Security Category
 - **Gartner Cool Vendor**: Identity and Access Management
 - **SC Media Best Practices Award**: Data Protection
@@ -642,24 +750,28 @@ Results:
 ## Roadmap & Future Capabilities
 
 ### Q1 2025 (Current)
+
 - ✅ Production release v0.2.0
 - ✅ Envoy integration
 - ✅ Multi-provider semantic analysis
 - ✅ Enterprise authentication
 
 ### Q2 2025
+
 - 🔄 WebAssembly compilation
 - 🔄 GraphQL support
 - 🔄 Vector database integration
 - 🔄 Custom model support
 
 ### Q3 2025
+
 - 📋 Browser SDK
 - 📋 Mobile SDKs (iOS/Android)
 - 📋 Rust core for safety
 - 📋 Hardware acceleration
 
 ### Q4 2025
+
 - 📋 FedRAMP certification
 - 📋 AI model marketplace
 - 📋 Automated threat intelligence
@@ -670,6 +782,7 @@ Results:
 ## Technical Specifications
 
 ### System Requirements
+
 ```yaml
 Minimum:
   CPU: 2 cores
@@ -691,11 +804,12 @@ Enterprise:
 ```
 
 ### Language & Framework
+
 ```yaml
 Core:
   Language: Go 1.25
   Framework: Native stdlib + select libraries
-  
+
 Key Libraries:
   HTTP: chi/v5 router
   gRPC: google.golang.org/grpc v1.74
@@ -706,13 +820,14 @@ Key Libraries:
 ```
 
 ### Network Protocols
+
 ```yaml
 Supported:
   - HTTP/1.1, HTTP/2, HTTP/3 (QUIC)
   - gRPC (HTTP/2)
   - WebSocket (future)
   - Server-Sent Events (SSE)
-  
+
 Ports:
   9090: HTTP API
   9091: gRPC ext_proc
@@ -725,30 +840,32 @@ Ports:
 ## Support & Operations
 
 ### Monitoring Setup
+
 ```bash
 # Prometheus scrape config
 - job_name: 'promptshield'
   static_configs:
     - targets: ['enforcer:9090']
   metrics_path: '/metrics'
-  
+
 # Grafana dashboard
 Import: monitoring/dashboards/promptshield-enforcer.json
 ```
 
 ### Troubleshooting Guide
+
 ```yaml
 Common Issues:
   High Latency:
     - Check cache hit rates
     - Verify semantic provider health
     - Review rule complexity
-    
+
   Memory Growth:
     - Inspect goroutine count
     - Check cache sizes
     - Review stream buffers
-    
+
   False Positives:
     - Tune confidence thresholds
     - Review rule patterns
@@ -756,6 +873,7 @@ Common Issues:
 ```
 
 ### Performance Tuning
+
 ```bash
 # Environment variables
 PS_WORKERS=16                    # CPU cores
@@ -770,6 +888,7 @@ PS_CACHE_SIZE=10000              # LRU entries
 ## Business Value
 
 ### ROI Metrics
+
 - **Security incidents prevented**: 95% reduction
 - **Compliance violations avoided**: 99.9% coverage
 - **Development time saved**: 1000+ hours/year
@@ -778,6 +897,7 @@ PS_CACHE_SIZE=10000              # LRU entries
 - **Mean time to respond**: < 100ms
 
 ### Customer Success Stories
+
 - **Financial Services**: Prevented $2M potential data breach
 - **Healthcare**: HIPAA compliance achieved in 2 weeks
 - **E-commerce**: 40% reduction in fraud attempts
@@ -790,6 +910,7 @@ PS_CACHE_SIZE=10000              # LRU entries
 PromptShield represents a **paradigm shift in LLM security**, moving from reactive monitoring to proactive protection. With its unique three-tier architecture, enterprise-grade features, and production-proven performance, it provides the most comprehensive solution for securing AI applications in production.
 
 ### Key Differentiators
+
 1. **Real-time streaming analysis** with bounded resources
 2. **Progressive security levels** with intelligent fallback
 3. **Privacy-first architecture** with zero data retention
@@ -799,6 +920,7 @@ PromptShield represents a **paradigm shift in LLM security**, moving from reacti
 ### Implementation & Support Services
 
 #### Professional Services
+
 - **Implementation consulting**: 2-4 week deployment assistance
 - **Custom rule development**: Industry-specific pattern creation
 - **Integration support**: Envoy, Kubernetes, service mesh setup
@@ -807,25 +929,27 @@ PromptShield represents a **paradigm shift in LLM security**, moving from reacti
 - **Training programs**: Technical and operational team enablement
 
 #### Support Tiers
+
 ```yaml
 Community:
-- GitHub issues
-- Documentation wiki
-- Community forums
+  - GitHub issues
+  - Documentation wiki
+  - Community forums
 
 Professional:
-- 8x5 email support
-- Monthly office hours
-- Implementation guidance
+  - 8x5 email support
+  - Monthly office hours
+  - Implementation guidance
 
 Enterprise:
-- 24x7 phone/email support
-- Dedicated customer success manager
-- Priority bug fixes and features
-- On-site consulting available
+  - 24x7 phone/email support
+  - Dedicated customer success manager
+  - Priority bug fixes and features
+  - On-site consulting available
 ```
 
 ### Contact & Resources
+
 - **Product Demo**: demo.promptshield.io
 - **Documentation**: docs.promptshield.io
 - **Source Code**: GitHub Enterprise Repository
@@ -837,4 +961,4 @@ Enterprise:
 
 ---
 
-*PromptShield v0.2.0 - Built with Go 1.25 - Enterprise Ready*
+_PromptShield v0.2.0 - Built with Go 1.25 - Enterprise Ready_

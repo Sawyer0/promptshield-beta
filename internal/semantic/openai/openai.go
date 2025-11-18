@@ -15,7 +15,9 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/promptshield/promptshield/internal/rules"
+	"github.com/promptshield/promptshield/internal/util/tracing"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"golang.org/x/time/rate"
 )
 
@@ -37,10 +39,25 @@ type Analyzer struct {
 	logger *slog.Logger
 }
 
+var llmTracer = otel.Tracer("promptshield/semantic/openai")
+
 type cacheEntry struct {
 	ok        bool
 	conf      float64
 	expiresAt time.Time
+}
+
+type ModerationInput struct {
+	Text     string
+	ImageURL string
+}
+
+type ModerationResult struct {
+	Flagged    bool
+	Categories map[string]float64
+	Decision   string
+	Confidence float64
+	Reason     string
 }
 
 type Options struct {
@@ -121,27 +138,10 @@ func New(opts Options) *Analyzer {
 	}
 }
 
-// ModerationInput represents input for moderation, supporting both text and images
-type ModerationInput struct {
-	Text     string
-	ImageURL string
-}
-
-// ModerationResult contains the analyzed results from omni-moderation
-type ModerationResult struct {
-	Flagged    bool
-	Categories map[string]float64
-	Decision   string
-	Confidence float64
-	Reason     string
-}
-
-// AnalyzeWithModeration uses OpenAI's omni-moderation-latest model for Level 3 semantic analysis
-// This is FREE and supports multimodal (text + image) content
 func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationInput, cfg rules.Semantic) (*ModerationResult, error) {
 	// Build cache key
 	cacheKey := fmt.Sprintf("mod:%s:%s", normalizeForCache(input.Text), input.ImageURL)
-	
+
 	// Check cache first
 	if cached, conf, found := a.getCache(cacheKey); found {
 		if a.logger != nil {
@@ -167,6 +167,14 @@ func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationIn
 		return nil, ctx.Err()
 	}
 
+	// Start LLM span for this moderation call
+	model := cfg.Model
+	if model == "" {
+		model = "omni-moderation-latest"
+	}
+	ctx, span := tracing.TraceLLMRequest(llmTracer, ctx, "openai", model)
+	defer span.End()
+
 	// Prepare moderation request based on OpenAI Go SDK pattern
 	// For now, use text-only moderation as multimodal support requires SDK updates
 	// The omni-moderation-latest model still provides excellent detection
@@ -191,10 +199,10 @@ func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationIn
 	}
 
 	result := resp.Results[0]
-	
+
 	// Map categories to scores
 	categories := make(map[string]float64)
-	
+
 	// Map available categories from the SDK
 	if result.Categories.Harassment {
 		categories["harassment"] = result.CategoryScores.Harassment
@@ -212,7 +220,7 @@ func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationIn
 		categories["self_harm"] = result.CategoryScores.SelfHarm
 	}
 	if result.Categories.SelfHarmIntent {
-		categories["self_harm_intent"] = result.CategoryScores.SelfHarmIntent  
+		categories["self_harm_intent"] = result.CategoryScores.SelfHarmIntent
 	}
 	if result.Categories.SelfHarmInstructions {
 		categories["self_harm_instructions"] = result.CategoryScores.SelfHarmInstructions
@@ -229,7 +237,7 @@ func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationIn
 	if result.Categories.ViolenceGraphic {
 		categories["violence_graphic"] = result.CategoryScores.ViolenceGraphic
 	}
-	
+
 	// Check for Illicit categories (new in omni-moderation)
 	// Note: These fields may not be in SDK v1.12.0 yet
 	// Attempt to access them if available
@@ -244,13 +252,13 @@ func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationIn
 	flagged := result.Flagged
 	maxScore := 0.0
 	highestCategory := ""
-	
+
 	// Check for prompt injection patterns (illicit category often catches these)
 	if illicitScore, ok := categories["illicit"]; ok && illicitScore > 0.5 {
 		highestCategory = "prompt_injection"
 		maxScore = illicitScore
 	}
-	
+
 	// Find highest scoring category
 	for cat, score := range categories {
 		if score > maxScore {
@@ -264,7 +272,7 @@ func (a *Analyzer) AnalyzeWithModeration(ctx context.Context, input ModerationIn
 	if threshold == 0 {
 		threshold = 0.7 // Default threshold
 	}
-	
+
 	if maxScore >= threshold {
 		flagged = true
 	}
@@ -320,7 +328,7 @@ func (a *Analyzer) AnalyzeModeration(ctx context.Context, input string, cfg rule
 	if err != nil {
 		return false, 0, err
 	}
-	
+
 	return result.Flagged, result.Confidence, nil
 }
 

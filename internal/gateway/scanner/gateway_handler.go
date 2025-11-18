@@ -3,6 +3,7 @@ package scanner
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
 	"log/slog"
@@ -15,17 +16,69 @@ import (
 type GatewayHandler struct {
 	scannerService *Service
 	logger         *slog.Logger
+	metrics        *ScanMetrics
+}
+
+// ScanMetrics tracks gateway scanning statistics
+type ScanMetrics struct {
+	mu              sync.RWMutex
+	TotalScans      int64     `json:"total_scans"`
+	BlockedRequests int64     `json:"blocked_requests"`
+	AllowedRequests int64     `json:"allowed_requests"`
+	LastScanTime    time.Time `json:"last_scan_time"`
+	RulesLoaded     int       `json:"rules_loaded"`
+	ScannerStatus   string    `json:"scanner_status"`
+}
+
+// incrementTotal safely increments total scans
+func (m *ScanMetrics) incrementTotal() {
+	m.mu.Lock()
+	m.TotalScans++
+	m.LastScanTime = time.Now()
+	m.mu.Unlock()
+}
+
+// incrementBlocked safely increments blocked requests
+func (m *ScanMetrics) incrementBlocked() {
+	m.mu.Lock()
+	m.BlockedRequests++
+	m.mu.Unlock()
+}
+
+// incrementAllowed safely increments allowed requests
+func (m *ScanMetrics) incrementAllowed() {
+	m.mu.Lock()
+	m.AllowedRequests++
+	m.mu.Unlock()
+}
+
+// snapshot returns a thread-safe copy of metrics
+func (m *ScanMetrics) snapshot() map[string]interface{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return map[string]interface{}{
+		"total_scans":      m.TotalScans,
+		"blocked_requests": m.BlockedRequests,
+		"allowed_requests": m.AllowedRequests,
+		"last_scan_time":   m.LastScanTime,
+		"rules_loaded":     m.RulesLoaded,
+		"scanner_status":   m.ScannerStatus,
+	}
 }
 
 // NewGatewayHandler creates a new gateway handler with scanning capabilities
 func NewGatewayHandler(auditLogger contracts.AuditLogger, logger *slog.Logger) *GatewayHandler {
 	service := NewService(auditLogger, logger)
-	
+
 	// Rule packs will be loaded from configuration files at runtime
 
 	return &GatewayHandler{
 		scannerService: service,
 		logger:         logger,
+		metrics: &ScanMetrics{
+			ScannerStatus: "healthy",
+			RulesLoaded:   0,
+		},
 	}
 }
 
@@ -70,8 +123,12 @@ func (h *GatewayHandler) HandleLLMRequest(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Update metrics
+	h.metrics.incrementTotal()
+
 	// Check if request should be blocked
 	if !scanResult.Decision.Allow {
+		h.metrics.incrementBlocked()
 		h.logger.Warn("request blocked",
 			"request_id", requestID,
 			"reason", scanResult.Decision.Reason,
@@ -91,6 +148,7 @@ func (h *GatewayHandler) HandleLLMRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// Request is allowed - forward to LLM provider
+	h.metrics.incrementAllowed()
 	h.logger.Info("request allowed",
 		"request_id", requestID,
 		"duration_ms", time.Since(start).Milliseconds(),
@@ -148,8 +206,12 @@ func (h *GatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Update metrics
+	h.metrics.incrementTotal()
+
 	// Check if response should be blocked
 	if !scanResult.Decision.Allow {
+		h.metrics.incrementBlocked()
 		h.logger.Warn("response blocked",
 			"request_id", requestID,
 			"reason", scanResult.Decision.Reason,
@@ -169,6 +231,7 @@ func (h *GatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Response is allowed - return to client
+	h.metrics.incrementAllowed()
 	h.logger.Info("response allowed",
 		"request_id", requestID,
 		"duration_ms", time.Since(start).Milliseconds(),
@@ -187,35 +250,30 @@ func (h *GatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Reques
 
 // GetScanMetrics returns scan metrics for monitoring
 func (h *GatewayHandler) GetScanMetrics(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement metrics collection
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"scanner_status": "healthy",
-		"rules_loaded":   3,
-		"last_scan":      time.Now().Format(time.RFC3339),
-	})
+	json.NewEncoder(w).Encode(h.metrics.snapshot())
 }
 
 // forwardToProvider forwards the request to the appropriate LLM provider
 func (h *GatewayHandler) forwardToProvider(w http.ResponseWriter, r *http.Request, requestID string) error {
 	// This is a simplified implementation - in production you would:
 	// 1. Determine the appropriate provider based on routing rules
-	// 2. Get provider credentials from secure storage  
+	// 2. Get provider credentials from secure storage
 	// 3. Transform the request format if needed
 	// 4. Use the ProviderClient to make the actual request
-	
+
 	// For now, return a success response indicating request was processed
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(http.StatusOK)
-	
+
 	response := map[string]interface{}{
 		"message":    "Request processed by PromptShield Gateway",
 		"request_id": requestID,
 		"status":     "success",
 		"note":       "LLM provider forwarding will be implemented with OpenAI omni moderation",
 	}
-	
+
 	return json.NewEncoder(w).Encode(response)
 }

@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	redis "github.com/redis/go-redis/v9"
 	"github.com/promptshield/promptshield/internal/domain"
+	"github.com/promptshield/promptshield/internal/util/tracing"
+	redis "github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
 )
 
 // RedisTenantRepository implements TenantRepository with Redis write-through cache
@@ -18,6 +20,8 @@ type RedisTenantRepository struct {
 	redis *redis.Client
 	ttl   time.Duration // Cache TTL
 }
+
+var redisTenantTracer = otel.Tracer("promptshield/redis/tenants")
 
 func NewRedisTenantRepository(pg TenantRepository, redisClient *redis.Client, ttl time.Duration) TenantRepository {
 	if ttl == 0 {
@@ -52,7 +56,10 @@ func (r *RedisTenantRepository) Create(ctx context.Context, tenant *domain.Tenan
 func (r *RedisTenantRepository) Get(ctx context.Context, id uuid.UUID) (*domain.Tenant, error) {
 	// Check Redis cache first
 	key := r.tenantKey(id)
+	ctx, span := tracing.TraceRedisCommand(redisTenantTracer, ctx, "GET", key)
 	cached, err := r.redis.Get(ctx, key).Result()
+	span.End()
+
 	if err == nil {
 		var tenant domain.Tenant
 		if json.Unmarshal([]byte(cached), &tenant) == nil {
@@ -74,7 +81,10 @@ func (r *RedisTenantRepository) Get(ctx context.Context, id uuid.UUID) (*domain.
 func (r *RedisTenantRepository) GetByName(ctx context.Context, name string) (*domain.Tenant, error) {
 	// Check name->ID mapping in Redis
 	nameKey := r.tenantNameKey(name)
+	ctx, span := tracing.TraceRedisCommand(redisTenantTracer, ctx, "GET", nameKey)
 	idStr, err := r.redis.Get(ctx, nameKey).Result()
+	span.End()
+
 	if err == nil {
 		if id, parseErr := uuid.Parse(idStr); parseErr == nil {
 			return r.Get(ctx, id) // This will use cache if available
@@ -134,16 +144,26 @@ func (r *RedisTenantRepository) cacheTenant(ctx context.Context, tenant *domain.
 
 	// Cache tenant by ID
 	tenantKey := r.tenantKey(tenant.ID)
-	r.redis.Set(ctx, tenantKey, data, r.ttl)
+	ctxSetID, spanSetID := tracing.TraceRedisCommand(redisTenantTracer, ctx, "SET", tenantKey)
+	r.redis.Set(ctxSetID, tenantKey, data, r.ttl)
+	spanSetID.End()
 
 	// Cache name->ID mapping
 	nameKey := r.tenantNameKey(tenant.Name)
-	r.redis.Set(ctx, nameKey, tenant.ID.String(), r.ttl)
+	ctxSetName, spanSetName := tracing.TraceRedisCommand(redisTenantTracer, ctx, "SET", nameKey)
+	r.redis.Set(ctxSetName, nameKey, tenant.ID.String(), r.ttl)
+	spanSetName.End()
 }
 
 func (r *RedisTenantRepository) invalidateTenant(ctx context.Context, id uuid.UUID, name string) {
-	r.redis.Del(ctx, r.tenantKey(id))
+	key := r.tenantKey(id)
+	ctxDelID, spanDelID := tracing.TraceRedisCommand(redisTenantTracer, ctx, "DEL", key)
+	r.redis.Del(ctxDelID, key)
+	spanDelID.End()
 	if name != "" {
-		r.redis.Del(ctx, r.tenantNameKey(name))
+		nameKey := r.tenantNameKey(name)
+		ctxDelName, spanDelName := tracing.TraceRedisCommand(redisTenantTracer, ctx, "DEL", nameKey)
+		r.redis.Del(ctxDelName, nameKey)
+		spanDelName.End()
 	}
 }

@@ -89,10 +89,10 @@ CREATE INDEX idx_audit_trail_created_at ON audit_trail(created_at);
 
 -- 6. Usage Metrics (partitioned by time)
 CREATE TABLE IF NOT EXISTS usage_metrics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id),
     timestamp TIMESTAMP NOT NULL,
-    window VARCHAR(20) NOT NULL, -- minute, hour, day
+    window_bucket VARCHAR(20) NOT NULL, -- minute, hour, day
     provider VARCHAR(50),
     endpoint VARCHAR(255),
     request_count BIGINT DEFAULT 0,
@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS usage_metrics (
     blocked_requests INTEGER DEFAULT 0,
     latency_p50 FLOAT,
     latency_p95 FLOAT,
-    latency_p99 FLOAT
+    latency_p99 FLOAT,
+    PRIMARY KEY (id, timestamp)
 ) PARTITION BY RANGE (timestamp);
 
 -- Create initial partitions for current year
