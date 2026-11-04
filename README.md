@@ -61,7 +61,9 @@ PS_TELEMETRY=off \
 ```
 
 The HTTP API listens on `:9090` and the gRPC `ext_proc` server on `:9091`
-(override with `PS_ENFORCER_ADDR` / `PS_ENFORCER_GRPC_ADDR`).
+(override with `PS_ENFORCER_ADDR` / `PS_ENFORCER_GRPC_ADDR`). Policy sync
+from an external policy API is off by default; set `PS_FRONTEND_URL` to pull
+active policies from `GET $PS_FRONTEND_URL/api/policies` at startup.
 
 ## Demo
 
