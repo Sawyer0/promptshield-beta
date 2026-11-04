@@ -16,6 +16,7 @@ import (
 
 	"github.com/promptshield/promptshield/internal/contracts"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
+	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/shared/severity"
 	pkgtypes "github.com/promptshield/promptshield/pkg/types"
@@ -189,13 +190,19 @@ func (s *Server) ReloadRules(ctx context.Context) error {
 		return err
 	}
 
-	// Reload rules into scanners
-	if len(packs) > 0 {
-		s.scReq.LoadRulePacks(packs)
-		s.scResp.LoadRulePacks(packs)
-		logger := slog.With("component", "grpc-enforcer")
-		logger.Info("Reloaded rulepacks from database", "count", len(packs))
+	// Mirror the constructor: with no active database packs, fall back to the
+	// file RulePack if one is configured, otherwise run with no rules
+	// (fail-open). Previously an empty result kept stale rules loaded, so a
+	// deleted RulePack kept blocking traffic.
+	source := "database"
+	if len(packs) == 0 && s.rulepackPath != "" {
+		if filePacks, err := rules.LoadPacks(s.rulepackPath); err == nil {
+			packs, source = filePacks, "file"
+		}
 	}
+	s.scReq.LoadRulePacks(packs)
+	s.scResp.LoadRulePacks(packs)
+	slog.With("component", "grpc-enforcer").Info("Reloaded rulepacks", "source", source, "count", len(packs))
 
 	return nil
 }
