@@ -357,8 +357,8 @@ func TestEval_CrossValidationStability(t *testing.T) {
 		"This\tis\ta\ttest",
 	}
 
-	var allDetected bool = true
-	var allMissed bool = true
+	allDetected := true
+	allMissed := true
 
 	for _, variation := range variations {
 		result := scanInput(t, scanner, variation)

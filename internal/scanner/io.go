@@ -144,10 +144,8 @@ func (s *Scanner) ScanReader(ctx context.Context, r io.Reader, inputName string)
 		}
 
 		compiledRuleSeen := make(map[string]struct{})
-		if s.evaluateLine(&result, line, lineNum, compiledRuleSeen) && s.firstMatch {
-			// If first_match strategy, we could short-circuit the entire file on first line match.
-			// However, strategy typically applies per input line; keep scanning lines.
-		}
+		// first_match applies per line, so keep scanning after a hit.
+		s.evaluateLine(&result, line, lineNum, compiledRuleSeen)
 	}
 
 	if err := scanner.Err(); err != nil {

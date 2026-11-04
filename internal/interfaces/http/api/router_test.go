@@ -82,8 +82,7 @@ func TestVersion(t *testing.T) {
 func TestRulepacksListEmpty(t *testing.T) {
 	// Create a mock service that returns empty list
 	mockRepo := &mockRulepackRepo{}
-	svc := &services.RulepackService{}
-	svc = services.RulepackServiceCstor(mockRepo, nil)
+	svc := services.RulepackServiceCstor(mockRepo, nil)
 
 	srv := httptest.NewServer(NewMux(Options{AllowInsecureAdmin: true, RulepackService: svc}))
 	defer srv.Close()

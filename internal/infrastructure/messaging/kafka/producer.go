@@ -237,13 +237,11 @@ func (p *Producer) Publish(ctx context.Context, topic string, message []byte, he
 
 	// Convert headers
 	var kafkaHeaders []kafka.Header
-	if headers != nil {
-		for k, v := range headers {
-			kafkaHeaders = append(kafkaHeaders, kafka.Header{
-				Key:   k,
-				Value: []byte(v),
-			})
-		}
+	for k, v := range headers {
+		kafkaHeaders = append(kafkaHeaders, kafka.Header{
+			Key:   k,
+			Value: []byte(v),
+		})
 	}
 
 	// Create message

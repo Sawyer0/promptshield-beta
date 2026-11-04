@@ -38,5 +38,3 @@ func EqualJitter(base, cap time.Duration, attempt int) time.Duration {
 	half := max / 2
 	return half + time.Duration(rand.Int63n(int64(half)))
 }
-
-func init() { rand.Seed(time.Now().UnixNano()) }

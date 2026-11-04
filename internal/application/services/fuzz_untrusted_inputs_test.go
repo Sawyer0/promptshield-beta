@@ -58,8 +58,8 @@ func FuzzRulepackValidation(f *testing.F) {
 		[]byte(`---\n- item\n- item\n- item`), // YAML list instead of object
 
 		// Binary/non-text data
-		[]byte{0xFF, 0xFE, 0x00, 0x00},    // BOM markers
-		[]byte{0x00, 0x01, 0x02, 0x03},    // Binary data
+		{0xFF, 0xFE, 0x00, 0x00},          // BOM markers
+		{0x00, 0x01, 0x02, 0x03},          // Binary data
 		[]byte("\x1b[31mRed text\x1b[0m"), // ANSI escape codes
 
 		// Empty/minimal
