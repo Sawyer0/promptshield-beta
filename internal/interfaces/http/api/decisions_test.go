@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,12 +113,17 @@ func TestDecisionsListFilterGetAndStats(t *testing.T) {
 	if code != http.StatusOK || one.Data.Decision != decisions.Allow {
 		t.Fatalf("get: code=%d body=%+v", code, one)
 	}
+	log.Add(decisions.Record{RequestID: "host/abc-000003", Decision: decisions.Allow})
+	code, slashed := adminGet[decisions.Record](t, srv, "/decisions/"+url.PathEscape("host/abc-000003"))
+	if code != http.StatusOK || slashed.Data.RequestID != "host/abc-000003" {
+		t.Fatalf("get escaped id: code=%d body=%+v", code, slashed)
+	}
 	code, missing := adminGet[decisions.Record](t, srv, "/decisions/nope")
 	if code != http.StatusNotFound || missing.Error == nil || missing.Error.Code != "NOT_FOUND" {
 		t.Fatalf("missing: code=%d body=%+v", code, missing)
 	}
 	code, stats := adminGet[decisions.Stats](t, srv, "/decisions/stats")
-	if code != http.StatusOK || stats.Data.Total != 2 || stats.Data.BlockRate != 0.5 || stats.Data.LatencyP95Ms != 4 {
+	if code != http.StatusOK || stats.Data.Total != 3 || stats.Data.ByDecision[decisions.Deny] != 1 || stats.Data.LatencyP95Ms != 4 {
 		t.Fatalf("stats: code=%d body=%+v", code, stats)
 	}
 }
