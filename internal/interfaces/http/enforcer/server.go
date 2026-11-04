@@ -43,9 +43,9 @@ import (
 // - GET /healthz: liveness probe
 // - GET /readyz: readiness probe with rule validation
 // - GET /metrics: Prometheus metrics
-// - POST /check: enforcement decision endpoint
+// - POST /check: enforcement decision endpoint (also /check/* for ext_authz)
+// - /v1/*: versioned Gateway API (see internal/interfaces/http/api)
 
-// NewMux constructs the HTTP handler mux for the enforcer.
 var (
 	enforcerRequests = prometheus.NewCounterVec(
 		prometheus.CounterOpts{Name: "ps_enforcer_requests_total", Help: "Total HTTP requests to enforcer"},
@@ -97,7 +97,8 @@ func init() {
 	prometheus.MustRegister(enforcerRequests, enforcerDecisions, enforcerReqDuration, policyBypass)
 }
 
-func NewMux() http.Handler { // backward-compatible wrapper
+// NewMux constructs the enforcer HTTP handler using options from the environment.
+func NewMux() http.Handler {
 	return NewMuxWithOptions(getAPIOptions())
 }
 
@@ -329,27 +330,16 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	// Mount v1 API
 	r.Mount("/v1", api.NewMux(apiOpt))
 
-	// Prepare scanner pool and optionally preload rulepacks to reduce per-request overhead
-	{
-		var maxStreamBytes int64
-		if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
-				maxStreamBytes = n
-			}
-		}
-		scannerPool.New = func() any {
-			sc := scanner.ScanEngineCstor(0)
-			if maxStreamBytes > 0 {
-				sc.SetMaxStreamBytes(maxStreamBytes)
-			}
-			sc.SetQuarantineOnTimeout(true)
-			sc.SetQuarantineOnError(true)
-			if len(preloadPacks) > 0 {
-				sc.LoadRulePacks(preloadPacks)
-			}
-			return sc
-		}
-	}
+	// POST /check (and /check/* for Envoy ext_authz path_prefix forwarding)
+	check := newCheckHandler(checkHandlerConfig{
+		scanners:     scannerPool,
+		hasRules:     len(preloadPacks) > 0,
+		requireRules: requireAtStartup,
+	})
+	r.Route("/check", func(cr chi.Router) {
+		cr.HandleFunc("/", check)
+		cr.HandleFunc("/*", check)
+	})
 
 	// Filter noisy endpoints from tracing
 	if tracingEnabled() {
