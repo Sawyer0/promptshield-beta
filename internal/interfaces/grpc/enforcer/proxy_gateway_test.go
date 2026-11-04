@@ -19,6 +19,9 @@ import (
 	"github.com/promptshield/promptshield/internal/testutil/fixtures"
 )
 
+// promptInjectionPack is the repository's built-in prompt-injection RulePack.
+const promptInjectionPack = "../../../../rules/prompt-injection.yaml"
+
 // TestIntegration_EnvoyExtProcFlow tests the complete Envoy ext_proc workflow
 func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 	if testing.Short() {
@@ -31,6 +34,7 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 		MaxStreamBytes:  1024 * 1024,
 		FailOn:          "HIGH",
 		EnforcementMode: "enforce",
+		RulepackPath:    promptInjectionPack,
 	})
 
 	// Set up in-memory gRPC server
@@ -81,6 +85,10 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 				},
 			},
 		})
+		require.NoError(t, err)
+
+		// ext_proc answers every message; consume the request-headers reply.
+		_, err = stream.Recv()
 		require.NoError(t, err)
 
 		// Send malicious request body
@@ -195,6 +203,7 @@ func TestIntegration_ResponseScanning(t *testing.T) {
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         500 * time.Millisecond,
 		EnforcementMode: "enforce",
+		RulepackPath:    promptInjectionPack,
 	})
 
 	lis := bufconn.Listen(1024 * 1024)
@@ -394,6 +403,7 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 	server := grpcenforcer.NewWithOptions(grpcenforcer.Options{
 		Timeout:         1 * time.Second,
 		EnforcementMode: "enforce",
+		RulepackPath:    promptInjectionPack,
 	})
 
 	lis := bufconn.Listen(1024 * 1024)
@@ -449,6 +459,11 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 				},
 			})
 			if err != nil {
+				results <- false
+				return
+			}
+			// Consume the request-headers reply before sending the body.
+			if _, err := stream.Recv(); err != nil {
 				results <- false
 				return
 			}
