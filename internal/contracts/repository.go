@@ -3,6 +3,7 @@ package contracts
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/google/uuid"
 )
@@ -15,6 +16,11 @@ type RulepackInfo struct {
 	Version     int
 	Active      bool
 }
+
+// ErrRulepackNameExists is returned when a tenant already has a rulepack with
+// the requested name. Repositories return it from Create when their storage
+// enforces the uniqueness itself.
+var ErrRulepackNameExists = errors.New("rulepack name already exists")
 
 // RulepackRepository abstracts persistence for rulepacks.
 type RulepackRepository interface {

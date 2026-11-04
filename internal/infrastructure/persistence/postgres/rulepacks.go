@@ -3,11 +3,13 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/promptshield/promptshield/internal/contracts"
 	"github.com/promptshield/promptshield/internal/observability/tracing"
 	"go.opentelemetry.io/otel"
@@ -40,6 +42,10 @@ func (r *pgRulepackRepo) Create(ctx context.Context, tenantID uuid.UUID, name, d
 	var id uuid.UUID
 	q := `INSERT INTO rulepacks (id, tenant_id, name, description) VALUES (gen_random_uuid(), $1, $2, $3) RETURNING id`
 	if err := r.db.Raw().QueryRow(ctx, q, tenantID, name, desc).Scan(&id); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "rulepacks_tenant_name_key" {
+			return uuid.Nil, contracts.ErrRulepackNameExists
+		}
 		return uuid.Nil, fmt.Errorf("create rulepack: %w", err)
 	}
 	return id, nil
