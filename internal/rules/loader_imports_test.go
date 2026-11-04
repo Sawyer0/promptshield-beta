@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -86,9 +85,6 @@ rules: []
 }
 
 func TestLoadPacks_NetworkImportsGated(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		// Avoid CRLF surprises in quick test; logic is platform-agnostic
-	}
 	// Serve a simple RulePack over HTTP
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("apiVersion: promptshield.io/v1\nkind: RulePack\nmetadata: {name: remote}\nrules: []\n"))

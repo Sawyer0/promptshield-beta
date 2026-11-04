@@ -50,7 +50,7 @@ func TestIntegration_EnvoyExtProcFlow(t *testing.T) {
 	defer s.Stop()
 
 	// Create client connection
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
+	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -215,7 +215,7 @@ func TestIntegration_ResponseScanning(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
+	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -305,7 +305,7 @@ func TestIntegration_StreamingRequests(t *testing.T) {
 	}()
 	defer s.Stop()
 
-	conn, err := grpc.DialContext(context.Background(), "bufnet",
+	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return lis.Dial()
 		}),
@@ -421,7 +421,7 @@ func TestIntegration_ConcurrentStreams(t *testing.T) {
 
 	for i := 0; i < numStreams; i++ {
 		go func(streamID int) {
-			conn, err := grpc.DialContext(context.Background(), "bufnet",
+			conn, err := grpc.NewClient("passthrough:///bufnet",
 				grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 					return lis.Dial()
 				}),

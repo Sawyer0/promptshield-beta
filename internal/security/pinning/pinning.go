@@ -80,11 +80,8 @@ func BuildPinnedTransport(base *http.Transport, pins [][]byte) http.RoundTripper
 				return err
 			}
 		}
-		// If verifiedChains is empty, perform a standard verification to avoid bypass
-		if len(verifiedChains) == 0 {
-			// Let the standard library do the verification by returning nil here; pin check still runs
-		}
-		// Compute SPKI SHA-256 for each cert in the chain and compare
+		// Compare SPKI SHA-256 against the verified chains first; when they
+		// are empty (InsecureSkipVerify), the rawCerts loop enforces the pin.
 		for _, chain := range verifiedChains {
 			for _, cert := range chain {
 				spki := sha256.Sum256(cert.RawSubjectPublicKeyInfo)

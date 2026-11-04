@@ -65,7 +65,7 @@ func (b *bytesCounter) Flush() {
 func captureBytesMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Wrap body to count bytes read
-		var reader io.ReadCloser = r.Body
+		reader := r.Body
 		if reader != nil {
 			r.Body = struct {
 				io.Reader

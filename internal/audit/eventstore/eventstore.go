@@ -82,7 +82,7 @@ func (s *Store) Append(ctx context.Context, e audit.Event) (uint64, error) {
 	}
 	s.seq++
 	rec := Record{Seq: s.seq, Event: e, At: time.Now().UTC()}
-	pos, _ := s.file.Seek(0, os.SEEK_END)
+	pos, _ := s.file.Seek(0, io.SeekEnd)
 	b, err := json.Marshal(rec)
 	if err != nil {
 		return 0, err

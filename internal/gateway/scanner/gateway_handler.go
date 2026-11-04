@@ -138,7 +138,7 @@ func (h *GatewayHandler) HandleLLMRequest(w http.ResponseWriter, r *http.Request
 		// Return blocked response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":      "Request blocked by security policy",
 			"reason":     scanResult.Decision.Reason,
 			"violations": scanResult.Violations,
@@ -221,7 +221,7 @@ func (h *GatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Reques
 		// Return blocked response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":      "Response blocked by security policy",
 			"reason":     scanResult.Decision.Reason,
 			"violations": scanResult.Violations,
@@ -240,7 +240,7 @@ func (h *GatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Reques
 	// Return the original response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"model":            llmResp.Model,
 		"content":          llmResp.Content,
 		"function_calls":   llmResp.FunctionCalls,
@@ -252,7 +252,7 @@ func (h *GatewayHandler) HandleLLMResponse(w http.ResponseWriter, r *http.Reques
 func (h *GatewayHandler) GetScanMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(h.metrics.snapshot())
+	_ = json.NewEncoder(w).Encode(h.metrics.snapshot())
 }
 
 // forwardToProvider forwards the request to the appropriate LLM provider

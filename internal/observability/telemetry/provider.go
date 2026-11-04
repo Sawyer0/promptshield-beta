@@ -24,7 +24,7 @@ func createMeterProvider(ctx context.Context, config *types.TelemetryConfig) (me
 		return nil, nil, nil
 	}
 
-	conn, err := grpc.DialContext(ctx, config.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(config.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, err
 	}

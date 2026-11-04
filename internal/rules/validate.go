@@ -47,10 +47,9 @@ func ValidatePack(p RulePack) []error {
 		var generic any
 		if p.SourcePath != "" {
 			// Validate original source file if available
+			// (yaml.v3 decodes into JSON-compatible generic values).
 			if data, rerr := os.ReadFile(p.SourcePath); rerr == nil {
-				if uerr := yaml.Unmarshal(data, &generic); uerr == nil {
-					// YAML library handles JSON conversion automatically
-				}
+				_ = yaml.Unmarshal(data, &generic)
 			}
 		}
 		if generic == nil {
