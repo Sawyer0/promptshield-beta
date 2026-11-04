@@ -218,7 +218,7 @@ func NewMux(opt Options) http.Handler {
 		g.Post("/check", checkHandlerVersioned(opt))
 		g.Post("/scan", scanHandler(opt))
 	})
-	r.Post("/scan/async", func(w http.ResponseWriter, r *http.Request) {
+	scanAsync := func(w http.ResponseWriter, r *http.Request) {
 		// Ensure license state is loaded before feature check
 		_ = license.IsLicensed()
 		if !license.HasFeature("async_jobs") {
@@ -262,16 +262,11 @@ func NewMux(opt Options) http.Handler {
 			"job_id": jobID,
 			"status": "pending",
 		})
-	})
-
-	// Alias to support legacy colon-style path
-	r.Post("/scan:async", func(w http.ResponseWriter, req *http.Request) {
-		// Forward to /scan/async handler by rewriting path
-		req.URL.Path = "/scan/async"
-		req.RequestURI = ""
-		// Re-serve the request through the current router (not a new one)
-		r.ServeHTTP(w, req)
-	})
+	}
+	r.Post("/scan/async", scanAsync)
+	// Legacy colon-style alias. Registering the same handler avoids re-entering
+	// the router, which looped forever because chi kept the original route path.
+	r.Post("/scan:async", scanAsync)
 
 	// Job management endpoints
 	r.Get("/jobs", func(w http.ResponseWriter, r *http.Request) {
