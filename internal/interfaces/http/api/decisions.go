@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -41,7 +42,14 @@ func mountDecisions(r chi.Router, opt Options) {
 		writeJSON(w, http.StatusOK, opt.Decisions.Stats(), req)
 	})
 	r.Get("/decisions/{requestID}", func(w http.ResponseWriter, req *http.Request) {
-		rec, ok := opt.Decisions.Get(chi.URLParam(req, "requestID"))
+		// Router-generated ids look like "host/abc-000001", so clients send
+		// the slash escaped; chi leaves the parameter in its raw form.
+		id, err := url.PathUnescape(chi.URLParam(req, "requestID"))
+		if err != nil {
+			writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request id", nil, req)
+			return
+		}
+		rec, ok := opt.Decisions.Get(id)
 		if !ok {
 			writeErrorJSON(w, http.StatusNotFound, "NOT_FOUND", "decision not found or no longer retained", nil, req)
 			return
