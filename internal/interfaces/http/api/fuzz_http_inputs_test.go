@@ -499,7 +499,10 @@ func TestProperty_HTTPSecurity(t *testing.T) {
 	})
 
 	t.Run("IdempotencyWorks", func(t *testing.T) {
-		payload := `{"metadata": {"name": "idempotent-test"}, "rules": []}`
+		// Only successful creations are cached, so the payload must be a valid RulePack.
+		payload := `{"apiVersion": "promptshield.io/v1", "kind": "RulePack",
+			"metadata": {"name": "idempotent-test", "version": "1.0.0"},
+			"rules": [{"id": "idem-1", "name": "idem", "level": 1, "severity": "HIGH", "keywords": ["secret"]}]}`
 		idempotencyKey := uuid.New().String()
 
 		// First request
@@ -511,6 +514,7 @@ func TestProperty_HTTPSecurity(t *testing.T) {
 		resp1, err := http.DefaultClient.Do(req1)
 		assert.NoError(t, err)
 		defer resp1.Body.Close()
+		assert.Equal(t, http.StatusCreated, resp1.StatusCode)
 
 		// Second request with same key
 		req2, _ := http.NewRequest("POST", server.URL+"/rulepacks", strings.NewReader(payload))
