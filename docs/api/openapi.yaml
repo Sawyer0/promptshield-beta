@@ -682,6 +682,153 @@ paths:
                 type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/decisions:
+    get:
+      summary: Recent enforcement decisions, newest first (admin)
+      description: >-
+        Served from a bounded in-memory log (500 records). Both /check and
+        /v1/check record here. Prompt content is never stored.
+      operationId: listDecisions
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: decision
+          in: query
+          schema:
+            type: string
+            enum: [allow, quarantine, deny]
+      responses:
+        '200':
+          description: Decisions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      decisions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/DecisionRecord'
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/decisions/stats:
+    get:
+      summary: Decision counts, block rate and latency percentiles (admin)
+      operationId: getDecisionStats
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: Decision statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DecisionStats'
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/decisions/{requestID}:
+    get:
+      summary: One retained decision by request id (admin)
+      operationId: getDecision
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - name: requestID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/DecisionRecord'
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/AdminError'
+  /v1/rules:
+    get:
+      summary: Active RulePacks enforced by /check (admin)
+      description: Rule metadata and keyword/pattern counts; match terms are not returned.
+      operationId: getActiveRules
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: Active rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RulesSnapshot'
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/rules/reload:
+    post:
+      summary: Reload PS_ENFORCER_RULEPACK from disk (admin)
+      description: On failure the previous rules stay active. Emits a rules_reloaded event.
+      operationId: reloadActiveRules
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: Rules after reload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/RulesSnapshot'
+                  meta:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/AdminError'
+        '422':
+          $ref: '#/components/responses/AdminError'
   /v1/stats:
     get:
       summary: Summary statistics (admin)
@@ -1447,6 +1594,115 @@ components:
               type: integer
             violations:
               type: integer
+    DecisionRecord:
+      type: object
+      properties:
+        request_id:
+          type: string
+        time:
+          type: string
+          format: date-time
+        path:
+          type: string
+        decision:
+          type: string
+          enum: [allow, quarantine, deny]
+        reason:
+          type: string
+        status:
+          type: integer
+        latency_ms:
+          type: number
+        bytes_in:
+          type: integer
+        violations:
+          type: integer
+        matches:
+          type: array
+          items:
+            type: object
+            properties:
+              rule_id:
+                type: string
+              severity:
+                type: string
+              category:
+                type: string
+              action:
+                type: string
+              message:
+                type: string
+    DecisionStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        by_decision:
+          type: object
+          additionalProperties:
+            type: integer
+        block_rate:
+          type: number
+          description: (deny + quarantine) / total
+        latency_p50_ms:
+          type: number
+        latency_p95_ms:
+          type: number
+        last_minute:
+          type: integer
+        retained:
+          type: integer
+        capacity:
+          type: integer
+        since:
+          type: string
+          format: date-time
+    RulesSnapshot:
+      type: object
+      properties:
+        source:
+          type: string
+        loaded_at:
+          type: string
+          format: date-time
+        generation:
+          type: integer
+        rule_count:
+          type: integer
+        packs:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              version:
+                type: string
+              description:
+                type: string
+              rules:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    level:
+                      type: integer
+                    severity:
+                      type: string
+                    category:
+                      type: string
+                    action:
+                      type: string
+                    enabled:
+                      type: boolean
+                    keywords:
+                      type: integer
+                    patterns:
+                      type: integer
     Stats:
       type: object
       properties:

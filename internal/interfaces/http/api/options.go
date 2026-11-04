@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/promptshield/promptshield/internal/application/decisions"
+	"github.com/promptshield/promptshield/internal/application/rulesets"
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/domain"
 	"github.com/promptshield/promptshield/internal/jobs"
@@ -31,6 +33,13 @@ type Options struct {
 	// Events provides a simple in-memory broadcaster for SSE and hooks.
 	// When nil, a default hub is created by the router.
 	Events *EventHub
+	// Decisions keeps recent enforcement outcomes for the dashboard and
+	// /v1/decisions. When nil, the router creates a default log.
+	Decisions *decisions.Log
+	// ActiveRules is the reloadable set of RulePacks enforced by /check.
+	// When nil, /v1/rules reports no packs and /v1/check reads
+	// PS_ENFORCER_RULEPACK on each request.
+	ActiveRules *rulesets.Set
 	// OnDrain is called when /v1/admin/drain is invoked. Optional.
 	OnDrain func(ctx context.Context) error
 	// OnShutdown is called when /v1/admin/shutdown is invoked. Optional.
