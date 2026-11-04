@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/promptshield/promptshield/internal/shared/types"
 )
 
 // StandardResponse wraps all API responses
@@ -101,30 +100,4 @@ func getCorrelationID(r *http.Request) string {
 	}
 
 	return uuid.New().String()
-}
-
-// getTenantID retrieves tenant ID from context
-func getTenantID(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-
-	if id := r.Context().Value(tenantIDKey); id != nil {
-		if strID, ok := id.(string); ok {
-			return strID
-		}
-	}
-
-	// Fallback to header
-	return r.Header.Get("X-PS-Tenant-ID")
-}
-
-// writeDomainError writes a domain error as a JSON response
-func writeDomainError(w http.ResponseWriter, err *types.DomainError, r *http.Request) {
-	if err == nil {
-		writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil, r)
-		return
-	}
-
-	writeErrorJSON(w, err.HTTPStatus, string(err.Code), err.Message, err.Details, r)
 }

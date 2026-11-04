@@ -101,15 +101,3 @@ func requestLoggerMiddleware(next http.Handler) http.Handler {
 		).Info("request_completed")
 	})
 }
-
-// rateLimitMiddleware applies simple rate limiting for Security Gateway
-func rateLimitMiddleware(quotaStore interface{}) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Security Gateway uses simple environment-based rate limiting
-			// Rate limiting is handled by PS_ENFORCER_RPS environment variable
-			// Complex per-tenant quota management removed for simplicity
-			next.ServeHTTP(w, r)
-		})
-	}
-}
