@@ -109,7 +109,7 @@
           "type": "array",
           "items": { "type": "string", "enum": ["i", "m", "ignorecase", "multiline"] }
         },
-        "verifier": { "type": "string", "enum": ["", "luhn", "ssn_area"] }
+        "verifier": { "type": "string", "enum": ["", "luhn", "ssn", "ssn_area", "iban", "email"] }
       }
     },
     "semantic": {

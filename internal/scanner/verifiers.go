@@ -58,6 +58,38 @@ func SSNAreaValid(s string) bool {
 	return true
 }
 
+// SSNValid reports whether s holds exactly nine digits that form a
+// structurally valid US Social Security Number: the area (first three digits)
+// is not 000, 666 or 900-999, the group (next two) is not 00 and the serial
+// (last four) is not 0000. Separators between the digits are ignored.
+//
+// RE2 has no lookahead, so rules match the shape with a plain regex such as
+// \b\d{3}-\d{2}-\d{4}\b and apply this check with `verifier: ssn`.
+func SSNValid(s string) bool {
+	var d [9]int
+	n := 0
+	for _, r := range s {
+		if !unicode.IsDigit(r) {
+			continue
+		}
+		if n == len(d) {
+			return false
+		}
+		d[n] = int(r - '0')
+		n++
+	}
+	if n != len(d) {
+		return false
+	}
+	area := d[0]*100 + d[1]*10 + d[2]
+	group := d[3]*10 + d[4]
+	serial := d[5]*1000 + d[6]*100 + d[7]*10 + d[8]
+	if area == 0 || area == 666 || area >= 900 {
+		return false
+	}
+	return group != 0 && serial != 0
+}
+
 // IBANValid validates an International Bank Account Number using the standard mod-97 check.
 // It performs a generic check without enforcing per-country exact lengths, but requires total
 // length to be between 15 and 34 characters inclusive, consisting of letters and digits.

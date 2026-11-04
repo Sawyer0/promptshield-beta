@@ -260,3 +260,56 @@ func TestKeywordOptions_Precedence(t *testing.T) {
 		t.Fatalf("expected r2 whole-word to not match inside 'api_key', got %d", r2)
 	}
 }
+
+func TestSSNValid(t *testing.T) {
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{"123-45-6789", true},
+		{"078-05-1120", true},
+		{"000-12-3456", false},
+		{"666-12-3456", false},
+		{"900-12-3456", false},
+		{"999-12-3456", false},
+		{"123-00-4567", false},
+		{"123-45-0000", false},
+		{"123-45-678", false},
+		{"123-45-67890", false},
+	}
+	for _, tt := range tests {
+		if got := scanner.SSNValid(tt.in); got != tt.want {
+			t.Errorf("SSNValid(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestEssentialsSSNRule(t *testing.T) {
+	packs, err := rules.LoadPacks("../../rules/essentials.yaml")
+	if err != nil {
+		t.Fatalf("load essentials: %v", err)
+	}
+	sc := scanner.ScanEngineCstor(0)
+	sc.LoadRulePacks(packs)
+
+	hasSSN := func(input string) bool {
+		res, err := sc.ScanReader(context.Background(), strings.NewReader(input), "x")
+		if err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		for _, v := range res.Violations {
+			if v.RuleID == "pii-ssn-pattern" {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasSSN("my ssn is 123-45-6789") {
+		t.Error("valid SSN not detected")
+	}
+	for _, in := range []string{"id 000-12-3456", "id 666-12-3456", "id 912-34-5678", "id 123-00-4567", "id 123-45-0000"} {
+		if hasSSN(in) {
+			t.Errorf("invalid SSN %q flagged", in)
+		}
+	}
+}
