@@ -262,13 +262,16 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	job.Status = JobStatusRunning
 	now := time.Now().UTC()
 	job.StartedAt = &now
+	// The processor works on its own copy so Get, List and Cancel can read
+	// the stored job under the lock while it runs.
+	work := *job
 	m.mu.Unlock()
 
 	logger := slog.With("component", "jobs-manager")
-	logger.Info("Processing job", "worker_id", workerID, "job_id", jobID, "job_type", job.Type)
+	logger.Info("Processing job", "worker_id", workerID, "job_id", jobID, "job_type", work.Type)
 
 	// Process the job
-	err := processor.Process(ctx, job)
+	err := processor.Process(ctx, &work)
 
 	// Update job status
 	m.mu.Lock()
@@ -279,6 +282,8 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 		return
 	}
 
+	job.Result = work.Result
+	job.Progress = work.Progress
 	completedAt := time.Now().UTC()
 	job.CompletedAt = &completedAt
 
