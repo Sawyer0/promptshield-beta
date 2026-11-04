@@ -30,7 +30,6 @@ This directory contains example rule packs and templates for learning and custom
 
 ### General Security
 - **`comprehensive-security.yaml`** - Full security rule template
-- **`pii-secrets.yaml`** - Combined PII and secrets detection
 
 ## 🎯 Composition Examples
 
@@ -62,12 +61,12 @@ cp docs/samples/healthcare-industry.yaml rules/my-healthcare-rules.yaml
 PS_ENFORCER_RULEPACK=rules/my-healthcare-rules.yaml ./ps-enforcer
 ```
 
-### Extend Production Rules
+### Build on Production Rules
 ```yaml
-# Extend essentials with industry-specific rules
-extends:
-  - path: ../rules/essentials.yaml
-  - path: ./healthcare-industry.yaml
+# Pull in essentials and an industry pack (paths are relative to this file)
+imports:
+  - ../rules/essentials.yaml
+  - ./healthcare-industry.yaml
 ```
 
 ### Test Before Deploy
@@ -122,8 +121,8 @@ response:
 ### Industry Adaptation
 ```yaml
 # Financial services adaptation
-extends:
-  - path: ../rules/comprehensive.yaml
+imports:
+  - ../rules/comprehensive.yaml
 
 rules:
   - id: fin-account-number
@@ -133,16 +132,15 @@ rules:
     patterns:
       - regex: "\\b\\d{8,17}\\b"
     when:
-      - account
-      - banking
+      match:
+        direction: ["request"]
 ```
 
 ### Performance Tuning
 ```yaml
 performance:
-  buffer_bytes: 32768      # Smaller for speed
+  max_length: 32768        # Skip regex on longer lines
   per_rule_timeout: 50ms   # Faster timeout
-  case_sensitive: false    # Case insensitive matching
 ```
 
 ### Response Customization

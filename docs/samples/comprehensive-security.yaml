@@ -7,11 +7,11 @@ metadata:
   authors:
     - PromptShield Security Team
 
-# Extend existing rule packs
-extends:
-  - path: ./pii-detection.yaml
-  - path: ./prompt-injection.yaml
-  - path: ./basic-security.yaml
+# Import existing rule packs
+imports:
+  - ./pii-detection.yaml
+  - ../../rules/prompt-injection.yaml
+  - ./basic-security-legacy.yaml
 
 rules:
   # API Key Detection
@@ -212,7 +212,8 @@ rules:
       - regex: "(?i)(password|api[_-]?key|secret[_-]?key|token) is[\\s:]+['\"]?([a-zA-Z0-9_\\-]{8,})"
         flags: [ignorecase]
     when:
-      - field_type: "response"
+      match:
+        direction: ["response"]
     response:
       action: block
       message: "Response contains sensitive information"
@@ -223,16 +224,6 @@ composition:
   
 # Performance settings
 performance:
-  buffer_bytes: 32768
-  chunk_overlap: 256
   per_rule_timeout: 100ms
-  case_sensitive: false
-  whole_word: false
 
-# Response scanning configuration
-response_scanning:
-  enabled: true
-  scan_responses: true
-  scan_headers: true
-  max_response_size: 1048576  # 1MB
 

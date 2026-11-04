@@ -13,13 +13,9 @@ metadata:
     - phi
     - compliance
 
-# Extends the base PII detection with healthcare-specific rules
-extends:
-  - path: ./pii-detection.yaml
-    override:
-      context:
-        document_type: "medical"
-        sensitivity_level: "critical"
+# Import the base PII detection pack (healthcare focus)
+imports:
+  - ./pii-detection.yaml
 
 rules:
   # Level 1: HIPAA identifiers
@@ -114,9 +110,9 @@ rules:
       - regex: "\\b[A-Z][0-9]{2}(?:\\.[0-9]{1,4})?\\b"
       # ICD-11 format
       - regex: "\\b[0-9][A-Z][0-9]{2}(?:\\.[0-9]{1,2})?\\b"
-    when:
-      - diagnosis
-      - icd
+    # Broad pattern: off by default. Turn it on with an override
+    # (rule_id: healthcare-icd-codes, enabled: true) for traffic where it applies.
+    enabled: false
     response:
       action: warn
       message: "Medical diagnosis code detected"
@@ -254,17 +250,13 @@ composition:
   
 # Performance tuning
 performance:
-  buffer_bytes: 65536    # Larger for medical documents
-  chunk_overlap: 512
   per_rule_timeout: 200ms # More time for complex medical patterns
-  case_sensitive: false
-  whole_word: false
 
 # Healthcare-specific context
 context:
   industry: "healthcare"
   compliance_framework: "HIPAA"
   data_classification: "PHI"
-  require_encryption: true
-  require_audit_log: true
+  require_encryption: "true"
+  require_audit_log: "true"
 

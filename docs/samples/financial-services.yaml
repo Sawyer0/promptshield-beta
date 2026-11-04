@@ -14,13 +14,9 @@ metadata:
     - glba
     - compliance
 
-# Extends base PII detection with financial focus
-extends:
-  - path: ./pii-detection.yaml
-    override:
-      context:
-        document_type: "financial"
-        sensitivity_level: "critical"
+# Import the base PII detection pack (financial focus)
+imports:
+  - ./pii-detection.yaml
 
 rules:
   # Level 1: Financial terminology and keywords
@@ -121,10 +117,9 @@ rules:
     severity: HIGH
     patterns:
       - regex: "\\b[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?\\b"
-    when:
-      - swift
-      - bic
-      - transfer
+    # Broad pattern: off by default. Turn it on with an override
+    # (rule_id: fin-swift-bic, enabled: true) for traffic where it applies.
+    enabled: false
     response:
       action: warn
       message: "SWIFT/BIC code detected"
@@ -290,19 +285,15 @@ composition:
   
 # Performance tuning
 performance:
-  buffer_bytes: 65536    # Larger for financial documents
-  chunk_overlap: 512
   per_rule_timeout: 150ms
-  case_sensitive: false
-  whole_word: false
 
 # Financial services context
 context:
   industry: "financial_services"
-  compliance_frameworks: ["PCI-DSS", "SOX", "GLBA"]
+  compliance_frameworks: "PCI-DSS,SOX,GLBA"
   data_classification: "confidential"
-  require_encryption: true
-  require_audit_log: true
-  transaction_monitoring: true
+  require_encryption: "true"
+  require_audit_log: "true"
+  transaction_monitoring: "true"
 
 
