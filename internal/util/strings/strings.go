@@ -28,7 +28,7 @@ func TruncateMiddle(s string, maxLen int) string {
 	if maxLen <= 3 {
 		return "..."
 	}
-	
+
 	startLen := (maxLen - 3) / 2
 	endLen := maxLen - 3 - startLen
 	return s[:startLen] + "..." + s[len(s)-endLen:]
@@ -210,19 +210,19 @@ func Wrap(text string, width int) string {
 	if width <= 0 {
 		return text
 	}
-	
+
 	var result []string
 	lines := strings.Split(text, "\n")
-	
+
 	for _, line := range lines {
 		if len(line) <= width {
 			result = append(result, line)
 			continue
 		}
-		
+
 		words := strings.Fields(line)
 		currentLine := ""
-		
+
 		for _, word := range words {
 			if len(currentLine)+len(word)+1 > width {
 				if currentLine != "" {
@@ -248,7 +248,7 @@ func Wrap(text string, width int) string {
 			result = append(result, currentLine)
 		}
 	}
-	
+
 	return strings.Join(result, "\n")
 }
 
@@ -269,7 +269,7 @@ func Dedent(text string) string {
 	if len(lines) == 0 {
 		return text
 	}
-	
+
 	// Find minimum indent
 	minIndent := -1
 	for _, line := range lines {
@@ -281,18 +281,18 @@ func Dedent(text string) string {
 			minIndent = indent
 		}
 	}
-	
+
 	if minIndent <= 0 {
 		return text
 	}
-	
+
 	// Remove common indent
 	for i, line := range lines {
 		if len(line) >= minIndent {
 			lines[i] = line[minIndent:]
 		}
 	}
-	
+
 	return strings.Join(lines, "\n")
 }
 
@@ -350,7 +350,7 @@ func Mask(s string, showFirst, showLast int) string {
 	if len(s) <= showFirst+showLast {
 		return strings.Repeat("*", len(s))
 	}
-	
+
 	masked := s[:showFirst]
 	masked += strings.Repeat("*", len(s)-showFirst-showLast)
 	masked += s[len(s)-showLast:]
@@ -363,16 +363,16 @@ func MaskEmail(email string) string {
 	if len(parts) != 2 {
 		return Mask(email, 2, 2)
 	}
-	
+
 	local := parts[0]
 	domain := parts[1]
-	
+
 	if len(local) <= 3 {
 		local = strings.Repeat("*", len(local))
 	} else {
 		local = local[:1] + strings.Repeat("*", len(local)-2) + local[len(local)-1:]
 	}
-	
+
 	return fmt.Sprintf("%s@%s", local, domain)
 }
 

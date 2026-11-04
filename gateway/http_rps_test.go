@@ -30,7 +30,7 @@ func TestHTTP_SustainedRPS(t *testing.T) {
 	// Start in-memory HTTP server with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
-	
+
 	options := api.Options{
 		RulepackService: rulepackService,
 	}
@@ -102,7 +102,7 @@ func TestHTTP_P95_Sub300ms(t *testing.T) {
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
-	
+
 	options := api.Options{
 		RulepackService: rulepackService,
 	}

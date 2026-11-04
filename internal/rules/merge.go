@@ -118,13 +118,13 @@ func MergePacksPriorityOrder(packs []RulePack) []Rule {
 		}
 		return sorted[i].Metadata.Name < sorted[j].Metadata.Name // Deterministic fallback
 	})
-	
+
 	// Index packs by name
 	byName := make(map[string]RulePack, len(sorted))
 	for _, p := range sorted {
 		byName[p.Metadata.Name] = p
 	}
-	
+
 	// Deterministic pack order: resolve extends DFS, respecting priority order
 	visited := make(map[string]bool)
 	var order []string

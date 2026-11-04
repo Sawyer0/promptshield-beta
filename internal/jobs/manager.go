@@ -215,11 +215,11 @@ func (m *Manager) worker(ctx context.Context, workerID int) {
 	for {
 		select {
 		case <-m.shutdown:
-			logger := slog.With("component","jobs-manager")
+			logger := slog.With("component", "jobs-manager")
 			logger.Info("Job worker shutting down", "worker_id", workerID)
 			return
 		case <-ctx.Done():
-			logger := slog.With("component","jobs-manager")
+			logger := slog.With("component", "jobs-manager")
 			logger.Info("Job worker cancelled", "worker_id", workerID)
 			return
 		case jobID := <-m.queue:
@@ -234,14 +234,14 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	job, exists := m.jobs[jobID]
 	if !exists {
 		m.mu.Unlock()
-		logger := slog.With("component","jobs-manager")
+		logger := slog.With("component", "jobs-manager")
 		logger.Warn("Job not found", "worker_id", workerID, "job_id", jobID)
 		return
 	}
 
 	if job.Status != JobStatusPending {
 		m.mu.Unlock()
-		logger := slog.With("component","jobs-manager")
+		logger := slog.With("component", "jobs-manager")
 		logger.Warn("Job not pending", "worker_id", workerID, "job_id", jobID, "status", job.Status)
 		return
 	}
@@ -253,7 +253,7 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 		now := time.Now().UTC()
 		job.CompletedAt = &now
 		m.mu.Unlock()
-		logger := slog.With("component","jobs-manager")
+		logger := slog.With("component", "jobs-manager")
 		logger.Error("No processor for job type", "job_type", job.Type, "job_id", jobID)
 		return
 	}
@@ -264,7 +264,7 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	job.StartedAt = &now
 	m.mu.Unlock()
 
-	logger := slog.With("component","jobs-manager")
+	logger := slog.With("component", "jobs-manager")
 	logger.Info("Processing job", "worker_id", workerID, "job_id", jobID, "job_type", job.Type)
 
 	// Process the job
@@ -277,7 +277,7 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	completedAt := time.Now().UTC()
 	job.CompletedAt = &completedAt
 
-	logger = slog.With("component","jobs-manager")
+	logger = slog.With("component", "jobs-manager")
 	if err != nil {
 		job.Status = JobStatusFailed
 		job.Error = err.Error()
@@ -305,7 +305,7 @@ func (m *Manager) CleanupCompleted(maxAge time.Duration) int {
 		}
 	}
 
-	logger := slog.With("component","jobs-manager")
+	logger := slog.With("component", "jobs-manager")
 	logger.Info("Cleaned up completed jobs", "removed", removed, "max_age", maxAge)
 	return removed
 }

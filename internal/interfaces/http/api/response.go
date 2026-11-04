@@ -27,19 +27,19 @@ type ErrorResponse struct {
 func writeJSON(w http.ResponseWriter, status int, data interface{}, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-PS-API-Version", "1")
-	
+
 	correlationID := getCorrelationID(r)
 	if correlationID != "" {
 		w.Header().Set("X-PS-Correlation-ID", correlationID)
 	}
-	
+
 	w.WriteHeader(status)
-	
+
 	response := StandardResponse{
 		Data: data,
 		Meta: getMeta(r),
 	}
-	
+
 	_ = json.NewEncoder(w).Encode(response)
 }
 
@@ -47,14 +47,14 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}, r *http.Requ
 func writeErrorJSON(w http.ResponseWriter, status int, code, message string, details map[string]interface{}, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-PS-API-Version", "1")
-	
+
 	correlationID := getCorrelationID(r)
 	if correlationID != "" {
 		w.Header().Set("X-PS-Correlation-ID", correlationID)
 	}
-	
+
 	w.WriteHeader(status)
-	
+
 	response := StandardResponse{
 		Error: &ErrorResponse{
 			Code:    code,
@@ -63,7 +63,7 @@ func writeErrorJSON(w http.ResponseWriter, status int, code, message string, det
 		},
 		Meta: getMeta(r),
 	}
-	
+
 	_ = json.NewEncoder(w).Encode(response)
 }
 
@@ -73,13 +73,13 @@ func getMeta(r *http.Request) map[string]interface{} {
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 		"version":   "1",
 	}
-	
+
 	if r != nil {
 		if correlationID := getCorrelationID(r); correlationID != "" {
 			meta["correlation_id"] = correlationID
 		}
 	}
-	
+
 	return meta
 }
 
@@ -88,18 +88,18 @@ func getCorrelationID(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	
+
 	if id := r.Context().Value(correlationIDKey); id != nil {
 		if strID, ok := id.(string); ok {
 			return strID
 		}
 	}
-	
+
 	// Fallback to header
 	if id := r.Header.Get("X-PS-Correlation-ID"); id != "" {
 		return id
 	}
-	
+
 	return uuid.New().String()
 }
 
@@ -108,13 +108,13 @@ func getTenantID(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	
+
 	if id := r.Context().Value(tenantIDKey); id != nil {
 		if strID, ok := id.(string); ok {
 			return strID
 		}
 	}
-	
+
 	// Fallback to header
 	return r.Header.Get("X-PS-Tenant-ID")
 }
@@ -125,6 +125,6 @@ func writeDomainError(w http.ResponseWriter, err *types.DomainError, r *http.Req
 		writeErrorJSON(w, http.StatusInternalServerError, "INTERNAL_ERROR", "An unexpected error occurred", nil, r)
 		return
 	}
-	
+
 	writeErrorJSON(w, err.HTTPStatus, string(err.Code), err.Message, err.Details, r)
 }

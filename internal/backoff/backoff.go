@@ -40,4 +40,3 @@ func EqualJitter(base, cap time.Duration, attempt int) time.Duration {
 }
 
 func init() { rand.Seed(time.Now().UnixNano()) }
-

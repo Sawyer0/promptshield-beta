@@ -21,9 +21,9 @@ const (
 
 // Worker pool errors
 var (
-	ErrPoolClosed      = errors.New("worker pool is closed")
-	ErrNoWorkers       = errors.New("no workers available")
-	ErrPoolTimeout     = errors.New("worker pool timeout")
+	ErrPoolClosed  = errors.New("worker pool is closed")
+	ErrNoWorkers   = errors.New("no workers available")
+	ErrPoolTimeout = errors.New("worker pool timeout")
 )
 
 // Batch processor errors

@@ -132,8 +132,8 @@ func FuzzHTTPRulepackEndpoints(f *testing.F) {
 
 		// Unicode/encoding attacks
 		[]byte(`{"metadata": {"name": "test\u0000null"}, "rules": []}`),
-		[]byte(`{"metadata": {"name": "test\u202e"}, "rules": []}`),  // RTL override
-		[]byte(`{"metadata": {"name": "test\uFEFF"}, "rules": []}`),  // BOM
+		[]byte(`{"metadata": {"name": "test\u202e"}, "rules": []}`), // RTL override
+		[]byte(`{"metadata": {"name": "test\uFEFF"}, "rules": []}`), // BOM
 
 		// Content-Type confusion
 		[]byte("metadata:\n  name: test\nrules: []"), // YAML content

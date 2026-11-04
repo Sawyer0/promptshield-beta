@@ -45,7 +45,7 @@ func NewRulepackRepository() contracts.RulepackRepository {
 		versions:      make(map[uuid.UUID]*rulepackVersion),
 		activeVersion: make(map[uuid.UUID]uuid.UUID),
 	}
-	
+
 	// Seed with default rulepack for demo
 	defaultPack := &rulepack{
 		ID:          uuid.MustParse("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
@@ -55,7 +55,7 @@ func NewRulepackRepository() contracts.RulepackRepository {
 		CreatedAt:   time.Now().Add(-24 * time.Hour),
 	}
 	repo.rulepacks[defaultPack.ID] = defaultPack
-	
+
 	// Add a default version with rules
 	defaultVersion := &rulepackVersion{
 		ID:         uuid.New(),
@@ -68,7 +68,7 @@ func NewRulepackRepository() contracts.RulepackRepository {
 	}
 	repo.versions[defaultVersion.ID] = defaultVersion
 	repo.activeVersion[defaultPack.ID] = defaultVersion.ID
-	
+
 	return repo
 }
 
@@ -76,7 +76,7 @@ func NewRulepackRepository() contracts.RulepackRepository {
 func (r *RulepackRepositoryImpl) Create(ctx context.Context, tenantID uuid.UUID, name, desc string) (uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	pack := &rulepack{
 		ID:          uuid.New(),
 		TenantID:    tenantID,
@@ -84,7 +84,7 @@ func (r *RulepackRepositoryImpl) Create(ctx context.Context, tenantID uuid.UUID,
 		Description: desc,
 		CreatedAt:   time.Now(),
 	}
-	
+
 	r.rulepacks[pack.ID] = pack
 	return pack.ID, nil
 }
@@ -93,11 +93,11 @@ func (r *RulepackRepositoryImpl) Create(ctx context.Context, tenantID uuid.UUID,
 func (r *RulepackRepositoryImpl) CreateVersion(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, status string, createdBy uuid.UUID) (uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.rulepacks[packID]; !exists {
 		return uuid.Nil, fmt.Errorf("rulepack %s not found", packID)
 	}
-	
+
 	ver := &rulepackVersion{
 		ID:         uuid.New(),
 		RulepackID: packID,
@@ -107,7 +107,7 @@ func (r *RulepackRepositoryImpl) CreateVersion(ctx context.Context, packID uuid.
 		CreatedBy:  createdBy,
 		CreatedAt:  time.Now(),
 	}
-	
+
 	r.versions[ver.ID] = ver
 	return ver.ID, nil
 }
@@ -116,11 +116,11 @@ func (r *RulepackRepositoryImpl) CreateVersion(ctx context.Context, packID uuid.
 func (r *RulepackRepositoryImpl) CreateVersionActivateTx(ctx context.Context, packID uuid.UUID, version int, dsl json.RawMessage, createdBy uuid.UUID) (uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.rulepacks[packID]; !exists {
 		return uuid.Nil, fmt.Errorf("rulepack %s not found", packID)
 	}
-	
+
 	ver := &rulepackVersion{
 		ID:         uuid.New(),
 		RulepackID: packID,
@@ -130,10 +130,10 @@ func (r *RulepackRepositoryImpl) CreateVersionActivateTx(ctx context.Context, pa
 		CreatedBy:  createdBy,
 		CreatedAt:  time.Now(),
 	}
-	
+
 	r.versions[ver.ID] = ver
 	r.activeVersion[packID] = ver.ID
-	
+
 	return ver.ID, nil
 }
 
@@ -141,17 +141,17 @@ func (r *RulepackRepositoryImpl) CreateVersionActivateTx(ctx context.Context, pa
 func (r *RulepackRepositoryImpl) GetActive(ctx context.Context, packID uuid.UUID) (json.RawMessage, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	versionID, exists := r.activeVersion[packID]
 	if !exists {
 		return nil, 0, fmt.Errorf("no active version for rulepack %s", packID)
 	}
-	
+
 	ver, exists := r.versions[versionID]
 	if !exists {
 		return nil, 0, fmt.Errorf("version %s not found", versionID)
 	}
-	
+
 	return ver.DSL, ver.Version, nil
 }
 
@@ -159,15 +159,15 @@ func (r *RulepackRepositoryImpl) GetActive(ctx context.Context, packID uuid.UUID
 func (r *RulepackRepositoryImpl) Activate(ctx context.Context, packID, versionID uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.rulepacks[packID]; !exists {
 		return fmt.Errorf("rulepack %s not found", packID)
 	}
-	
+
 	if _, exists := r.versions[versionID]; !exists {
 		return fmt.Errorf("version %s not found", versionID)
 	}
-	
+
 	r.activeVersion[packID] = versionID
 	return nil
 }
@@ -176,13 +176,13 @@ func (r *RulepackRepositoryImpl) Activate(ctx context.Context, packID, versionID
 func (r *RulepackRepositoryImpl) GetVersion(ctx context.Context, packID uuid.UUID, version int) (json.RawMessage, string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	for _, ver := range r.versions {
 		if ver.RulepackID == packID && ver.Version == version {
 			return ver.DSL, ver.Status, nil
 		}
 	}
-	
+
 	return nil, "", fmt.Errorf("version %d not found for rulepack %s", version, packID)
 }
 
@@ -190,7 +190,7 @@ func (r *RulepackRepositoryImpl) GetVersion(ctx context.Context, packID uuid.UUI
 func (r *RulepackRepositoryImpl) GetLatestVersion(ctx context.Context, packID uuid.UUID) (uuid.UUID, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var latestVer *rulepackVersion
 	for _, ver := range r.versions {
 		if ver.RulepackID == packID {
@@ -199,11 +199,11 @@ func (r *RulepackRepositoryImpl) GetLatestVersion(ctx context.Context, packID uu
 			}
 		}
 	}
-	
+
 	if latestVer == nil {
 		return uuid.Nil, 0, fmt.Errorf("no versions found for rulepack %s", packID)
 	}
-	
+
 	return latestVer.ID, latestVer.Version, nil
 }
 
@@ -213,7 +213,7 @@ func (r *RulepackRepositoryImpl) ActivateLatest(ctx context.Context, packID uuid
 	if err != nil {
 		return err
 	}
-	
+
 	return r.Activate(ctx, packID, versionID)
 }
 
@@ -221,7 +221,7 @@ func (r *RulepackRepositoryImpl) ActivateLatest(ctx context.Context, packID uuid
 func (r *RulepackRepositoryImpl) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]contracts.RulepackInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var result []contracts.RulepackInfo
 	for _, pack := range r.rulepacks {
 		if pack.TenantID == tenantID || tenantID == uuid.Nil {
@@ -230,7 +230,7 @@ func (r *RulepackRepositoryImpl) ListByTenant(ctx context.Context, tenantID uuid
 				Name:        pack.Name,
 				Description: pack.Description,
 			}
-			
+
 			// Get active version if exists
 			if versionID, exists := r.activeVersion[pack.ID]; exists {
 				if ver, exists := r.versions[versionID]; exists {
@@ -238,11 +238,11 @@ func (r *RulepackRepositoryImpl) ListByTenant(ctx context.Context, tenantID uuid
 					info.Active = true
 				}
 			}
-			
+
 			result = append(result, info)
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -250,24 +250,24 @@ func (r *RulepackRepositoryImpl) ListByTenant(ctx context.Context, tenantID uuid
 func (r *RulepackRepositoryImpl) Delete(ctx context.Context, packID uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.rulepacks[packID]; !exists {
 		return fmt.Errorf("rulepack %s not found", packID)
 	}
-	
+
 	// Delete all versions
 	for id, ver := range r.versions {
 		if ver.RulepackID == packID {
 			delete(r.versions, id)
 		}
 	}
-	
+
 	// Remove active version mapping
 	delete(r.activeVersion, packID)
-	
+
 	// Delete the rulepack
 	delete(r.rulepacks, packID)
-	
+
 	return nil
 }
 
@@ -275,7 +275,7 @@ func (r *RulepackRepositoryImpl) Delete(ctx context.Context, packID uuid.UUID) e
 func (r *RulepackRepositoryImpl) PurgeOldVersions(ctx context.Context, packID uuid.UUID, retention int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	// Collect all versions for this pack
 	var versions []*rulepackVersion
 	for _, ver := range r.versions {
@@ -283,7 +283,7 @@ func (r *RulepackRepositoryImpl) PurgeOldVersions(ctx context.Context, packID uu
 			versions = append(versions, ver)
 		}
 	}
-	
+
 	// If we have more than retention, delete oldest ones
 	if len(versions) > retention {
 		// Sort by version number (simple approach)
@@ -301,7 +301,7 @@ func (r *RulepackRepositoryImpl) PurgeOldVersions(ctx context.Context, packID uu
 			}
 		}
 	}
-	
+
 	return nil
 }
 

@@ -2,9 +2,9 @@ package grpcenforcer_test
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
-	"net"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extproc "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"

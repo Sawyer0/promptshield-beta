@@ -9,11 +9,11 @@ import (
 
 // Policy error codes
 const (
-	ErrCodePolicyNotFound            types.ErrorCode = "POLICY_NOT_FOUND"
-	ErrCodePolicyValidationFailed    types.ErrorCode = "POLICY_VALIDATION_FAILED"
-	ErrCodePolicyAssignmentNotFound  types.ErrorCode = "POLICY_ASSIGNMENT_NOT_FOUND"
-	ErrCodePolicyConflict            types.ErrorCode = "POLICY_CONFLICT"
-	ErrCodePolicyInvalidFormat       types.ErrorCode = "POLICY_INVALID_FORMAT"
+	ErrCodePolicyNotFound           types.ErrorCode = "POLICY_NOT_FOUND"
+	ErrCodePolicyValidationFailed   types.ErrorCode = "POLICY_VALIDATION_FAILED"
+	ErrCodePolicyAssignmentNotFound types.ErrorCode = "POLICY_ASSIGNMENT_NOT_FOUND"
+	ErrCodePolicyConflict           types.ErrorCode = "POLICY_CONFLICT"
+	ErrCodePolicyInvalidFormat      types.ErrorCode = "POLICY_INVALID_FORMAT"
 )
 
 // PolicyNotFound returns an error for when a policy is not found

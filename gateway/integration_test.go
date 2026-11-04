@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package gateway_test
@@ -48,7 +49,7 @@ func TestIntegration_FullGatewayFlow(t *testing.T) {
 				},
 			},
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	}))
@@ -125,7 +126,7 @@ func TestIntegration_FullGatewayFlow(t *testing.T) {
 
 				// Simulate PromptShield scanning
 				decision, details := simulatePromptShieldScan(string(body))
-				
+
 				if decision == "block" {
 					// Return detailed blocking response
 					w.Header().Set("Content-Type", "application/json")
@@ -227,22 +228,22 @@ func simulatePromptShieldScan(requestBody string) (string, map[string]interface{
 // scanContent simulates PromptShield rule matching
 func scanContent(content string) (string, map[string]interface{}) {
 	contentLower := strings.ToLower(content)
-	
+
 	// Check for prompt injection patterns
 	if strings.Contains(contentLower, "ignore previous instructions") ||
 		strings.Contains(contentLower, "reveal your system prompt") {
 		return "block", map[string]interface{}{
-			"blocked": true,
+			"blocked":  true,
 			"decision": "quarantine",
-			"reason": "prompt-injection-ignore-previous",
-			"message": "Request blocked by PromptShield",
+			"reason":   "prompt-injection-ignore-previous",
+			"message":  "Request blocked by PromptShield",
 			"violations": []map[string]interface{}{
 				{
-					"rule_id": "prompt-injection-ignore-previous",
+					"rule_id":  "prompt-injection-ignore-previous",
 					"severity": "CRITICAL",
-					"message": "Direct instruction override attempts",
-					"line": 1,
-					"column": strings.Index(contentLower, "ignore"),
+					"message":  "Direct instruction override attempts",
+					"line":     1,
+					"column":   strings.Index(contentLower, "ignore"),
 				},
 			},
 			"scan_info": map[string]interface{}{
@@ -256,16 +257,16 @@ func scanContent(content string) (string, map[string]interface{}) {
 	if strings.Contains(contentLower, "dan mode") ||
 		strings.Contains(contentLower, "forget all restrictions") {
 		return "block", map[string]interface{}{
-			"blocked": true,
+			"blocked":  true,
 			"decision": "quarantine",
-			"reason": "jailbreak-attempt",
-			"message": "Request blocked by PromptShield",
+			"reason":   "jailbreak-attempt",
+			"message":  "Request blocked by PromptShield",
 			"violations": []map[string]interface{}{
 				{
-					"rule_id": "jailbreak-dan-mode",
+					"rule_id":  "jailbreak-dan-mode",
 					"severity": "HIGH",
-					"message": "Jailbreak attempt detected",
-					"line": 1,
+					"message":  "Jailbreak attempt detected",
+					"line":     1,
 				},
 			},
 		}
@@ -274,16 +275,16 @@ func scanContent(content string) (string, map[string]interface{}) {
 	// Check for API key patterns
 	if strings.Contains(content, "sk-") && strings.Contains(content, "api") {
 		return "block", map[string]interface{}{
-			"blocked": true,
+			"blocked":  true,
 			"decision": "quarantine",
-			"reason": "api-key-detected",
-			"message": "Request blocked by PromptShield",
+			"reason":   "api-key-detected",
+			"message":  "Request blocked by PromptShield",
 			"violations": []map[string]interface{}{
 				{
-					"rule_id": "openai-api-key",
+					"rule_id":  "openai-api-key",
 					"severity": "CRITICAL",
-					"message": "OpenAI API key detected",
-					"line": 1,
+					"message":  "OpenAI API key detected",
+					"line":     1,
 				},
 			},
 		}
@@ -305,13 +306,13 @@ func TestIntegration_ResponseFiltering(t *testing.T) {
 				{
 					"message": map[string]string{
 						"role": "assistant",
-						"content": fmt.Sprintf("Here's your API key: %s and SSN: %s", 
+						"content": fmt.Sprintf("Here's your API key: %s and SSN: %s",
 							fixtures.SampleAPIKey, fixtures.SampleSSN),
 					},
 				},
 			},
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(responses)
 	}))
@@ -322,7 +323,7 @@ func TestIntegration_ResponseFiltering(t *testing.T) {
 		// Forward request to backend
 		body, _ := io.ReadAll(r.Body)
 		backendReq, _ := http.NewRequest(r.Method, backend.URL+r.URL.Path, bytes.NewReader(body))
-		
+
 		client := &http.Client{}
 		resp, err := client.Do(backendReq)
 		if err != nil {
@@ -333,14 +334,14 @@ func TestIntegration_ResponseFiltering(t *testing.T) {
 
 		// Read and scan response
 		respBody, _ := io.ReadAll(resp.Body)
-		
+
 		// Simulate PromptShield response scanning
 		if containsSensitiveData(string(respBody)) {
 			// Block or redact the response
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-PS-Decision", "redact")
 			w.WriteHeader(http.StatusOK)
-			
+
 			// Return redacted response
 			redactedResponse := map[string]interface{}{
 				"choices": []map[string]interface{}{
@@ -414,10 +415,10 @@ func TestIntegration_HighThroughputScanning(t *testing.T) {
 	// Create simple gateway for load testing
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		
+
 		// Simulate scanning delay
 		decision, details := simulatePromptShieldScan(string(body))
-		
+
 		if decision == "block" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -435,7 +436,7 @@ func TestIntegration_HighThroughputScanning(t *testing.T) {
 	// Test concurrent requests
 	numRequests := 50
 	concurrency := 10
-	
+
 	sem := make(chan struct{}, concurrency)
 	results := make(chan bool, numRequests)
 
@@ -443,7 +444,7 @@ func TestIntegration_HighThroughputScanning(t *testing.T) {
 
 	for i := 0; i < numRequests; i++ {
 		go func(reqID int) {
-			sem <- struct{}{} // Acquire semaphore
+			sem <- struct{}{}        // Acquire semaphore
 			defer func() { <-sem }() // Release semaphore
 
 			var content string

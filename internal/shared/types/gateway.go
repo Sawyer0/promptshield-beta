@@ -4,13 +4,13 @@ import "time"
 
 // ServerInfo represents server information
 type ServerInfo struct {
-	Name       string        `json:"name"`
-	Version    string        `json:"version"`
-	StartTime  time.Time     `json:"start_time"`
-	Uptime     time.Duration `json:"uptime"`
-	GoVersion  string        `json:"go_version"`
-	Platform   string        `json:"platform"`
-	CPUCount   int           `json:"cpu_count"`
+	Name      string        `json:"name"`
+	Version   string        `json:"version"`
+	StartTime time.Time     `json:"start_time"`
+	Uptime    time.Duration `json:"uptime"`
+	GoVersion string        `json:"go_version"`
+	Platform  string        `json:"platform"`
+	CPUCount  int           `json:"cpu_count"`
 }
 
 // ExtProcRequest represents an Envoy external processor request
@@ -44,9 +44,9 @@ type ExtProcResponse struct {
 
 // BodyMutation represents body modification instructions
 type BodyMutation struct {
-	Action      MutationAction `json:"action"`
-	NewBody     []byte         `json:"new_body,omitempty"`
-	Redactions  []Redaction    `json:"redactions,omitempty"`
+	Action     MutationAction `json:"action"`
+	NewBody    []byte         `json:"new_body,omitempty"`
+	Redactions []Redaction    `json:"redactions,omitempty"`
 }
 
 // HeaderMutation represents header modification instructions

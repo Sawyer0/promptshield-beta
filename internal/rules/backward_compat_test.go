@@ -38,7 +38,7 @@ rules:
 			t.Logf("Legacy format validation errors (expected): %v", errors)
 			// Should provide helpful guidance about missing fields
 			errorStr := errors[0].Error()
-			assert.True(t, strings.Contains(errorStr, "apiVersion") || strings.Contains(errorStr, "kind"), 
+			assert.True(t, strings.Contains(errorStr, "apiVersion") || strings.Contains(errorStr, "kind"),
 				"Should mention missing required fields")
 		}
 
@@ -51,7 +51,7 @@ rules:
 	t.Run("OldSeverityValues", func(t *testing.T) {
 		// Test backward compatibility with old severity values
 		oldSeverities := []string{"LOW", "MEDIUM"} // These were valid in older versions
-		
+
 		for _, severity := range oldSeverities {
 			pack := RulePack{
 				APIVersion: "promptshield.io/v1",
@@ -69,13 +69,13 @@ rules:
 
 			// Should handle gracefully - either accept or provide migration guidance
 			errors := ValidatePack(pack)
-			
+
 			// For now, these should be rejected with helpful error messages
 			if len(errors) > 0 {
 				errorStr := errors[0].Error()
 				assert.Contains(t, errorStr, "severity", "Error should mention severity")
 				// Should suggest valid alternatives
-				assert.True(t, 
+				assert.True(t,
 					containsAny(errorStr, []string{"INFO", "WARNING", "HIGH", "ERROR", "CRITICAL"}),
 					"Error should suggest valid severity values")
 			}
@@ -124,7 +124,7 @@ rules:
 	t.Run("OldCompositionStrategy", func(t *testing.T) {
 		// Test old composition strategies that might not be supported
 		oldStrategies := []string{"first_match", "weighted", "consensus"}
-		
+
 		for _, strategy := range oldStrategies {
 			pack := RulePack{
 				APIVersion: "promptshield.io/v1",
@@ -144,7 +144,7 @@ rules:
 			}
 
 			errors := ValidatePack(pack)
-			
+
 			// Should either accept or provide migration guidance
 			if len(errors) > 0 {
 				errorStr := errors[0].Error()
@@ -190,15 +190,15 @@ func TestMigration_AutomaticFieldUpgrade(t *testing.T) {
 	t.Run("NormalizeFieldNames", func(t *testing.T) {
 		// Test handling of field name variations
 		variations := []string{
-			`{"metadata": {"name": "test"}, "rules": []}`,                    // Standard
-			`{"meta": {"name": "test"}, "rules": []}`,                        // Alternative name
-			`{"metadata": {"title": "test"}, "rules": []}`,                   // Alternative field
+			`{"metadata": {"name": "test"}, "rules": []}`,  // Standard
+			`{"meta": {"name": "test"}, "rules": []}`,      // Alternative name
+			`{"metadata": {"title": "test"}, "rules": []}`, // Alternative field
 		}
 
 		for i, variant := range variations {
 			var pack RulePack
 			err := json.Unmarshal([]byte(variant), &pack)
-			
+
 			if i == 0 {
 				// Standard format should always work
 				require.NoError(t, err)
@@ -243,7 +243,7 @@ func TestVersionCompatibility_SchemaEvolution(t *testing.T) {
 		rule := pack.Rules[0]
 		assert.Empty(t, rule.Category, "Category should default to empty")
 		assert.Nil(t, rule.Response, "Response should default to nil")
-		
+
 		// Composition should be nil/default
 		assert.Nil(t, pack.Composition, "Composition should default to nil")
 	})
@@ -290,11 +290,11 @@ func TestVersionCompatibility_SchemaEvolution(t *testing.T) {
 		var pack RulePack
 		// This might fail due to type mismatch (string vs int for level)
 		err := json.Unmarshal([]byte(packWithOldTypes), &pack)
-		
+
 		if err != nil {
 			// Should get helpful error about type mismatch
 			errorStr := err.Error()
-			assert.True(t, strings.Contains(errorStr, "level") || strings.Contains(errorStr, "Level"), 
+			assert.True(t, strings.Contains(errorStr, "level") || strings.Contains(errorStr, "Level"),
 				"Error should mention level field: %s", errorStr)
 			t.Logf("Type mismatch handled appropriately: %v", err)
 		} else {
@@ -326,7 +326,7 @@ func TestRulepackUpgrade_ContentMigration(t *testing.T) {
 
 		// Should validate (or provide upgrade suggestions)
 		errors := ValidatePack(oldRegexPack)
-		
+
 		if len(errors) > 0 {
 			t.Logf("Old regex pattern validation: %v", errors)
 		} else {
@@ -337,9 +337,9 @@ func TestRulepackUpgrade_ContentMigration(t *testing.T) {
 	t.Run("KeywordNormalization", func(t *testing.T) {
 		// Test keyword normalization across versions
 		keywordVariations := [][]string{
-			{"Test", "TEST", "test"},              // Case variations
-			{"test ", " test", "  test  "},        // Whitespace variations
-			{"test\n", "test\t", "test\r"},        // Control char variations
+			{"Test", "TEST", "test"},       // Case variations
+			{"test ", " test", "  test  "}, // Whitespace variations
+			{"test\n", "test\t", "test\r"}, // Control char variations
 		}
 
 		for i, keywords := range keywordVariations {
@@ -359,7 +359,7 @@ func TestRulepackUpgrade_ContentMigration(t *testing.T) {
 
 			errors := ValidatePack(pack)
 			t.Logf("Keyword variation %d: %v errors", i, len(errors))
-			
+
 			// Should either validate or provide normalization guidance
 			for _, err := range errors {
 				if containsAny(err.Error(), []string{"keyword", "whitespace", "normalize"}) {
@@ -380,9 +380,9 @@ func migrateRulepack(pack RulePack) RulePack {
 	if pack.Kind == "" {
 		pack.Kind = "RulePack"
 	}
-	
+
 	// Add other migration logic here as needed
-	
+
 	return pack
 }
 
@@ -394,4 +394,3 @@ func containsAny(str string, substrings []string) bool {
 	}
 	return false
 }
-

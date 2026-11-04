@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	
+
 	"github.com/promptshield/promptshield/internal/testutil/fixtures"
 )
 
@@ -69,7 +69,7 @@ func TestValidationService_ValidateDSL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := svc.ValidateDSL(context.Background(), tt.rawDSL)
-			
+
 			if tt.wantErr {
 				require.Error(t, err)
 				errStr := err.Error()
@@ -103,7 +103,7 @@ func TestValidationService_NormalizeDSL(t *testing.T) {
 				assert.Contains(t, string(result), `"promptshield.io/v1"`)
 				assert.Contains(t, string(result), `"Kind"`)
 				assert.Contains(t, string(result), `"RulePack"`)
-				
+
 				// Should preserve all fields
 				assert.Contains(t, string(result), `"test-rule-1"`)
 				assert.Contains(t, string(result), `"HIGH"`)
@@ -142,17 +142,17 @@ func TestValidationService_NormalizeDSL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := svc.NormalizeDSL(context.Background(), tt.rawDSL)
-			
+
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, result)
-				
+
 				if tt.checkResult != nil {
 					tt.checkResult(t, result)
 				}
-				
+
 				// Verify result is valid JSON
 				var jsonCheck interface{}
 				err := json.Unmarshal(result, &jsonCheck)
@@ -164,21 +164,21 @@ func TestValidationService_NormalizeDSL(t *testing.T) {
 
 func TestValidationService_NormalizeDSL_Deterministic(t *testing.T) {
 	svc := &ValidationService{}
-	
+
 	// Test that normalization is deterministic
 	inputs := [][]byte{
 		[]byte(fixtures.ValidRulepackYAML),
 		[]byte(fixtures.ValidRulepackJSON),
 	}
-	
+
 	for _, input := range inputs {
 		t.Run("deterministic output", func(t *testing.T) {
 			result1, err1 := svc.NormalizeDSL(context.Background(), input)
 			require.NoError(t, err1)
-			
+
 			result2, err2 := svc.NormalizeDSL(context.Background(), input)
 			require.NoError(t, err2)
-			
+
 			// Multiple calls should produce identical results
 			assert.Equal(t, result1, result2, "Normalization should be deterministic")
 		})
@@ -187,24 +187,24 @@ func TestValidationService_NormalizeDSL_Deterministic(t *testing.T) {
 
 func TestValidationService_ConcurrentValidation(t *testing.T) {
 	svc := &ValidationService{}
-	
+
 	// Test concurrent validation doesn't cause issues
 	done := make(chan bool, 20)
-	
+
 	for i := 0; i < 10; i++ {
 		go func() {
 			err := svc.ValidateDSL(context.Background(), []byte(fixtures.ValidRulepackJSON))
 			assert.NoError(t, err)
 			done <- true
 		}()
-		
+
 		go func() {
 			_, err := svc.NormalizeDSL(context.Background(), []byte(fixtures.ValidRulepackYAML))
 			assert.NoError(t, err)
 			done <- true
 		}()
 	}
-	
+
 	// Wait for all goroutines
 	for i := 0; i < 20; i++ {
 		<-done

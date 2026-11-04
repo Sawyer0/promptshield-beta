@@ -31,38 +31,38 @@ func (p *ScanProcessor) Type() string {
 func (p *ScanProcessor) Process(ctx context.Context, job *jobs.Job) error {
 	// Parse scan options from metadata
 	options := parseScanOptions(job.Metadata)
-	
+
 	// Determine input name for the scan
 	inputName := "async-job"
 	if name, ok := job.Metadata["input_name"].(string); ok {
 		inputName = name
 	}
-	
+
 	// Create a reader from the job input
 	reader := strings.NewReader(string(job.Input))
-	
+
 	// Update progress to indicate scanning started
 	job.Progress = 10
-	
+
 	// Perform the scan
 	result, err := p.scanner.ScanReader(ctx, reader, inputName)
 	if err != nil {
 		return err
 	}
-	
+
 	// Update progress
 	job.Progress = 80
-	
+
 	// Format the result based on requested format
 	formattedResult, err := formatScanResult(result, options.OutputFormat)
 	if err != nil {
 		return err
 	}
-	
+
 	// Store the result
 	job.Result = json.RawMessage(formattedResult)
 	job.Progress = 100
-	
+
 	return nil
 }
 
@@ -78,15 +78,15 @@ func parseScanOptions(metadata map[string]interface{}) ScanOptions {
 		OutputFormat: "json", // default
 		FailOn:       "",     // default
 	}
-	
+
 	if format, ok := metadata["output_format"].(string); ok {
 		options.OutputFormat = format
 	}
-	
+
 	if failOn, ok := metadata["fail_on"].(string); ok {
 		options.FailOn = failOn
 	}
-	
+
 	return options
 }
 

@@ -67,7 +67,7 @@ type JobQueueStats struct {
 type ScheduledJob struct {
 	ID        string     `json:"id"`
 	Job       *Job       `json:"job"`
-	Schedule  string     `json:"schedule"`    // Cron expression or "once"
+	Schedule  string     `json:"schedule"` // Cron expression or "once"
 	NextRun   time.Time  `json:"next_run"`
 	LastRun   *time.Time `json:"last_run,omitempty"`
 	Enabled   bool       `json:"enabled"`
@@ -115,13 +115,13 @@ type JobExecution struct {
 
 // ScanJobInput represents input for a scan job
 type ScanJobInput struct {
-	Content     string                 `json:"content"`
-	RulepackID  string                 `json:"rulepack_id"`
-	TenantID    string                 `json:"tenant_id"`
-	RequestID   string                 `json:"request_id"`
-	Provider    Provider               `json:"provider,omitempty"`
-	Model       string                 `json:"model,omitempty"`
-	Context     map[string]interface{} `json:"context,omitempty"`
+	Content    string                 `json:"content"`
+	RulepackID string                 `json:"rulepack_id"`
+	TenantID   string                 `json:"tenant_id"`
+	RequestID  string                 `json:"request_id"`
+	Provider   Provider               `json:"provider,omitempty"`
+	Model      string                 `json:"model,omitempty"`
+	Context    map[string]interface{} `json:"context,omitempty"`
 }
 
 // ScanJobResult represents the result of a scan job

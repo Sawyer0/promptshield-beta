@@ -36,23 +36,23 @@ type StreamConfig struct {
 
 // EmailNotification represents an email notification
 type EmailNotification struct {
-	To          []string                   `json:"to"`
-	CC          []string                   `json:"cc,omitempty"`
-	BCC         []string                   `json:"bcc,omitempty"`
-	Subject     string                     `json:"subject"`
-	Body        string                     `json:"body"`
-	IsHTML      bool                       `json:"is_html"`
-	Attachments []NotificationAttachment   `json:"attachments,omitempty"`
-	Priority    NotificationPriority       `json:"priority"`
-	Metadata    map[string]interface{}     `json:"metadata,omitempty"`
+	To          []string                 `json:"to"`
+	CC          []string                 `json:"cc,omitempty"`
+	BCC         []string                 `json:"bcc,omitempty"`
+	Subject     string                   `json:"subject"`
+	Body        string                   `json:"body"`
+	IsHTML      bool                     `json:"is_html"`
+	Attachments []NotificationAttachment `json:"attachments,omitempty"`
+	Priority    NotificationPriority     `json:"priority"`
+	Metadata    map[string]interface{}   `json:"metadata,omitempty"`
 }
 
 // SMSNotification represents an SMS notification
 type SMSNotification struct {
-	To       []string                 `json:"to"`
-	Message  string                   `json:"message"`
-	Priority NotificationPriority     `json:"priority"`
-	Metadata map[string]interface{}   `json:"metadata,omitempty"`
+	To       []string               `json:"to"`
+	Message  string                 `json:"message"`
+	Priority NotificationPriority   `json:"priority"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // WebhookNotification represents a webhook notification

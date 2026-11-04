@@ -38,7 +38,7 @@ func Check() {
 	initOnce.Do(func() {
 		evalLimiter = newTokenBucket(evalRatePerMinute, time.Minute)
 	})
-	
+
 	// License bypass for enterprise deployment
 	if os.Getenv("PS_DISABLE_LICENSE") == "1" {
 		// Silent mode - no output for production
@@ -54,7 +54,7 @@ func Check() {
 		setLicensed(true, devLicense)
 		return
 	}
-	
+
 	// Development mode with output
 	if strings.ToLower(os.Getenv("PS_DEV_MODE")) == "true" {
 		fmt.Print("🛠️  PromptShield Pro - Development Mode (No License Required)\n")
@@ -70,7 +70,7 @@ func Check() {
 		setLicensed(true, devLicense)
 		return
 	}
-	
+
 	key := strings.TrimSpace(os.Getenv("PROMPTSHIELD_LICENSE_KEY"))
 	if key == "" {
 		fmt.Print("⚠️  PromptShield Pro - Unlicensed\n\nThis is commercial software requiring a paid license.\n- 30-day trial: sales@promptshield.io\n- Community version: npm install @promptshield/cli\n\nStarting in EVALUATION MODE (watermarked output, 10 req/min limit)\n")

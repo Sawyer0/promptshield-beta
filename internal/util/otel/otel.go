@@ -10,13 +10,13 @@ func ToAttributes(m map[string]any, allow []string) []attribute.KeyValue {
 	for _, k := range allow {
 		allowed[k] = struct{}{}
 	}
-	
+
 	var kvs []attribute.KeyValue
 	for k, v := range m {
 		if _, ok := allowed[k]; !ok {
 			continue
 		}
-		
+
 		switch x := v.(type) {
 		case string:
 			kvs = append(kvs, attribute.String(k, x))

@@ -23,19 +23,19 @@ func NewPolicyRepository() contracts.PolicyRepository {
 	repo := &PolicyRepositoryImpl{
 		policies: make(map[string]*types.Policy),
 	}
-	
+
 	// Seed with built-in policy for demo
 	builtinPolicy := &types.Policy{
-		ID:      uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"),
-		Name:    "Prompt Injection Detection",
-		Version: 1,
-		Content: getBuiltinRulepackContent(),
-		Type:    types.PolicyTypeBuiltin,
+		ID:        uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"),
+		Name:      "Prompt Injection Detection",
+		Version:   1,
+		Content:   getBuiltinRulepackContent(),
+		Type:      types.PolicyTypeBuiltin,
 		CreatedAt: time.Now().Add(-24 * time.Hour),
 		UpdatedAt: time.Now().Add(-1 * time.Hour),
 	}
 	repo.policies[builtinPolicy.ID.String()] = builtinPolicy
-	
+
 	return repo
 }
 
@@ -126,7 +126,7 @@ func (r *PolicyRepositoryImpl) List(ctx context.Context, policyType *types.Polic
 	defer r.mu.RUnlock()
 
 	var result []*types.Policy
-	
+
 	// Apply type filter
 	for _, policy := range r.policies {
 		if policyType == nil || policy.Type == *policyType {
@@ -136,7 +136,7 @@ func (r *PolicyRepositoryImpl) List(ctx context.Context, policyType *types.Polic
 	}
 
 	total := len(result)
-	
+
 	// Apply pagination
 	if offset > 0 && offset < len(result) {
 		result = result[offset:]
@@ -170,13 +170,13 @@ func (r *PolicyRepositoryImpl) GetLatestVersion(ctx context.Context, name string
 	return &policyCopy, nil
 }
 
-// ListWithFilter retrieves policies with optional filtering 
+// ListWithFilter retrieves policies with optional filtering
 func (r *PolicyRepositoryImpl) ListWithFilter(ctx context.Context, filter map[string]interface{}) ([]*types.Policy, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var result []*types.Policy
-	
+
 	// Apply filters
 	for _, policy := range r.policies {
 		if matchesFilter(policy, filter) {
@@ -228,12 +228,12 @@ func matchesFilter(policy *types.Policy, filter map[string]interface{}) bool {
 
 // contains checks if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-		   (s == substr || 
-		   (len(s) > len(substr) && 
-		   	(s[:len(substr)] == substr || 
-		   	 s[len(s)-len(substr):] == substr ||
-		   	 findInString(s, substr))))
+	return len(s) >= len(substr) &&
+		(s == substr ||
+			(len(s) > len(substr) &&
+				(s[:len(substr)] == substr ||
+					s[len(s)-len(substr):] == substr ||
+					findInString(s, substr))))
 }
 
 func findInString(s, substr string) bool {

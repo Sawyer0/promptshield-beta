@@ -24,7 +24,7 @@ func BenchmarkGatewayHTTPCheck64KB(b *testing.B) {
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
-	
+
 	options := api.Options{
 		RulepackService: rulepackService,
 	}

@@ -14,8 +14,8 @@ var _ domain.PolicyAssignmentRepository = (*pgPolicyAssignmentRepo)(nil)
 
 type pgPolicyAssignmentRepo struct{ db *Pool }
 
-func PolicyAssignmentRepo(db *Pool) domain.PolicyAssignmentRepository { 
-	return &pgPolicyAssignmentRepo{db: db} 
+func PolicyAssignmentRepo(db *Pool) domain.PolicyAssignmentRepository {
+	return &pgPolicyAssignmentRepo{db: db}
 }
 
 func (r *pgPolicyAssignmentRepo) Create(ctx context.Context, assignment *domain.PolicyAssignment) error {
@@ -33,9 +33,9 @@ func (r *pgPolicyAssignmentRepo) Create(ctx context.Context, assignment *domain.
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
 		ON CONFLICT (tenant_id, target_scope, policy_id) DO UPDATE SET 
 			priority = $5, enabled = $6, updated_at = $8`
-	
-	_, err := r.db.Raw().Exec(ctx, q, 
-		assignment.ID, assignment.TenantID, assignment.PolicyID, 
+
+	_, err := r.db.Raw().Exec(ctx, q,
+		assignment.ID, assignment.TenantID, assignment.PolicyID,
 		assignment.TargetScope, assignment.Priority, assignment.Enabled,
 		assignment.CreatedAt, assignment.UpdatedAt)
 	if err != nil {
@@ -48,9 +48,9 @@ func (r *pgPolicyAssignmentRepo) Get(ctx context.Context, id uuid.UUID) (*domain
 	var a domain.PolicyAssignment
 	q := `SELECT id, tenant_id, policy_id, target_scope, priority, enabled, created_at, updated_at 
 		FROM policy_assignments WHERE id = $1`
-	
+
 	err := r.db.Raw().QueryRow(ctx, q, id).Scan(
-		&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope, 
+		&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope,
 		&a.Priority, &a.Enabled, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get policy assignment: %w", err)
@@ -63,7 +63,7 @@ func (r *pgPolicyAssignmentRepo) ListByTenant(ctx context.Context, tenantID uuid
 		FROM policy_assignments 
 		WHERE tenant_id = $1 
 		ORDER BY priority DESC, created_at ASC`
-	
+
 	rows, err := r.db.Raw().Query(ctx, q, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list policy assignments: %w", err)
@@ -73,7 +73,7 @@ func (r *pgPolicyAssignmentRepo) ListByTenant(ctx context.Context, tenantID uuid
 	var assignments []*domain.PolicyAssignment
 	for rows.Next() {
 		var a domain.PolicyAssignment
-		err := rows.Scan(&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope, 
+		err := rows.Scan(&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope,
 			&a.Priority, &a.Enabled, &a.CreatedAt, &a.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("scan policy assignment: %w", err)
@@ -88,7 +88,7 @@ func (r *pgPolicyAssignmentRepo) ListByPolicy(ctx context.Context, policyID uuid
 		FROM policy_assignments 
 		WHERE policy_id = $1 
 		ORDER BY priority DESC, created_at ASC`
-	
+
 	rows, err := r.db.Raw().Query(ctx, q, policyID)
 	if err != nil {
 		return nil, fmt.Errorf("list policy assignments by policy: %w", err)
@@ -98,7 +98,7 @@ func (r *pgPolicyAssignmentRepo) ListByPolicy(ctx context.Context, policyID uuid
 	var assignments []*domain.PolicyAssignment
 	for rows.Next() {
 		var a domain.PolicyAssignment
-		err := rows.Scan(&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope, 
+		err := rows.Scan(&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope,
 			&a.Priority, &a.Enabled, &a.CreatedAt, &a.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("scan policy assignment: %w", err)
@@ -113,7 +113,7 @@ func (r *pgPolicyAssignmentRepo) ListByScope(ctx context.Context, tenantID uuid.
 		FROM policy_assignments 
 		WHERE tenant_id = $1 AND target_scope = $2 AND enabled = true
 		ORDER BY priority DESC, created_at ASC`
-	
+
 	rows, err := r.db.Raw().Query(ctx, q, tenantID, scope)
 	if err != nil {
 		return nil, fmt.Errorf("list policy assignments by scope: %w", err)
@@ -123,7 +123,7 @@ func (r *pgPolicyAssignmentRepo) ListByScope(ctx context.Context, tenantID uuid.
 	var assignments []*domain.PolicyAssignment
 	for rows.Next() {
 		var a domain.PolicyAssignment
-		err := rows.Scan(&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope, 
+		err := rows.Scan(&a.ID, &a.TenantID, &a.PolicyID, &a.TargetScope,
 			&a.Priority, &a.Enabled, &a.CreatedAt, &a.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("scan policy assignment: %w", err)
@@ -135,13 +135,13 @@ func (r *pgPolicyAssignmentRepo) ListByScope(ctx context.Context, tenantID uuid.
 
 func (r *pgPolicyAssignmentRepo) Update(ctx context.Context, assignment *domain.PolicyAssignment) error {
 	assignment.UpdatedAt = time.Now()
-	
+
 	q := `UPDATE policy_assignments SET 
 		target_scope = $2, priority = $3, enabled = $4, updated_at = $5 
 		WHERE id = $1`
-	
-	result, err := r.db.Raw().Exec(ctx, q, 
-		assignment.ID, assignment.TargetScope, assignment.Priority, 
+
+	result, err := r.db.Raw().Exec(ctx, q,
+		assignment.ID, assignment.TargetScope, assignment.Priority,
 		assignment.Enabled, assignment.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("update policy assignment: %w", err)

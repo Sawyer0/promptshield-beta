@@ -24,11 +24,11 @@ type Event struct {
 
 // EventHub configuration and stats
 type EventHubStats struct {
-	ActiveConnections int           `json:"active_connections"`
-	TotalEvents      int64         `json:"total_events"`
-	EventsByType     map[string]int64 `json:"events_by_type"`
-	Uptime           time.Duration `json:"uptime"`
-	LastEvent        *time.Time    `json:"last_event,omitempty"`
+	ActiveConnections int              `json:"active_connections"`
+	TotalEvents       int64            `json:"total_events"`
+	EventsByType      map[string]int64 `json:"events_by_type"`
+	Uptime            time.Duration    `json:"uptime"`
+	LastEvent         *time.Time       `json:"last_event,omitempty"`
 }
 
 // APIError represents a structured API error response
@@ -43,15 +43,15 @@ type APIError struct {
 // ProviderConfig represents provider configuration
 // From internal/interfaces/http/api/providers.go
 type ProviderConfig struct {
-	Name         string                 `json:"name"`
-	Endpoint     string                 `json:"endpoint"`
-	APIKey       string                 `json:"api_key"`
-	Models       []string               `json:"models"`
-	RateLimits   ProviderRateLimits     `json:"rate_limits"`
-	Timeouts     ProviderTimeouts       `json:"timeouts"`
-	RetryPolicy  RetryPolicy            `json:"retry_policy"`
-	Headers      map[string]string      `json:"headers,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	Name        string                 `json:"name"`
+	Endpoint    string                 `json:"endpoint"`
+	APIKey      string                 `json:"api_key"`
+	Models      []string               `json:"models"`
+	RateLimits  ProviderRateLimits     `json:"rate_limits"`
+	Timeouts    ProviderTimeouts       `json:"timeouts"`
+	RetryPolicy RetryPolicy            `json:"retry_policy"`
+	Headers     map[string]string      `json:"headers,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ProviderRateLimits defines rate limiting configuration for providers
@@ -93,20 +93,20 @@ type RoutingRule struct {
 
 // RoutingTarget represents a routing target
 type RoutingTarget struct {
-	Provider Provider `json:"provider"`
-	Weight   int      `json:"weight"`
-	Endpoint string   `json:"endpoint,omitempty"`
+	Provider Provider               `json:"provider"`
+	Weight   int                    `json:"weight"`
+	Endpoint string                 `json:"endpoint,omitempty"`
 	Config   map[string]interface{} `json:"config,omitempty"`
 }
 
 // SupportedProvider represents a supported LLM provider
 type SupportedProvider struct {
-	Name         Provider  `json:"name"`
-	DisplayName  string    `json:"display_name"`
-	Description  string    `json:"description,omitempty"`
-	Models       []string  `json:"models"`
-	Capabilities []string  `json:"capabilities"`
-	Status       string    `json:"status"`
+	Name         Provider `json:"name"`
+	DisplayName  string   `json:"display_name"`
+	Description  string   `json:"description,omitempty"`
+	Models       []string `json:"models"`
+	Capabilities []string `json:"capabilities"`
+	Status       string   `json:"status"`
 }
 
 // RuntimeConfigStore represents runtime configuration state
@@ -120,48 +120,48 @@ type RuntimeConfigStore struct {
 
 // ServiceMetadata represents metadata about an application service
 type ServiceMetadata struct {
-	Name        string    `json:"name"`
-	Version     string    `json:"version"`
-	Description string    `json:"description,omitempty"`
-	StartTime   time.Time `json:"start_time"`
-	Status      string    `json:"status"`
-	Dependencies []string `json:"dependencies,omitempty"`
+	Name         string    `json:"name"`
+	Version      string    `json:"version"`
+	Description  string    `json:"description,omitempty"`
+	StartTime    time.Time `json:"start_time"`
+	Status       string    `json:"status"`
+	Dependencies []string  `json:"dependencies,omitempty"`
 }
 
 // RequestContext represents context information for a request
 type RequestContext struct {
-	RequestID   string                 `json:"request_id"`
-	TenantID    string                 `json:"tenant_id,omitempty"`
-	UserID      string                 `json:"user_id,omitempty"`
-	SessionID   string                 `json:"session_id,omitempty"`
-	TraceID     TraceID                `json:"trace_id,omitempty"`
-	SpanID      SpanID                 `json:"span_id,omitempty"`
-	Timestamp   time.Time              `json:"timestamp"`
-	UserAgent   string                 `json:"user_agent,omitempty"`
-	IPAddress   string                 `json:"ip_address,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	RequestID string                 `json:"request_id"`
+	TenantID  string                 `json:"tenant_id,omitempty"`
+	UserID    string                 `json:"user_id,omitempty"`
+	SessionID string                 `json:"session_id,omitempty"`
+	TraceID   TraceID                `json:"trace_id,omitempty"`
+	SpanID    SpanID                 `json:"span_id,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+	UserAgent string                 `json:"user_agent,omitempty"`
+	IPAddress string                 `json:"ip_address,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ValidationResult represents the result of validation
 type ValidationResult struct {
-	Valid   bool                   `json:"valid"`
-	Errors  []ValidationError      `json:"errors,omitempty"`
-	Warnings []ValidationWarning   `json:"warnings,omitempty"`
-	Context map[string]interface{} `json:"context,omitempty"`
+	Valid    bool                   `json:"valid"`
+	Errors   []ValidationError      `json:"errors,omitempty"`
+	Warnings []ValidationWarning    `json:"warnings,omitempty"`
+	Context  map[string]interface{} `json:"context,omitempty"`
 }
 
 // ValidationError represents a validation error
 type ValidationError struct {
-	Field   string `json:"field"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Field   string      `json:"field"`
+	Code    string      `json:"code"`
+	Message string      `json:"message"`
 	Value   interface{} `json:"value,omitempty"`
 }
 
 // ValidationWarning represents a validation warning
 type ValidationWarning struct {
-	Field   string `json:"field"`
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Field   string      `json:"field"`
+	Code    string      `json:"code"`
+	Message string      `json:"message"`
 	Value   interface{} `json:"value,omitempty"`
 }

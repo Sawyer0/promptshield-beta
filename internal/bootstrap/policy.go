@@ -20,7 +20,7 @@ func InitializePolicyDependencies(
 ) *PolicyDependencies {
 	// Create repository (in-memory for MVP, replace with database for production)
 	repository := memory.NewPolicyRepository()
-	
+
 	// Create service with dependencies
 	service := services.NewPolicyService(
 		repository,
@@ -28,7 +28,7 @@ func InitializePolicyDependencies(
 		scanEngine,
 		auditLogger,
 	)
-	
+
 	return &PolicyDependencies{
 		Repository: repository,
 		Service:    service,

@@ -15,7 +15,7 @@ func RecordAPIUsage(ctx context.Context, store usage.UsageStore, tenantID, route
 	if store == nil {
 		return nil // Usage tracking disabled
 	}
-	
+
 	return store.Record(ctx, tenantID, route, decision, bytes, time.Now())
 }
 
@@ -24,7 +24,7 @@ func CheckQuota(store usage.QuotaStore, tenantID string) bool {
 	if store == nil {
 		return true // No quota enforcement
 	}
-	
+
 	return store.Allow(tenantID)
 }
 
@@ -33,7 +33,6 @@ func SetTenantQuota(store usage.QuotaStore, tenantID string, requestsPerMinute f
 	if store == nil {
 		return
 	}
-	
+
 	store.Set(tenantID, rate.Limit(requestsPerMinute), burst)
 }
-

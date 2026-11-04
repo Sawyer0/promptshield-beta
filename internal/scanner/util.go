@@ -3,7 +3,7 @@ package scanner
 import "bytes"
 
 func bytesIndexByte(b []byte, c byte) int {
-    return bytes.IndexByte(b, c)
+	return bytes.IndexByte(b, c)
 }
 
 func isWordChar(r rune) bool {

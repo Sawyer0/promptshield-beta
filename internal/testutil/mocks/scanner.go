@@ -35,7 +35,6 @@ func (m *MockScanner) SetRuntimeContext(ctx map[string]interface{}) {
 	m.Called(ctx)
 }
 
-
 // FakeScanner is a lightweight test double that captures calls
 type FakeScanner struct {
 	*scanner.Scanner
@@ -83,4 +82,3 @@ func (f *FakeScanner) SetMaxPatternLength(int)          {}
 func (f *FakeScanner) SetTotalScanBudget(time.Duration) {}
 func (f *FakeScanner) SetBufferBytes(int)               {}
 func (f *FakeScanner) SetChunkOverlap(int)              {}
-
