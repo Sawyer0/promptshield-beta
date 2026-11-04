@@ -73,6 +73,8 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			if rulepack != "" {
 				if packs, e := rules.LoadPacks(rulepack); e == nil {
 					sc.LoadRulePacks(packs)
+				} else {
+					slog.Error("failed to load rulepack", "path", rulepack, "error", e)
 				}
 			}
 			// Stream scan directly from the request body
@@ -325,6 +327,8 @@ func runScanLine(ctx context.Context, data []byte) map[string]any {
 	if rulepack != "" {
 		if packs, e := rules.LoadPacks(rulepack); e == nil {
 			sc.LoadRulePacks(packs)
+		} else {
+			slog.Error("failed to load rulepack", "path", rulepack, "error", e)
 		}
 	}
 	res, err := sc.ScanReader(ctx, bytes.NewReader(data), "http:v1:scan-line")

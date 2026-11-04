@@ -92,6 +92,8 @@ func NewWithOptions(opt Options) *Server {
 			scReq.LoadRulePacks(packs)
 			scResp.LoadRulePacks(packs)
 			loaded = true
+		} else {
+			slog.Error("failed to load rulepack", "path", s.rulepackPath, "error", err)
 		}
 	}
 

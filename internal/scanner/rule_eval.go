@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -39,8 +41,12 @@ type compiledRule struct {
 	cacheMaxEntries int
 }
 
-func compileRules(rulesList []rules.Rule, defaultRuleTimeoutMs int64, defaultCaseSensitive bool, defaultWholeWord bool) []compiledRule {
+// compileRules compiles the merged rules. A pattern that cannot be used
+// (invalid RE2 syntax, too long, too complex) is skipped and reported in the
+// returned errors, each naming the rule id, so callers can log it.
+func compileRules(rulesList []rules.Rule, defaultRuleTimeoutMs int64, defaultCaseSensitive bool, defaultWholeWord bool) ([]compiledRule, []error) {
 	var out []compiledRule
+	var errs []error
 	for _, r := range rulesList {
 		// Guard overly long regex patterns to prevent catastrophic complexity.
 		const maxPatternLength = 1000
@@ -80,18 +86,22 @@ func compileRules(rulesList []rules.Rule, defaultRuleTimeoutMs int64, defaultCas
 				cr.keywords = append(cr.keywords, strings.ToLower(kw))
 			}
 		}
-		for _, pat := range r.Patterns {
+		for i, pat := range r.Patterns {
 			if len(pat.Regex) > maxPatternLength {
+				errs = append(errs, fmt.Errorf("rule %q: pattern %d: longer than %d characters, skipped", r.ID, i, maxPatternLength))
 				continue
 			}
 			// Enforce complexity limits to avoid pathological regexes
 			if err := rules.CheckRegexComplexity(pat.Regex, pat.Flags); err != nil {
+				errs = append(errs, fmt.Errorf("rule %q: pattern %d: %w, skipped", r.ID, i, err))
 				continue
 			}
 			// Touch coarse complexity scorer to keep symbol live (future tuning hook)
 			_ = regexComplexityScore(pat.Regex)
-			rx := compileRegex(pat.Regex, pat.Flags)
-			if rx != nil {
+			rx, err := compileRegex(pat.Regex, pat.Flags)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("rule %q: pattern %d: %w, skipped", r.ID, i, err))
+			} else {
 				cr.regexes = append(cr.regexes, rx)
 				cr.verifiers = append(cr.verifiers, strings.ToLower(strings.TrimSpace(pat.Verifier)))
 			}
@@ -106,10 +116,13 @@ func compileRules(rulesList []rules.Rule, defaultRuleTimeoutMs int64, defaultCas
 			cr.semantic = &sc
 		}
 		if r.Fallback != nil {
-			for _, p := range r.Fallback.Patterns {
-				if rx := compileRegex(p.Regex, p.Flags); rx != nil {
-					cr.fallbackRegexes = append(cr.fallbackRegexes, rx)
+			for i, p := range r.Fallback.Patterns {
+				rx, err := compileRegex(p.Regex, p.Flags)
+				if err != nil {
+					errs = append(errs, fmt.Errorf("rule %q: fallback pattern %d: %w, skipped", r.ID, i, err))
+					continue
 				}
+				cr.fallbackRegexes = append(cr.fallbackRegexes, rx)
 			}
 			cr.fallbackAction = r.Fallback.Action
 		}
@@ -130,7 +143,7 @@ func compileRules(rulesList []rules.Rule, defaultRuleTimeoutMs int64, defaultCas
 		}
 		out = append(out, cr)
 	}
-	return out
+	return out, errs
 }
 
 func coalesce(v string, def string) string {
@@ -140,12 +153,12 @@ func coalesce(v string, def string) string {
 	return v
 }
 
-func compileRegex(expr string, flags []string) *regexp.Regexp {
+func compileRegex(expr string, flags []string) (*regexp.Regexp, error) {
 	if expr == "" {
-		return nil
+		return nil, errors.New("empty regex")
 	}
 	if globalMaxPatternLength > 0 && len(expr) > globalMaxPatternLength {
-		return nil
+		return nil, fmt.Errorf("longer than %d characters", globalMaxPatternLength)
 	}
 	prefix := ""
 	for _, f := range flags {
@@ -162,20 +175,20 @@ func compileRegex(expr string, flags []string) *regexp.Regexp {
 	if globalRegexCache.cache != nil {
 		if rx, ok := globalRegexCache.cache.Get(key); ok {
 			globalRegexCache.Unlock()
-			return rx
+			return rx, nil
 		}
 	}
 	globalRegexCache.Unlock()
 	rx, err := regexp.Compile(prefix + expr)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("invalid regex %q: %w", expr, err)
 	}
 	globalRegexCache.Lock()
 	if globalRegexCache.cache != nil {
 		globalRegexCache.cache.Add(key, rx)
 	}
 	globalRegexCache.Unlock()
-	return rx
+	return rx, nil
 }
 
 // contextMatches evaluates optional when/unless conditions against a runtime context map.

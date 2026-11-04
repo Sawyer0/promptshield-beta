@@ -258,6 +258,8 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		if rulepackPath != "" {
 			if packs, e := rules.LoadPacks(rulepackPath); e == nil {
 				preloadPacks = packs
+			} else {
+				slog.Error("failed to load rulepack", "path", rulepackPath, "error", e)
 			}
 		}
 	}
