@@ -339,11 +339,6 @@ func getDecision(flagged bool) string {
 	return "allow"
 }
 
-// Helper function for string pointers
-func openaiString(s string) *string {
-	return &s
-}
-
 // Analyze uses the OpenAI omni-moderation API for semantic analysis
 // This API is FREE and doesn't require analysis prompts
 func (a *Analyzer) Analyze(ctx context.Context, input string, cfg rules.Semantic) (bool, float64, error) {

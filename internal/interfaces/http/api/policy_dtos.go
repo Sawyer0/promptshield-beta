@@ -1,7 +1,6 @@
 package api
 
 import (
-	"github.com/google/uuid"
 	"time"
 )
 
@@ -69,24 +68,4 @@ type PolicyActionResponse struct {
 type PolicyValidationResponse struct {
 	Valid  bool     `json:"valid"`
 	Errors []string `json:"errors,omitempty"`
-}
-
-// Helper functions for DTO conversions
-
-// parseUUID safely parses a UUID string
-func parseUUID(s string) (uuid.UUID, error) {
-	return uuid.Parse(s)
-}
-
-// stringPtr returns a pointer to a string (for optional fields)
-func stringPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-// intPtr returns a pointer to an int (for optional fields)
-func intPtr(i int) *int {
-	return &i
 }
