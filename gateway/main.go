@@ -13,7 +13,6 @@ import (
 
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
-	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/observability/telemetry"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/types"
@@ -29,8 +28,6 @@ import (
 func main() {
 	// Initialize structured logging
 	logger := slog.With("component", "ps-gateway")
-
-	license.Check()
 
 	// Fixed addresses (no flags/env)
 	httpAddr := ":9090"

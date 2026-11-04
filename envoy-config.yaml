@@ -49,7 +49,6 @@ static_resources:
                     patterns:
                       - exact: x-ps-decision
                       - exact: x-ps-reason
-                      - exact: x-promptshield-license
           # Body inspection via ext_proc
           - name: envoy.filters.http.ext_proc
             typed_config:

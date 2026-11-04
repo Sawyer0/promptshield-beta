@@ -101,7 +101,7 @@ Two integration modes:
     - Async jobs: `POST /v1/scan/async`, `GET /v1/jobs`, `GET /v1/jobs/{jobID}`, `DELETE /v1/jobs/{jobID}`
     - Rulepack management: `GET/POST /v1/rulepacks*`
     - Runtime config: `GET/PUT/POST /v1/config*`
-    - Admin: `POST /v1/admin/*`, `GET /v1/stats`, `GET /v1/usage`, `GET /v1/events`, `GET/POST /v1/license`
+    - Admin: `POST /v1/admin/*`, `GET /v1/stats`, `GET /v1/usage`, `GET /v1/events`
     - Decision headers on success: `x-ps-decision`, `x-ps-reason`, `x-ps-request-id`
     - JSON decision: `{ "decision": "allow|quarantine|deny", "reason": "...", "violations": <int>, "request_id": "..." }`
   - Legacy root `/check` remains for compatibility

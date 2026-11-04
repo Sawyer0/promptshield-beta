@@ -60,8 +60,8 @@
 
 - gRPC (existing): Envoy `ext_proc` on :9091 implements `envoy.service.ext_proc.v3.ExternalProcessor`.
 
-#### Async Jobs (licensed feature)
-- POST `/v1/scan/async`: 202 `{ "job_id": "uuid", "status": "pending" }` (requires `async_jobs` entitlement)
+#### Async Jobs
+- POST `/v1/scan/async`: 202 `{ "job_id": "uuid", "status": "pending" }`
 - GET `/v1/jobs`: 200 `{ jobs: [...] }` with optional `?status=pending|running|completed|canceled|failed`
 - GET `/v1/jobs/{job_id}`: 200 status/result; 404 when not found
 - DELETE `/v1/jobs/{job_id}`: 204 cancel/cleanup
@@ -108,12 +108,6 @@
   - 202: begin graceful drain; server invokes optional drain hook
 - POST `/v1/admin/shutdown` (admin)
   - 202: graceful exit; optional `?delay=seconds`
-
-#### Licensing
-- GET `/v1/license` (public)
-  - 200: `{ org, tier, expires_at, licensed, entitlements }`
-- POST `/v1/license` (admin)
-  - Accepts form or JSON `{ key: "..." }`; activates in-memory
 
 ---
 
@@ -278,7 +272,7 @@ func versionHeader(v string) func(http.Handler) http.Handler {
 ---
 
 ### OpenAPI & Documentation
-- `docs/api/openapi.yaml` is updated to reflect implemented `/v1/*` endpoints (healthz, readyz, version, check, scan, async jobs, jobs, rulepacks, config, events, stats, usage, license, admin).
+- `docs/api/openapi.yaml` is updated to reflect implemented `/v1/*` endpoints (healthz, readyz, version, check, scan, async jobs, jobs, rulepacks, config, events, stats, usage, admin).
 - See `docs/api/grpc.md` for Envoy ext_proc; includes redaction/replacement guidance.
 - See `docs/api/security.md` for auth, OIDC, mTLS, tenancy, and quotas.
 

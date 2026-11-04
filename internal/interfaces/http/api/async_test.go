@@ -3,11 +3,9 @@ package api
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -16,8 +14,6 @@ import (
 )
 
 func TestAsyncScanEndpoint(t *testing.T) {
-	cleanup := withAsyncJobsLicense(t)
-	defer cleanup()
 
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
@@ -91,8 +87,6 @@ func TestAsyncScanEndpoint(t *testing.T) {
 }
 
 func TestJobListEndpoint(t *testing.T) {
-	cleanup := withAsyncJobsLicense(t)
-	defer cleanup()
 
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
@@ -135,8 +129,6 @@ func TestJobListEndpoint(t *testing.T) {
 }
 
 func TestJobNotFound(t *testing.T) {
-	cleanup := withAsyncJobsLicense(t)
-	defer cleanup()
 	router := testRouter()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -151,8 +143,6 @@ func TestJobNotFound(t *testing.T) {
 }
 
 func TestJobCancellation(t *testing.T) {
-	cleanup := withAsyncJobsLicense(t)
-	defer cleanup()
 	router := testRouter()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -191,31 +181,6 @@ func TestJobCancellation(t *testing.T) {
 
 		if job["status"] != "cancelled" {
 			t.Errorf("Expected cancelled job status, got %v", job["status"])
-		}
-	}
-}
-
-// withAsyncJobsLicense sets a temporary license enabling the async_jobs feature.
-func withAsyncJobsLicense(t *testing.T) func() {
-	t.Helper()
-	payload := map[string]any{
-		"org":        "test",
-		"expires_at": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
-		"tier":       "enterprise",
-		"entitlements": map[string]any{
-			"max_rps":  1000,
-			"features": map[string]bool{"async_jobs": true},
-		},
-	}
-	b, _ := json.Marshal(payload)
-	token := base64.RawURLEncoding.EncodeToString(b) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
-	prev := os.Getenv("PROMPTSHIELD_LICENSE_KEY")
-	_ = os.Setenv("PROMPTSHIELD_LICENSE_KEY", token)
-	return func() {
-		if prev == "" {
-			_ = os.Unsetenv("PROMPTSHIELD_LICENSE_KEY")
-		} else {
-			_ = os.Setenv("PROMPTSHIELD_LICENSE_KEY", prev)
 		}
 	}
 }

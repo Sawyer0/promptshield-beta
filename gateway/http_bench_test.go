@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,11 +15,6 @@ import (
 
 // BenchmarkGatewayHTTPCheck64KB measures end-to-end HTTP /check throughput for a small body.
 func BenchmarkGatewayHTTPCheck64KB(b *testing.B) {
-	// Bypass evaluation rate-limit by setting a dummy license (no MaxRPS limiter).
-	payload := `{"org":"Bench","tier":"enterprise","expires_at":"2099-01-01T00:00:00Z","entitlements":{}}`
-	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
-	b.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
-
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)

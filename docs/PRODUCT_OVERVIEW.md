@@ -118,7 +118,7 @@ Timeout: 300ms default
 │   HTTP API (:9090)       │    │   gRPC ext_proc (:9091)  │
 │   - /v1/check            │    │   - Streaming mode       │
 │   - /v1/scan             │    │   - Bidirectional        │
-│   - /v1/license          │    │   - Body mutations       │
+│   - /v1/rulepacks        │    │   - Body mutations       │
 └──────────────────────────┘    └──────────────────────────┘
                     │                           │
                     └─────────────┬─────────────┘
@@ -342,25 +342,20 @@ features:
 - **Dynamic updates**: Runtime reconfiguration API
 - **Feature flags**: Progressive rollout support
 
-#### License & Billing Management
+#### Usage & Billing Management
 
 ```go
-Enterprise Licensing:
+Usage tracking:
 - Usage tracking (requests, bytes, semantic calls)
 - Multi-tenant billing isolation
 - Quota enforcement with soft/hard limits
 - Billing integration APIs (Stripe, custom)
-- License hot-reload without service interruption
-- Offline validation for air-gapped deployments
-- Feature flag licensing (L3 analysis, async jobs)
 - Overage notifications and auto-scaling triggers
 
 Billing APIs:
 - GET /v1/usage/current (real-time usage)
 - GET /v1/usage/billing (monthly rollups)
 - POST /v1/usage/estimate (cost projection)
-- GET /v1/license/status (feature availability)
-- PUT /v1/license/update (hot license reload)
 ```
 
 #### Usage Analytics & Business Intelligence
@@ -391,7 +386,6 @@ Public APIs:
 User APIs (with PS_ENFORCER_AUTH_TOKEN):
   - GET /v1/usage (billing metrics)
   - GET /v1/config (runtime configuration)
-  - GET /v1/license (license status)
   - POST /v1/scan/async (background jobs)
   - GET /v1/jobs/{id} (job status)
 
@@ -399,7 +393,6 @@ Admin APIs (with PS_ENFORCER_ADMIN_TOKEN):
   - PUT /v1/config (runtime reconfiguration)
   - POST /v1/config/reset (reset to defaults)
   - POST /v1/admin/drain (graceful shutdown)
-  - PUT /v1/license/update (license management)
   - DELETE /v1/jobs/{id} (job cancellation)
   - GET /v1/admin/debug (internal diagnostics)
 ```
@@ -955,7 +948,6 @@ Enterprise:
 - **Community**: community.promptshield.io
 - **Support Portal**: support.promptshield.io
 - **Security**: security@promptshield.io
-- **Sales**: sales@promptshield.io
 - **Partners**: partners@promptshield.io
 
 ---

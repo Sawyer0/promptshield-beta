@@ -13,7 +13,6 @@ import (
 
 	grpcenforcer "github.com/promptshield/promptshield/internal/interfaces/grpc/enforcer"
 	enforcerhttp "github.com/promptshield/promptshield/internal/interfaces/http/enforcer"
-	"github.com/promptshield/promptshield/internal/license"
 	tel "github.com/promptshield/promptshield/internal/observability/telemetry"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/types"
@@ -32,7 +31,6 @@ func main() {
 			logger.Info("GOMAXPROCS override", "value", n)
 		}
 	}
-	license.Check()
 	addr := os.Getenv("PS_ENFORCER_ADDR")
 	if addr == "" {
 		addr = ":9090"
