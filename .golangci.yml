@@ -27,12 +27,7 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
-    paths:
-      - archive/
 
 formatters:
   enable:
     - gofmt
-  exclusions:
-    paths:
-      - archive/

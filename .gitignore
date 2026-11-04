@@ -13,7 +13,6 @@
 /ps-enforcer
 /ps-gateway
 /kubectl
-archive/cli/bin/
 tools/demos/mockgateway/mockgateway
 tools/demos/mockprovider/mockprovider
 
@@ -39,7 +38,9 @@ Thumbs.db
 
 # IDE / local tool settings
 .vscode/
-.claude/settings.local.json
+.claude/
+.cursor/
+.kiro/
 .idea/
 *.swp
 *.swo
@@ -50,3 +51,6 @@ vendor/
 # Frontend
 frontend/node_modules/
 frontend/package-lock.json
+# Local planning notes and archived experiments
+/plan/
+/archive/

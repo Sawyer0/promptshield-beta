@@ -1,6 +1,6 @@
 package rules
 
-// RulePack models a user-authored YAML rule pack per v2 schema in plan/.
+// RulePack models a user-authored YAML rule pack (v2 schema).
 type RulePack struct {
 	APIVersion  string            `yaml:"apiVersion"`
 	Kind        string            `yaml:"kind"`
