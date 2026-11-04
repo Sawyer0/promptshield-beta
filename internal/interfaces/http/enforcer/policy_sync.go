@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,7 +18,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// PolicySyncClient syncs policies from the frontend database
+// PolicySyncClient pulls active policies from an external policy API
+// (GET <PS_FRONTEND_URL>/api/policies) and activates them in the scanner.
+// Sync is off unless PS_FRONTEND_URL is set.
 type PolicySyncClient struct {
 	frontendURL string
 	adminToken  string
@@ -27,12 +30,10 @@ type PolicySyncClient struct {
 
 var policySyncTracer = otel.Tracer("promptshield/policy_sync")
 
-// NewPolicySyncClient creates a new policy sync client
+// NewPolicySyncClient creates a policy sync client for PS_FRONTEND_URL.
+// There is no default URL; an empty URL leaves sync disabled.
 func NewPolicySyncClient() *PolicySyncClient {
-	frontendURL := os.Getenv("PS_FRONTEND_URL")
-	if frontendURL == "" {
-		frontendURL = "http://localhost:3000" // Default frontend URL
-	}
+	frontendURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PS_FRONTEND_URL")), "/")
 
 	adminToken := os.Getenv("PS_FRONTEND_TOKEN")
 	if adminToken == "" {
@@ -51,13 +52,11 @@ func NewPolicySyncClient() *PolicySyncClient {
 
 // SyncActivePolicies fetches active policies from frontend and loads them
 func (c *PolicySyncClient) SyncActivePolicies(ctx context.Context) error {
-	c.logger.Info("Starting policy sync from frontend database")
-
-	// Skip sync if frontend URL is not configured
+	// Skip sync if no policy API is configured
 	if c.frontendURL == "" {
-		c.logger.Debug("Frontend URL not configured, skipping policy sync")
 		return nil
 	}
+	c.logger.Info("Starting policy sync", "url", c.frontendURL)
 
 	// Fetch active policies from frontend
 	policies, err := c.fetchActivePolicies(ctx)
@@ -68,7 +67,7 @@ func (c *PolicySyncClient) SyncActivePolicies(ctx context.Context) error {
 	}
 
 	if len(policies) == 0 {
-		c.logger.Info("No active policies found in frontend database")
+		c.logger.Info("No active policies found")
 		return nil
 	}
 
@@ -183,15 +182,18 @@ type PolicyResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// StartPolicySync initializes policy sync on startup
-func StartPolicySync(ctx context.Context) {
-	// Only sync if enabled
+// StartPolicySync starts policy sync in the background when PS_FRONTEND_URL
+// is set and PS_DISABLE_POLICY_SYNC is not "1". It reports whether sync was
+// started; with no URL configured it does nothing and logs nothing.
+func StartPolicySync(ctx context.Context) bool {
 	if os.Getenv("PS_DISABLE_POLICY_SYNC") == "1" {
-		return
+		return false
 	}
 
-	// Create sync client
 	client := NewPolicySyncClient()
+	if client.frontendURL == "" {
+		return false
+	}
 
 	// Perform initial sync with retry
 	go func() {
@@ -228,4 +230,5 @@ func StartPolicySync(ctx context.Context) {
 			}
 		}()
 	}
+	return true
 }

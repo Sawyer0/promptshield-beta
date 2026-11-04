@@ -82,7 +82,7 @@ func main() {
 		_ = telemetry.RecordEvent(context.Background(), startupEvent)
 	}
 
-	// Start policy sync from frontend database
+	// Pull policies from an external policy API when PS_FRONTEND_URL is set.
 	ctx := context.Background()
 	enforcerhttp.StartPolicySync(ctx)
 
