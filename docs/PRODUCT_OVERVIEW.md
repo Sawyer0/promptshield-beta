@@ -169,7 +169,6 @@ Timeout: 300ms default
 #### Transport Security
 
 - **TLS 1.2+ enforced** for all connections
-- Certificate pinning support
 - Mutual TLS (mTLS) for service mesh
 - Automatic certificate rotation compatible
 

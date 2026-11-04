@@ -16,7 +16,6 @@ Key packages:
 - `internal/interfaces/grpc/enforcer`: Envoy `ext_proc` gRPC server with streaming decisions, budgets, and metrics
 - `internal/observability/telemetry`: Opt-in OpenTelemetry exporter; Prometheus registries
 - `internal/audit`: File and rotating audit loggers with SHA‑256 hash chaining
-- `internal/audit/eventstore`: Append-only event store (file-backed) for audit/event sourcing
 - `internal/shared/redact`: Centralized redaction for sensitive tokens
 - `pkg/types`: Public result and violation structs
  - `internal/application/commands/scan`: CLI command handler and Saga coordinator for multi-step scans
