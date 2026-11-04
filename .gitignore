@@ -4,16 +4,18 @@
 .env.production
 
 # Build artifacts
-bin/
-dist/
+# (anchored so source dirs like cmd/controlplane and enforcer/ are not ignored)
+/bin/
+/dist/
 *.exe
 *.test
-*-test
-*-clean
-controlplane
-ps-enforcer
-enforcer
-kubectl
+/controlplane
+/ps-enforcer
+/ps-gateway
+/kubectl
+archive/cli/bin/
+tools/demos/mockgateway/mockgateway
+tools/demos/mockprovider/mockprovider
 
 # Test artifacts
 coverage.out
@@ -35,8 +37,9 @@ enforcer.pid
 ehthumbs.db
 Thumbs.db
 
-# IDE files
+# IDE / local tool settings
 .vscode/
+.claude/settings.local.json
 .idea/
 *.swp
 *.swo
