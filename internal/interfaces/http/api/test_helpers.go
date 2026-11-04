@@ -8,8 +8,6 @@ import (
 )
 
 // testRouter creates a router with mock dependencies for testing LLM Gateway behavior.
-//
-//lint:ignore U1000 used only in tests
 func testRouter() http.Handler {
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
@@ -20,8 +18,6 @@ func testRouter() http.Handler {
 }
 
 // testRouterWithOptions creates a router with mock dependencies and custom options for testing.
-//
-//lint:ignore U1000 used only in tests
 func testRouterWithOptions(opts Options) http.Handler {
 	// Ensure required dependencies are set
 	if opts.RulepackService == nil {

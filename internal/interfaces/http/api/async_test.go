@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/promptshield/promptshield/internal/application/services"
+	"github.com/promptshield/promptshield/internal/jobs"
 	"github.com/promptshield/promptshield/internal/testutil/mocks"
 )
 
@@ -142,10 +143,32 @@ func TestJobNotFound(t *testing.T) {
 	}
 }
 
+// blockingScanProcessor holds each job in the running state until release
+// is closed, so tests can act on a job that is guaranteed to be running.
+type blockingScanProcessor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingScanProcessor) Type() string { return "scan" }
+
+func (p *blockingScanProcessor) Process(ctx context.Context, job *jobs.Job) error {
+	close(p.started)
+	<-p.release
+	return nil
+}
+
 func TestJobCancellation(t *testing.T) {
-	router := testRouter()
+	proc := &blockingScanProcessor{started: make(chan struct{}), release: make(chan struct{})}
+	manager := jobs.NewManager(1)
+	manager.RegisterProcessor(proc)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	manager.Start(ctx)
+	defer manager.Stop()
+	defer close(proc.release)
+
+	router := testRouterWithOptions(Options{JobManager: manager})
 
 	// Submit a job
 	body := bytes.NewBufferString("test input")
@@ -158,8 +181,9 @@ func TestJobCancellation(t *testing.T) {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
 	jobID := response["job_id"].(string)
+	<-proc.started
 
-	// Cancel the job
+	// Cancel the running job
 	req = httptest.NewRequest("DELETE", "/jobs/"+jobID, nil)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req.WithContext(ctx))
@@ -173,14 +197,14 @@ func TestJobCancellation(t *testing.T) {
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req.WithContext(ctx))
 
-	if rec.Code == http.StatusOK {
-		var job map[string]interface{}
-		if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
-			t.Fatalf("Failed to unmarshal job response: %v", err)
-		}
-
-		if job["status"] != "cancelled" {
-			t.Errorf("Expected cancelled job status, got %v", job["status"])
-		}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 for job lookup, got %d", rec.Code)
+	}
+	var job map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatalf("Failed to unmarshal job response: %v", err)
+	}
+	if job["status"] != "cancelled" {
+		t.Errorf("Expected cancelled job status, got %v", job["status"])
 	}
 }
