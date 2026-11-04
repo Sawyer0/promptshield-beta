@@ -88,5 +88,28 @@ func LoadPacks(path string) ([]RulePack, error) {
 			return nil, importErr
 		}
 	}
+	if err := checkUniqueNames(out); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// checkUniqueNames rejects two different packs that share metadata.name.
+func checkUniqueNames(packs []RulePack) error {
+	seen := make(map[string]string, len(packs))
+	for _, p := range packs {
+		name := p.Metadata.Name
+		if name == "" {
+			continue
+		}
+		src := p.SourcePath
+		if src == "" {
+			src = "(remote)"
+		}
+		if prev, ok := seen[name]; ok {
+			return fmt.Errorf("duplicate rulepack name %q in %s and %s", name, prev, src)
+		}
+		seen[name] = src
+	}
+	return nil
 }
