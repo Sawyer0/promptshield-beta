@@ -77,6 +77,12 @@ func (r *RulepackRepositoryImpl) Create(ctx context.Context, tenantID uuid.UUID,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	for _, p := range r.rulepacks {
+		if p.TenantID == tenantID && p.Name == name {
+			return uuid.Nil, contracts.ErrRulepackNameExists
+		}
+	}
+
 	pack := &rulepack{
 		ID:          uuid.New(),
 		TenantID:    tenantID,

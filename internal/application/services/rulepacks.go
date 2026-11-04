@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,6 +50,8 @@ type RulepackService struct {
 	pub        *nats.Publisher
 	audit      audit.Logger
 	auditClose func() error
+	// createMu makes Create's name check and insert atomic within this process.
+	createMu sync.Mutex
 }
 
 // RulepackServiceCstor creates a RulepackService with auditing configured from environment.
@@ -111,10 +114,14 @@ func (s *RulepackService) CreateVersionActivate(ctx context.Context, tenantID uu
 
 // ErrRulepackNameExists is returned by Create when the tenant already has a
 // rulepack with the same name.
-var ErrRulepackNameExists = errors.New("rulepack name already exists")
+var ErrRulepackNameExists = contracts.ErrRulepackNameExists
 
-// Create creates a new rulepack. Names must be unique per tenant.
+// Create creates a new rulepack. Names must be unique per tenant: the check
+// and insert run under a mutex, and the Postgres and in-memory repositories
+// also enforce (tenant_id, name) uniqueness for writers in other processes.
 func (s *RulepackService) Create(ctx context.Context, tenantID uuid.UUID, name, description string) (uuid.UUID, error) {
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
 	existing, err := s.repo.ListByTenant(ctx, tenantID)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("list rulepacks: %w", err)
@@ -125,6 +132,9 @@ func (s *RulepackService) Create(ctx context.Context, tenantID uuid.UUID, name, 
 		}
 	}
 	id, err := s.repo.Create(ctx, tenantID, name, description)
+	if errors.Is(err, ErrRulepackNameExists) {
+		return uuid.Nil, fmt.Errorf("%w: %q", ErrRulepackNameExists, name)
+	}
 	if err == nil {
 		s.emitAudit("rulepack.create", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": id.String(), "name": name})
 	}
