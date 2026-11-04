@@ -13,6 +13,12 @@ func adminAuth(opt Options) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if opt.AdminToken == "" {
+				// Without a token, admin routes stay closed unless insecure admin
+				// access was explicitly enabled (local dev / demos only).
+				if opt.AllowInsecureAdmin {
+					next.ServeHTTP(w, r)
+					return
+				}
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "admin token required", nil)
 				return
 			}
