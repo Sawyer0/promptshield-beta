@@ -14,8 +14,9 @@ info:
     as a bearer token or X-PS-Admin-Token; with no admin token configured they answer 401
     unless insecure admin access is enabled.
 
-    Not covered here: the /v1/debug/* endpoints and the tenant, assignment, audit and
-    system admin routes.
+    Tenant, assignment, audit and system admin routes wrap their payload as
+    {"data": ..., "meta": ...}. Not covered here: the /v1/debug/* endpoints and the
+    /v1/admin/policies routes, which exist only when a policy service is configured.
 servers:
   - url: http://localhost:9090
     description: Local development
@@ -744,7 +745,473 @@ paths:
           description: Shutdown initiated
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/admin/tenants:
+    post:
+      summary: Create a tenant (admin)
+      operationId: createTenant
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/AdminError'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+    get:
+      summary: List tenants (admin)
+      operationId: listTenants
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: Up to 100 tenants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/tenants/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TenantID'
+    get:
+      summary: Get a tenant (admin)
+      operationId: getTenant
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/AdminError'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+    put:
+      summary: Rename a tenant (admin)
+      operationId: updateTenant
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/AdminError'
+        '409':
+          $ref: '#/components/responses/AdminError'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+    delete:
+      summary: Delete a tenant (admin)
+      operationId: deleteTenant
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '204':
+          description: Deleted
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/AdminError'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/tenants/{id}/assignments:
+    parameters:
+      - $ref: '#/components/parameters/TenantID'
+    post:
+      summary: Assign a rulepack to a tenant (admin)
+      operationId: createAssignment
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rulepack_id, target_scope]
+              properties:
+                rulepack_id:
+                  type: string
+                  format: uuid
+                target_scope:
+                  type: string
+                  example: /v1/openai/*
+                priority:
+                  type: integer
+      responses:
+        '201':
+          description: Assignment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/AdminError'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+    get:
+      summary: List a tenant's assignments (admin)
+      operationId: listAssignments
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: query
+          name: scope
+          schema:
+            type: string
+          description: Only return assignments for this target scope
+      responses:
+        '200':
+          description: Assignments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/assignments/{assignmentId}:
+    parameters:
+      - in: path
+        name: assignmentId
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      summary: Change an assignment's priority (admin)
+      operationId: updateAssignment
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priority]
+              properties:
+                priority:
+                  type: integer
+      responses:
+        '200':
+          description: Assignment updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/AdminError'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+    delete:
+      summary: Delete an assignment (admin)
+      operationId: deleteAssignment
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '204':
+          description: Deleted
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/AdminError'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/audits:
+    get:
+      summary: List audit events for a tenant (admin)
+      operationId: listAuditEvents
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - $ref: '#/components/parameters/AuditTenant'
+        - $ref: '#/components/parameters/AuditLimit'
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/audits/search:
+    post:
+      summary: Search audit events (admin)
+      operationId: searchAuditEvents
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditSearchRequest'
+      responses:
+        '200':
+          description: Matching audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/audits/export:
+    get:
+      summary: Export audit events as JSON or CSV (admin)
+      operationId: exportAuditEvents
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [json, csv]
+            default: json
+        - $ref: '#/components/parameters/AuditTenant'
+        - $ref: '#/components/parameters/AuditLimit'
+      responses:
+        '200':
+          description: Export file; X-PS-Export-Count gives the number of events
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/csv:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/audits/object/{type}/{objectId}:
+    get:
+      summary: Audit events for one object (admin)
+      operationId: getAuditEventsByObject
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+            example: tenant
+        - in: path
+          name: objectId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/AuditLimit'
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '400':
+          $ref: '#/components/responses/AdminError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '501':
+          $ref: '#/components/responses/NotConfigured'
+  /v1/admin/system/features:
+    get:
+      summary: Enabled feature flags (admin)
+      operationId: getSystemFeatures
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: Feature flags
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/admin/system/stats:
+    get:
+      summary: System stats (admin)
+      operationId: getSystemStats
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/admin/system/info:
+    get:
+      summary: Build and runtime info (admin)
+      operationId: getSystemInfo
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '200':
+          description: System info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/admin/system/drain:
+    post:
+      summary: Begin graceful drain, JSON response (admin)
+      operationId: postSystemDrain
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      responses:
+        '202':
+          description: Drain initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/admin/system/shutdown:
+    post:
+      summary: Graceful shutdown, JSON response (admin)
+      operationId: postSystemShutdown
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
+      parameters:
+        - in: query
+          name: delay
+          schema:
+            type: integer
+            format: int32
+          description: Optional delay in seconds before shutdown
+      responses:
+        '202':
+          description: Shutdown initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 components:
+  parameters:
+    TenantID:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AuditTenant:
+      in: query
+      name: tenant
+      schema:
+        type: string
+        format: uuid
+      description: Tenant to read; with no tenant the result is empty
+    AuditLimit:
+      in: query
+      name: limit
+      schema:
+        type: integer
   securitySchemes:
     bearerAuth:
       type: http
@@ -758,6 +1225,18 @@ components:
       in: header
       name: X-PS-Admin-Token
   responses:
+    AdminError:
+      description: Request rejected
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotConfigured:
+      description: The backing repository is not configured (NOT_IMPLEMENTED)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     Unauthorized:
       description: Admin token missing or invalid
       content:
@@ -765,6 +1244,75 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    AdminEnvelope:
+      type: object
+      description: Tenant, assignment, audit and system admin routes wrap their payload in data.
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+        meta:
+          type: object
+          additionalProperties: true
+    TenantEnvelope:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Tenant'
+        meta:
+          type: object
+          additionalProperties: true
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AuditSearchRequest:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+        actor_email:
+          type: string
+        actions:
+          type: array
+          items:
+            type: string
+        object_types:
+          type: array
+          items:
+            type: string
+        object_id:
+          type: string
+          format: uuid
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        limit:
+          type: integer
+        offset:
+          type: integer
     Error:
       type: object
       properties:

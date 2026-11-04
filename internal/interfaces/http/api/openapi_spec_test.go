@@ -16,7 +16,7 @@ import (
 
 // TestOpenAPISpecMatchesRouter keeps docs/api/openapi.yaml parseable and in
 // step with the /v1 routes NewMux registers. Routes the spec says it does not
-// cover (debug, tenant, assignment, audit, system admin) are skipped.
+// cover (debug) are skipped.
 func TestOpenAPISpecMatchesRouter(t *testing.T) {
 	data, err := os.ReadFile("../../../../docs/api/openapi.yaml")
 	if err != nil {
@@ -51,7 +51,7 @@ func TestOpenAPISpecMatchesRouter(t *testing.T) {
 	err = chi.Walk(routes, func(method, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
 		route = strings.TrimSuffix(route, "/")
 		switch {
-		case strings.HasPrefix(route, "/v1/admin/"), strings.HasPrefix(route, "/debug/"), route == "/scan:async":
+		case strings.HasPrefix(route, "/debug/"), route == "/scan:async":
 			return nil
 		}
 		registered[method+" /v1"+route] = true
