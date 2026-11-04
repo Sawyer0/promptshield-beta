@@ -292,6 +292,10 @@ func (s *Scanner) evalRegexesStandard(res *types.ScanResult, line string, lineNu
 					if !LuhnCheck(line[loc[0]:loc[1]]) {
 						continue
 					}
+				} else if verifier == "ssn" {
+					if !SSNValid(line[loc[0]:loc[1]]) {
+						continue
+					}
 				} else if verifier == "ssn_area" {
 					if !SSNAreaValid(line[loc[0]:loc[1]]) {
 						continue

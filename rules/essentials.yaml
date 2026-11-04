@@ -67,7 +67,10 @@ rules:
     level: 2
     severity: CRITICAL
     patterns:
-      - regex: "\\b(?!000|666|9\\d{2})\\d{3}[-\\s]?(?!00)\\d{2}[-\\s]?(?!0000)\\d{4}\\b"
+      # RE2 has no lookahead; the ssn verifier rejects 000/666/9xx areas,
+      # 00 groups and 0000 serials.
+      - regex: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+        verifier: ssn
     response:
       action: quarantine
       message: "Social Security Number detected"

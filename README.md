@@ -96,6 +96,14 @@ $ curl -s -X POST localhost:9090/v1/check -H 'content-type: text/plain' \
 {"decision":"quarantine","reason":"pii-credit-card-pattern","request_id":"…-000012","violations":1}
 
 $ curl -s -X POST localhost:9090/v1/check -H 'content-type: text/plain' \
+    --data 'My SSN is 123-45-6789'
+{"decision":"quarantine","reason":"pii-ssn-pattern","request_id":"…-000002","violations":1}
+
+$ curl -s -X POST localhost:9090/v1/check -H 'content-type: text/plain' \
+    --data 'Order 000-12-3456 shipped'
+{"decision":"allow","reason":"no_signals","request_id":"…-000004","violations":0}
+
+$ curl -s -X POST localhost:9090/v1/check -H 'content-type: text/plain' \
     --data 'my key is sk-abcdefghijklmnopqrstuvwxyz123456'
 {"decision":"quarantine","reason":"api-key-openai","request_id":"…-000014","violations":1}
 ```
