@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"log/slog"
 	"strings"
 	"time"
 
@@ -60,7 +61,16 @@ func (s *Scanner) LoadRulePacks(packs []rules.RulePack) {
 		}
 		merged = trimmed
 	}
-	compiled := compileRules(merged, s.defaultRuleTimeoutMs, s.defaultCaseSensitive, s.defaultWholeWord)
+	compiled, compileErrs := compileRules(merged, s.defaultRuleTimeoutMs, s.defaultCaseSensitive, s.defaultWholeWord)
+	if len(compileErrs) > 0 {
+		lg := s.logger
+		if lg == nil {
+			lg = slog.Default()
+		}
+		for _, err := range compileErrs {
+			lg.Error("rule pattern not loaded", "error", err)
+		}
+	}
 
 	// Atomic replacement: compile new rules first, then swap atomically
 	// This prevents race conditions during live rule updates

@@ -91,6 +91,22 @@ Allowed flags: `ignorecase` (`i`), `multiline` (`m`). Invalid flags are rejected
 
 The engine reports multiple matches per line when present.
 
+Patterns use Go's RE2 syntax, which has no lookahead, lookbehind or
+backreferences. A pack containing a pattern that does not compile fails to
+load with an error naming the pack and rule id; a pattern that reaches the
+scanner some other way and does not compile is skipped and logged at error
+level with its rule id.
+
+To filter matches that a plain regex cannot express, add a `verifier` to the
+pattern: `luhn` (card numbers), `ssn` (rejects 000/666/9xx areas, 00 groups
+and 0000 serials), `ssn_area`, `iban` or `email`.
+
+```yaml
+patterns:
+  - regex: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+    verifier: ssn
+```
+
 ### Pattern complexity guards
 
 PromptShield validates regex complexity to avoid catastrophic backtracking. Packs are rejected if patterns exceed limits on nodes/depth/alternations/repeats or length (default 1000 chars). Limits can be tuned via env:
@@ -102,7 +118,7 @@ PS_MAX_REGEX_ALTERNATIONS=300
 PS_MAX_REGEX_REPEATS=1000
 ```
 
-These checks also apply during scanner rule compilation; overly complex patterns are skipped defensively.
+These checks also apply during scanner rule compilation; overly complex patterns are skipped and logged with their rule id.
 
 ## Semantic rules (level 3)
 

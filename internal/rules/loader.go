@@ -91,6 +91,11 @@ func LoadPacks(path string) ([]RulePack, error) {
 	if err := checkUniqueNames(out); err != nil {
 		return nil, err
 	}
+	for _, p := range out {
+		if err := CheckPatterns(p); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 

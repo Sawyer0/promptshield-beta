@@ -198,6 +198,8 @@ func (s *Server) ReloadRules(ctx context.Context) error {
 	if len(packs) == 0 && s.rulepackPath != "" {
 		if filePacks, err := rules.LoadPacks(s.rulepackPath); err == nil {
 			packs, source = filePacks, "file"
+		} else {
+			slog.Error("failed to load rulepack", "path", s.rulepackPath, "error", err)
 		}
 	}
 	s.scReq.LoadRulePacks(packs)
