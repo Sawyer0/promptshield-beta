@@ -1,4 +1,0 @@
--- script --
-go run -ldflags "-X github.com/promptshield/promptshield/cmd.version=1.2.3 -X github.com/promptshield/promptshield/cmd.commit=abc -X github.com/promptshield/promptshield/cmd.buildDate=2099-01-01" ./cmd/promptshield version
-stdout 'promptshield 1.2.3 \(commit abc, built 2099-01-01\)'
-
