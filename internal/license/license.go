@@ -28,6 +28,9 @@ var (
 	mu          sync.RWMutex
 	licensed    bool
 	licenseInfo License
+	// loadedKey is the PROMPTSHIELD_LICENSE_KEY value last validated, so a
+	// rotated key (POST /v1/license sets the env var) is picked up lazily.
+	loadedKey   string
 	evalLimiter *tokenBucket
 	initOnce    sync.Once
 )
@@ -73,7 +76,7 @@ func Check() {
 
 	key := strings.TrimSpace(os.Getenv("PROMPTSHIELD_LICENSE_KEY"))
 	if key == "" {
-		fmt.Print("⚠️  PromptShield Pro - Unlicensed\n\nThis is commercial software requiring a paid license.\n- 30-day trial: sales@promptshield.io\n- Community version: npm install @promptshield/cli\n\nStarting in EVALUATION MODE (watermarked output, 10 req/min limit)\n")
+		fmt.Print("⚠️  PromptShield Pro - Unlicensed\n\nThis is commercial software requiring a paid license.\n- 30-day trial: sales@promptshield.io\n- Community version: npm install -g @dawans/promptshield\n\nStarting in EVALUATION MODE (watermarked output, 10 req/min limit)\n")
 		time.Sleep(5 * time.Second)
 		setLicensed(false, License{})
 		return
@@ -86,6 +89,9 @@ func Check() {
 		return
 	}
 	setLicensed(true, *lic)
+	mu.Lock()
+	loadedKey = key
+	mu.Unlock()
 	fmt.Printf("✅ PromptShield Pro licensed to %s (Expires: %s)\n", lic.Organization, lic.ExpiresAt.Format("2006-01-02"))
 }
 
@@ -197,20 +203,28 @@ func validate(token string) (*License, error) {
 	return &lic, nil
 }
 
-// ensureLoaded lazily initializes license state from environment without printing or sleeping.
+// ensureLoaded lazily (re)loads license state from the environment without
+// printing or sleeping. It validates a key once and re-validates only when the
+// key changes, so rotating PROMPTSHIELD_LICENSE_KEY takes effect. An invalid
+// new key leaves the current license state in place.
 func ensureLoaded() {
-	mu.RLock()
-	if licensed {
-		mu.RUnlock()
-		return
-	}
-	mu.RUnlock()
 	key := strings.TrimSpace(os.Getenv("PROMPTSHIELD_LICENSE_KEY"))
 	if key == "" {
 		return
 	}
-	if lic, err := validate(key); err == nil {
-		setLicensed(true, *lic)
+	mu.RLock()
+	same := key == loadedKey
+	mu.RUnlock()
+	if same {
+		return
+	}
+	lic, err := validate(key)
+	mu.Lock()
+	defer mu.Unlock()
+	loadedKey = key
+	if err == nil {
+		licensed = true
+		licenseInfo = *lic
 	}
 }
 
