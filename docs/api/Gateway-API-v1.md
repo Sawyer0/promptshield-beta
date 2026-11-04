@@ -76,9 +76,10 @@
   - Body: YAML (raw) or multipart
   - Query: `activate=true|false`
   - 201 `{ id,name,version,active }`
+  - 409 `ALREADY_EXISTS` when a pack with the same `metadata.name` exists
 - POST `/v1/rulepacks/reload` (admin)
   - Reload from `PS_ENFORCER_RULEPACK` path (or `?path=...`)
-  - 200: active pack metadata
+  - 200: active pack metadata; 409 if the pack name is already loaded
 - PUT `/v1/rulepacks/active` (admin)
   - Body: `{ id: "..." }`
   - 200: active pack metadata

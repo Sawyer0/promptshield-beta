@@ -52,3 +52,23 @@ rules: []
 	require.Equal(t, "empty", packs[0].Metadata.Name)
 	require.Len(t, packs[0].Rules, 0)
 }
+
+func TestLoadPacks_RejectsDuplicateNames(t *testing.T) {
+	dir := t.TempDir()
+	pack := `apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: same
+rules:
+  - id: kw
+    level: 1
+    severity: WARNING
+    keywords: ["hello"]
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(pack), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.yaml"), []byte(pack), 0o600))
+
+	_, err := LoadPacks(dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `duplicate rulepack name "same"`)
+}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/application/services"
 )
 
 // idempotencyStore caches successful POST /rulepacks responses keyed by the
@@ -137,6 +139,10 @@ func mountRulepacks(r chi.Router, opt Options) {
 
 				// Create the rulepack
 				packID, err := opt.RulepackService.Create(r.Context(), defaultTenantID, pack.Metadata.Name, pack.Metadata.Description)
+				if errors.Is(err, services.ErrRulepackNameExists) {
+					writeError(w, http.StatusConflict, "ALREADY_EXISTS", err.Error(), nil)
+					return
+				}
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 					return
@@ -194,6 +200,10 @@ func mountRulepacks(r chi.Router, opt Options) {
 				// Create the rulepack
 				defaultTenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 				packID, err := opt.RulepackService.Create(r.Context(), defaultTenantID, pack.Metadata.Name, pack.Metadata.Description)
+				if errors.Is(err, services.ErrRulepackNameExists) {
+					writeError(w, http.StatusConflict, "ALREADY_EXISTS", err.Error(), nil)
+					return
+				}
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error(), nil)
 					return

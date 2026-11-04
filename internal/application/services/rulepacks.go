@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -108,8 +109,21 @@ func (s *RulepackService) CreateVersionActivate(ctx context.Context, tenantID uu
 	return nil
 }
 
-// Create creates a new rulepack.
+// ErrRulepackNameExists is returned by Create when the tenant already has a
+// rulepack with the same name.
+var ErrRulepackNameExists = errors.New("rulepack name already exists")
+
+// Create creates a new rulepack. Names must be unique per tenant.
 func (s *RulepackService) Create(ctx context.Context, tenantID uuid.UUID, name, description string) (uuid.UUID, error) {
+	existing, err := s.repo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("list rulepacks: %w", err)
+	}
+	for _, p := range existing {
+		if p.Name == name {
+			return uuid.Nil, fmt.Errorf("%w: %q", ErrRulepackNameExists, name)
+		}
+	}
 	id, err := s.repo.Create(ctx, tenantID, name, description)
 	if err == nil {
 		s.emitAudit("rulepack.create", map[string]any{"tenant_id": tenantID.String(), "rulepack_id": id.String(), "name": name})
