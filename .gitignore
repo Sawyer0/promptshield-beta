@@ -54,3 +54,11 @@ frontend/package-lock.json
 # Local planning notes and archived experiments
 /plan/
 /archive/
+
+# Dashboard build output (embedded into the gateway by `make dashboard`)
+internal/interfaces/http/dashboard/dist/*
+!internal/interfaces/http/dashboard/dist/.gitkeep
+web/dashboard/node_modules/
+web/dashboard/test-results/
+web/dashboard/playwright-report/
+web/dashboard/coverage/
