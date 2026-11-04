@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -83,9 +84,13 @@ func TestGolden_DecisionBodies(t *testing.T) {
 				writeGolden(t, tc.name, norm)
 				return
 			}
-			want := loadGolden(t, tc.name)
-			if !bytes.Equal(norm, want) {
-				t.Fatalf("golden mismatch.\nwant: %s\n got: %s", string(want), string(norm))
+			// Compare as JSON values so key order and HTML escaping don't matter.
+			var want map[string]any
+			if err := json.Unmarshal(loadGolden(t, tc.name), &want); err != nil {
+				t.Fatalf("golden json: %v", err)
+			}
+			if !reflect.DeepEqual(normalize(obj), want) {
+				t.Fatalf("golden mismatch.\nwant: %v\n got: %s", want, string(norm))
 			}
 		})
 	}
