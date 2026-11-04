@@ -36,8 +36,13 @@ rules:
 		errors := ValidatePack(pack)
 		if len(errors) > 0 {
 			t.Logf("Legacy format validation errors (expected): %v", errors)
-			// Should provide helpful guidance about missing fields
-			errorStr := errors[0].Error()
+			// Should provide helpful guidance about missing fields. Error order
+			// is not guaranteed, so look across all of them.
+			var msgs []string
+			for _, e := range errors {
+				msgs = append(msgs, e.Error())
+			}
+			errorStr := strings.Join(msgs, "; ")
 			assert.True(t, strings.Contains(errorStr, "apiVersion") || strings.Contains(errorStr, "kind"),
 				"Should mention missing required fields")
 		}

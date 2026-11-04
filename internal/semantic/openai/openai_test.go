@@ -31,7 +31,12 @@ func TestAnalyzer_LogsAndCacheHit(t *testing.T) {
 				}
 			]
 		}`
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewBufferString(body))}, nil
+		// The SDK only decodes JSON when the response says it is JSON.
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(bytes.NewBufferString(body)),
+		}, nil
 	})
 	httpClient := &http.Client{Transport: tr}
 
