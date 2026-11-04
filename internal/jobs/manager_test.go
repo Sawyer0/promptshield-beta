@@ -152,3 +152,41 @@ func TestManager_UnknownJobType(t *testing.T) {
 		t.Fatal("Expected error for unknown job type")
 	}
 }
+
+func TestJobCancellation_WhileRunningStaysCancelled(t *testing.T) {
+	manager := NewManager(1)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	manager.RegisterProcessor(&MockProcessor{processFunc: func(ctx context.Context, job *Job) error {
+		close(started)
+		<-release
+		return nil
+	}})
+
+	// Submit without starting workers, then drive the job directly so the
+	// test knows exactly when processing has finished.
+	jobID, err := manager.Submit("test", []byte("input"), nil)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		manager.processJob(context.Background(), jobID, 0)
+		close(done)
+	}()
+
+	<-started
+	if err := manager.Cancel(jobID); err != nil {
+		t.Fatalf("cancel running job: %v", err)
+	}
+	close(release)
+	<-done
+
+	job, err := manager.Get(jobID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if job.Status != JobStatusCancelled {
+		t.Fatalf("status = %s, want %s", job.Status, JobStatusCancelled)
+	}
+}

@@ -274,6 +274,11 @@ func (m *Manager) processJob(ctx context.Context, jobID string, workerID int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Cancel may have run while the processor was busy; keep that status.
+	if job.Status == JobStatusCancelled {
+		return
+	}
+
 	completedAt := time.Now().UTC()
 	job.CompletedAt = &completedAt
 
