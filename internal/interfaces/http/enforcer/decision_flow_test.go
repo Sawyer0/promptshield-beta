@@ -138,3 +138,32 @@ func TestDecisionLogRequiresAdminToken(t *testing.T) {
 		t.Fatalf("want 401, got %d", resp.StatusCode)
 	}
 }
+
+func TestDashboardMountedAndCanBeDisabled(t *testing.T) {
+	srv := httptest.NewServer(NewMux())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/dashboard/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	// 503 means the handler is mounted but the web build was not embedded.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("dashboard: unexpected status %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Content-Security-Policy") == "" {
+		t.Fatal("dashboard response missing CSP header")
+	}
+
+	t.Setenv("PS_DASHBOARD_DISABLED", "true")
+	off := httptest.NewServer(NewMux())
+	defer off.Close()
+	resp, err = http.Get(off.URL + "/dashboard/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("disabled dashboard: want 404, got %d", resp.StatusCode)
+	}
+}

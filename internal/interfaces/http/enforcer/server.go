@@ -26,6 +26,7 @@ import (
 	"github.com/promptshield/promptshield/internal/infrastructure/persistence/memory"
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
+	"github.com/promptshield/promptshield/internal/interfaces/http/dashboard"
 	"github.com/promptshield/promptshield/internal/observability/telemetry"
 	"github.com/promptshield/promptshield/internal/security/paths"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
@@ -43,6 +44,7 @@ import (
 // - GET /metrics: Prometheus metrics
 // - POST /check: enforcement decision endpoint (also /check/* for ext_authz)
 // - /v1/*: versioned Gateway API (see internal/interfaces/http/api)
+// - GET /dashboard/: operator dashboard (disable with PS_DASHBOARD_DISABLED=true)
 
 var (
 	enforcerRequests = prometheus.NewCounterVec(
@@ -290,6 +292,11 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	// Prometheus metrics endpoint (optional)
 	if metricsEnabled() {
 		r.Handle("/metrics", promhttp.Handler())
+	}
+
+	// Operator dashboard: static assets only; its API calls need the admin token.
+	if !envBool("PS_DASHBOARD_DISABLED") {
+		r.Mount("/dashboard", http.StripPrefix("/dashboard", dashboard.Handler()))
 	}
 
 	// Mount v1 API
