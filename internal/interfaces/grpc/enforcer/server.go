@@ -45,9 +45,6 @@ type Server struct {
 	// streaming performance controls
 	windowLimit int
 	overlap     int
-	// tails for cross-chunk matching
-	tailReq  []byte
-	tailResp []byte
 	// basic rate limiter (global)
 	limiter *rate.Limiter
 	// global concurrency & memory budgets
