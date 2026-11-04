@@ -17,7 +17,7 @@ import (
 // registerSystemHandlers registers all system management and diagnostics endpoints
 func registerSystemHandlers(r chi.Router, opt Options) {
 	// System management endpoints (admin only)
-	r.Route("/v1/admin/system", func(sr chi.Router) {
+	r.Route("/admin/system", func(sr chi.Router) {
 		sr.Use(adminAuth(opt))
 
 		sr.Get("/features", getFeaturesHandler(opt))

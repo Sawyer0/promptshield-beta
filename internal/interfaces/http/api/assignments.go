@@ -13,7 +13,7 @@ import (
 // registerAssignmentHandlers registers all assignment-related endpoints
 func registerAssignmentHandlers(r chi.Router, opt Options) {
 	// Assignment routes under tenant context
-	r.Route("/v1/admin/tenants/{id}/assignments", func(ar chi.Router) {
+	r.Route("/admin/tenants/{id}/assignments", func(ar chi.Router) {
 		ar.Use(adminAuth(opt))
 
 		ar.Post("/", createAssignmentHandler(opt))
@@ -21,7 +21,7 @@ func registerAssignmentHandlers(r chi.Router, opt Options) {
 	})
 
 	// Direct assignment management
-	r.Route("/v1/admin/assignments", func(ar chi.Router) {
+	r.Route("/admin/assignments", func(ar chi.Router) {
 		ar.Use(adminAuth(opt))
 
 		ar.Put("/{assignmentId}", updateAssignmentHandler(opt))
