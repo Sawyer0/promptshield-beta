@@ -49,9 +49,9 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 		}
 	}()
 
-	// Reset sliding-window tails for this stream
-	s.tailReq = nil
-	s.tailResp = nil
+	// Sliding-window tails for cross-chunk matching. They belong to this
+	// stream only; sharing them on Server mixed bytes between concurrent streams.
+	var tailReq, tailResp []byte
 
 	for {
 		// release accounted bytes from previous chunk before reading next message
@@ -179,8 +179,8 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 
 				// Build sliding window including previous tail
 				var window []byte
-				if len(s.tailReq) > 0 {
-					window = append(window, s.tailReq...)
+				if len(tailReq) > 0 {
+					window = append(window, tailReq...)
 				}
 				window = append(window, b...)
 				if len(window) > s.windowLimit {
@@ -188,9 +188,9 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 				}
 				// Update tail for next chunk
 				if len(window) > s.overlap {
-					s.tailReq = append([]byte(nil), window[len(window)-s.overlap:]...)
+					tailReq = append([]byte(nil), window[len(window)-s.overlap:]...)
 				} else {
-					s.tailReq = append([]byte(nil), window...)
+					tailReq = append([]byte(nil), window...)
 				}
 
 				ctxScan, cancel := context.WithTimeout(ctx, s.timeout)
@@ -271,17 +271,17 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 
 				// Build sliding window on response side
 				var rwindow []byte
-				if len(s.tailResp) > 0 {
-					rwindow = append(rwindow, s.tailResp...)
+				if len(tailResp) > 0 {
+					rwindow = append(rwindow, tailResp...)
 				}
 				rwindow = append(rwindow, b...)
 				if len(rwindow) > s.windowLimit {
 					rwindow = rwindow[len(rwindow)-s.windowLimit:]
 				}
 				if len(rwindow) > s.overlap {
-					s.tailResp = append([]byte(nil), rwindow[len(rwindow)-s.overlap:]...)
+					tailResp = append([]byte(nil), rwindow[len(rwindow)-s.overlap:]...)
 				} else {
-					s.tailResp = append([]byte(nil), rwindow...)
+					tailResp = append([]byte(nil), rwindow...)
 				}
 
 				// quick leak heuristic
