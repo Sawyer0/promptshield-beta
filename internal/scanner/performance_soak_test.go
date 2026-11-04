@@ -19,6 +19,9 @@ func TestScanThroughput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping throughput test in short mode")
 	}
+	if raceEnabled {
+		t.Skip("skipping throughput test under the race detector")
+	}
 
 	sc := scanner.ScanEngineCstor(0)
 
