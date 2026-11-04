@@ -15,7 +15,6 @@ import (
 
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/types"
-	netutil "github.com/promptshield/promptshield/internal/util/net"
 )
 
 // Collector implements contracts.TelemetryCollector with tracing capabilities (no global state)
@@ -58,7 +57,7 @@ func (c *Collector) Initialize(ctx context.Context, config *types.TelemetryConfi
 		config.Timeout = 2 * time.Second
 	}
 
-	ep := netutil.SanitizeEndpoint(config.Endpoint)
+	ep := sanitizeEndpoint(config.Endpoint)
 	if ep == "" {
 		return nil
 	}

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/observability/tracing"
 	"github.com/promptshield/promptshield/internal/shared/events"
 	"github.com/promptshield/promptshield/internal/shared/types"
-	"github.com/promptshield/promptshield/internal/util/tracing"
 	"go.opentelemetry.io/otel"
 )
 

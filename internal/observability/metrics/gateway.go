@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	timeutil "github.com/promptshield/promptshield/internal/util/time"
 )
 
 // Gateway operational metrics
@@ -47,7 +46,7 @@ var (
 )
 
 func RecordDuration(histogram prometheus.Observer, duration time.Duration) {
-	timeutil.ObserveDuration(histogram, duration)
+	observeDuration(histogram, duration)
 }
 
 func init() {
