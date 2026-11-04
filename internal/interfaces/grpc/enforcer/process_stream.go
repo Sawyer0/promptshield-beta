@@ -194,12 +194,12 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 				}
 
 				ctxScan, cancel := context.WithTimeout(ctx, s.timeout)
-				
+
 				// Acquire read lock to prevent rule reloading during scan
 				s.rulesMutex.RLock()
 				res, scanErr := s.scReq.ScanReader(ctxScan, bytes.NewReader(window), "extproc:request-window")
 				s.rulesMutex.RUnlock()
-				
+
 				cancel()
 				if scanErr != nil && !errors.Is(scanErr, context.DeadlineExceeded) {
 					_ = stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_RequestBody{RequestBody: &extproc.BodyResponse{Response: &extproc.CommonResponse{}}}})
@@ -298,12 +298,12 @@ func (s *Server) processStream(stream extproc.ExternalProcessor_ProcessServer) e
 				}
 
 				ctxScan, cancel := context.WithTimeout(ctx, s.timeout)
-				
+
 				// Acquire read lock to prevent rule reloading during scan
 				s.rulesMutex.RLock()
 				res, scanErr := s.scResp.ScanReader(ctxScan, bytes.NewReader(rwindow), "extproc:response-window")
 				s.rulesMutex.RUnlock()
-				
+
 				cancel()
 				if scanErr != nil && !errors.Is(scanErr, context.DeadlineExceeded) {
 					_ = stream.Send(&extproc.ProcessingResponse{Response: &extproc.ProcessingResponse_ResponseBody{ResponseBody: &extproc.BodyResponse{Response: &extproc.CommonResponse{}}}})

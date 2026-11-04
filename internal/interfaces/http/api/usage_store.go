@@ -25,7 +25,7 @@ func NewUsageCache() usage.UsageStore {
 func (s *UsageCache) Record(ctx context.Context, tenant, route, decision string, bytes int64, t time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Create a usage row from the parameters
 	row := usage.Row{
 		Tenant:        tenant,
@@ -35,7 +35,7 @@ func (s *UsageCache) Record(ctx context.Context, tenant, route, decision string,
 		Count:         1,
 		Bytes:         bytes,
 	}
-	
+
 	s.records = append(s.records, row)
 	return nil
 }
@@ -44,7 +44,7 @@ func (s *UsageCache) Record(ctx context.Context, tenant, route, decision string,
 func (s *UsageCache) RecordTokens(ctx context.Context, record usage.Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Create a usage row from the record
 	row := usage.Row{
 		Tenant:           record.Tenant,
@@ -59,7 +59,7 @@ func (s *UsageCache) RecordTokens(ctx context.Context, record usage.Record) erro
 		CompletionTokens: record.CompletionTokens,
 		TotalTokens:      record.TotalTokens,
 	}
-	
+
 	s.records = append(s.records, row)
 	return nil
 }
@@ -67,25 +67,25 @@ func (s *UsageCache) RecordTokens(ctx context.Context, record usage.Record) erro
 func (s *UsageCache) Query(ctx context.Context, query usage.Query) (usage.Result, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	var filteredRows []usage.Row
-	
+
 	// Filter records by time range and tenant
 	for _, row := range s.records {
 		if row.IntervalStart.Before(query.Start) || row.IntervalStart.After(query.End) {
 			continue
 		}
-		
+
 		if query.Tenant != "" && row.Tenant != query.Tenant {
 			continue
 		}
-		
+
 		filteredRows = append(filteredRows, row)
 	}
-	
+
 	// Aggregate the filtered rows by interval and groupBy criteria
 	aggregatedRows := s.aggregateRows(filteredRows, query)
-	
+
 	return usage.Result{
 		WindowStart: query.Start,
 		WindowEnd:   query.End,
@@ -96,7 +96,7 @@ func (s *UsageCache) Query(ctx context.Context, query usage.Query) (usage.Result
 func (s *UsageCache) aggregateRows(rows []usage.Row, query usage.Query) []usage.Row {
 	// Group rows by time window and groupBy criteria
 	groups := make(map[string]*usage.Row)
-	
+
 	for _, row := range rows {
 		// Truncate timestamp to interval boundary
 		var windowStart time.Time
@@ -106,15 +106,15 @@ func (s *UsageCache) aggregateRows(rows []usage.Row, query usage.Query) []usage.
 		case usage.IntervalHour:
 			windowStart = row.IntervalStart.Truncate(time.Hour)
 		case usage.IntervalDay:
-			windowStart = time.Date(row.IntervalStart.Year(), row.IntervalStart.Month(), 
+			windowStart = time.Date(row.IntervalStart.Year(), row.IntervalStart.Month(),
 				row.IntervalStart.Day(), 0, 0, 0, 0, row.IntervalStart.Location())
 		default:
 			windowStart = row.IntervalStart.Truncate(time.Hour)
 		}
-		
+
 		// Create group key based on window and groupBy criteria
 		groupKey := windowStart.Format(time.RFC3339)
-		
+
 		for _, groupBy := range query.GroupBy {
 			switch groupBy {
 			case usage.GroupByTenant:
@@ -125,7 +125,7 @@ func (s *UsageCache) aggregateRows(rows []usage.Row, query usage.Query) []usage.
 				groupKey += "|decision:" + row.Decision
 			}
 		}
-		
+
 		// Create or update group
 		if existingRow, exists := groups[groupKey]; exists {
 			existingRow.Count += row.Count
@@ -149,13 +149,13 @@ func (s *UsageCache) aggregateRows(rows []usage.Row, query usage.Query) []usage.
 			}
 		}
 	}
-	
+
 	// Convert map to slice
 	var aggregatedRows []usage.Row
 	for _, row := range groups {
 		aggregatedRows = append(aggregatedRows, *row)
 	}
-	
+
 	return aggregatedRows
 }
 

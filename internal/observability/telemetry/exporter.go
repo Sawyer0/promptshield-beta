@@ -15,11 +15,11 @@ import (
 
 // eventExporter handles telemetry event exporting
 type eventExporter struct {
-	mu      sync.Mutex
-	config  *types.TelemetryConfig
-	cStart  metric.Int64Counter
-	cScan   metric.Int64Counter
-	cErr    metric.Int64Counter
+	mu     sync.Mutex
+	config *types.TelemetryConfig
+	cStart metric.Int64Counter
+	cScan  metric.Int64Counter
+	cErr   metric.Int64Counter
 }
 
 // newEventExporter creates a new event exporter
@@ -66,7 +66,7 @@ func (e *eventExporter) exportEvent(ctx context.Context, event *types.TelemetryE
 // recordToMetrics records event to OTel metrics
 func (e *eventExporter) recordToMetrics(ctx context.Context, event *types.TelemetryEvent) error {
 	attrs := otelutil.ToAttributes(event.Payload, []string{"version", "os", "arch", "ci", "json_out", "output_format", "workers", "fail_on", "kind"})
-	
+
 	switch event.Type {
 	case "startup", "setup":
 		if e.cStart != nil {
@@ -93,7 +93,7 @@ func (e *eventExporter) exportToFile(event *types.TelemetryEvent) error {
 		"machine_id": event.MachineID,
 		"payload":    event.Payload,
 	}
-	
+
 	b, err := jsonx.Marshal(evt)
 	if err != nil {
 		return err

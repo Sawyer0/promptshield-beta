@@ -24,7 +24,7 @@ import (
 func main() {
 	// Initialize structured logging
 	logger := slog.With("component", "enforcer")
-	
+
 	// Optional GOMAXPROCS override for performance experiments
 	if v := strings.TrimSpace(os.Getenv("PS_GOMAXPROCS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -87,7 +87,7 @@ func main() {
 	// Start policy sync from frontend database
 	ctx := context.Background()
 	enforcerhttp.StartPolicySync(ctx)
-	
+
 	srv := enforcerhttp.Serve(addr)
 	logger.Info("HTTP server starting", "address", addr)
 

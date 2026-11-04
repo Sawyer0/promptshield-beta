@@ -187,9 +187,9 @@ func CombineContext(contexts ...context.Context) (context.Context, context.Cance
 	if len(contexts) == 1 {
 		return WithCancel(contexts[0])
 	}
-	
+
 	ctx, cancel := WithCancel(Background())
-	
+
 	var wg sync.WaitGroup
 	for _, c := range contexts {
 		wg.Add(1)
@@ -199,19 +199,19 @@ func CombineContext(contexts ...context.Context) (context.Context, context.Cance
 			cancel()
 		}(c)
 	}
-	
+
 	return ctx, cancel
 }
 
 // MergeValues merges values from multiple contexts
 func MergeValues(parent context.Context, sources ...context.Context) context.Context {
 	ctx := parent
-	
+
 	for _, source := range sources {
 		// This is a simplified merge - in practice, you'd need reflection
 		// to iterate over all values in a context, which isn't directly possible
 		// This demonstrates the pattern for known keys
-		
+
 		if requestID, ok := GetRequestID(source); ok {
 			ctx = WithRequestID(ctx, requestID)
 		}
@@ -240,14 +240,14 @@ func MergeValues(parent context.Context, sources ...context.Context) context.Con
 			ctx = WithRetryAttempt(ctx, attempt)
 		}
 	}
-	
+
 	return ctx
 }
 
 // ExtractValues extracts common values to a map
 func ExtractValues(ctx context.Context) map[string]interface{} {
 	values := make(map[string]interface{})
-	
+
 	if requestID, ok := GetRequestID(ctx); ok {
 		values["request_id"] = requestID
 	}
@@ -275,7 +275,7 @@ func ExtractValues(ctx context.Context) map[string]interface{} {
 	if attempt, ok := GetRetryAttempt(ctx); ok {
 		values["retry_attempt"] = attempt
 	}
-	
+
 	return values
 }
 
@@ -284,11 +284,11 @@ func NewRequestContext(parent context.Context) context.Context {
 	requestID := uuid.New().String()
 	correlationID := uuid.New().String()
 	startTime := time.Now()
-	
+
 	ctx := WithRequestID(parent, requestID)
 	ctx = WithCorrelationID(ctx, correlationID)
 	ctx = WithStartTime(ctx, startTime)
-	
+
 	return ctx
 }
 
@@ -389,12 +389,12 @@ func GetError(ctx context.Context) error {
 func ExecuteWithTimeout(ctx context.Context, timeout time.Duration, fn func(context.Context) error) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	errChan := make(chan error, 1)
 	go func() {
 		errChan <- fn(timeoutCtx)
 	}()
-	
+
 	select {
 	case err := <-errChan:
 		return err
@@ -406,12 +406,12 @@ func ExecuteWithTimeout(ctx context.Context, timeout time.Duration, fn func(cont
 // ExecuteWithCancel executes a function with cancellation
 func ExecuteWithCancel(ctx context.Context, fn func(context.Context) error) (error, context.CancelFunc) {
 	cancelCtx, cancel := context.WithCancel(ctx)
-	
+
 	errChan := make(chan error, 1)
 	go func() {
 		errChan <- fn(cancelCtx)
 	}()
-	
+
 	go func() {
 		select {
 		case <-errChan:
@@ -420,6 +420,6 @@ func ExecuteWithCancel(ctx context.Context, fn func(context.Context) error) (err
 			// Context was canceled
 		}
 	}()
-	
+
 	return <-errChan, cancel
 }

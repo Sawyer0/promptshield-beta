@@ -111,4 +111,3 @@ type Migrator interface {
 	// Rollback to a specific migration version
 	RollbackTo(ctx context.Context, version string) error
 }
-

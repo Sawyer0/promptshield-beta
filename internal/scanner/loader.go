@@ -28,40 +28,40 @@ func (s *Scanner) LoadRulePacks(packs []rules.RulePack) {
 	case "first_match":
 		s.firstMatch = true
 	}
-    var merged []rules.Rule
+	var merged []rules.Rule
 	if usePriority {
 		merged = rules.MergePacksPriorityOrder(packs)
 	} else {
 		merged = rules.MergePacks(packs)
 	}
-    // Apply pattern length guard before compiling to avoid wasting CPU on extreme patterns
-    if s.maxPatternLength > 0 {
-        trimmed := make([]rules.Rule, 0, len(merged))
-        for _, r := range merged {
-            if len(r.Patterns) > 0 {
-                kept := make([]rules.Pattern, 0, len(r.Patterns))
-                for _, p := range r.Patterns {
-                    if len(p.Regex) <= s.maxPatternLength {
-                        kept = append(kept, p)
-                    }
-                }
-                r.Patterns = kept
-            }
-            if r.Fallback != nil && len(r.Fallback.Patterns) > 0 {
-                keptFb := make([]rules.Pattern, 0, len(r.Fallback.Patterns))
-                for _, p := range r.Fallback.Patterns {
-                    if len(p.Regex) <= s.maxPatternLength {
-                        keptFb = append(keptFb, p)
-                    }
-                }
-                r.Fallback.Patterns = keptFb
-            }
-            trimmed = append(trimmed, r)
-        }
-        merged = trimmed
-    }
-    compiled := compileRules(merged, s.defaultRuleTimeoutMs, s.defaultCaseSensitive, s.defaultWholeWord)
-	
+	// Apply pattern length guard before compiling to avoid wasting CPU on extreme patterns
+	if s.maxPatternLength > 0 {
+		trimmed := make([]rules.Rule, 0, len(merged))
+		for _, r := range merged {
+			if len(r.Patterns) > 0 {
+				kept := make([]rules.Pattern, 0, len(r.Patterns))
+				for _, p := range r.Patterns {
+					if len(p.Regex) <= s.maxPatternLength {
+						kept = append(kept, p)
+					}
+				}
+				r.Patterns = kept
+			}
+			if r.Fallback != nil && len(r.Fallback.Patterns) > 0 {
+				keptFb := make([]rules.Pattern, 0, len(r.Fallback.Patterns))
+				for _, p := range r.Fallback.Patterns {
+					if len(p.Regex) <= s.maxPatternLength {
+						keptFb = append(keptFb, p)
+					}
+				}
+				r.Fallback.Patterns = keptFb
+			}
+			trimmed = append(trimmed, r)
+		}
+		merged = trimmed
+	}
+	compiled := compileRules(merged, s.defaultRuleTimeoutMs, s.defaultCaseSensitive, s.defaultWholeWord)
+
 	// Atomic replacement: compile new rules first, then swap atomically
 	// This prevents race conditions during live rule updates
 	s.compiled = compiled

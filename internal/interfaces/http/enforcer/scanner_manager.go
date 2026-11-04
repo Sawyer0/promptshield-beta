@@ -6,13 +6,13 @@ import (
 	"log/slog"
 	"sync"
 
-	"gopkg.in/yaml.v3"
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/shared/events"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	pkg "github.com/promptshield/promptshield/pkg/types"
+	"gopkg.in/yaml.v3"
 )
 
 // ScannerManager manages a scanner instance for real-time enforcement
@@ -31,19 +31,19 @@ func NewScannerManager() *ScannerManager {
 	sc.SetQuarantineOnTimeout(true)
 	sc.SetQuarantineOnError(true)
 	sc.SetMaxStreamBytes(10 * 1024 * 1024) // 10MB max
-	
+
 	manager := &ScannerManager{
 		scanner:        sc,
 		activePolicies: make(map[uuid.UUID]*types.Policy),
 		logger:         slog.With("component", "scanner-manager"),
 	}
-	
+
 	// Subscribe to policy activation/deactivation events
 	events.GlobalEventBus().Subscribe(events.EventTypePolicyActivated, manager.handlePolicyActivated)
 	events.GlobalEventBus().Subscribe(events.EventTypePolicyDeactivated, manager.handlePolicyDeactivated)
-	
+
 	manager.logger.Info("Scanner manager initialized and subscribed to policy events")
-	
+
 	return manager
 }
 
@@ -74,27 +74,27 @@ func (sm *ScannerManager) handlePolicyActivated(ctx context.Context, event event
 	if !ok {
 		return fmt.Errorf("invalid event type for policy activation")
 	}
-	
-	sm.logger.Info("Processing policy activation event", 
-		"policy_id", activatedEvent.PolicyID, 
+
+	sm.logger.Info("Processing policy activation event",
+		"policy_id", activatedEvent.PolicyID,
 		"policy_name", activatedEvent.PolicyData.Name)
-	
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	// Add policy to active set
 	sm.activePolicies[activatedEvent.PolicyID] = &activatedEvent.PolicyData
-	
+
 	// Reload scanner with all active policies
 	if err := sm.reloadScannerLocked(); err != nil {
 		sm.logger.Error("Failed to reload scanner after policy activation", "error", err)
 		return err
 	}
-	
-	sm.logger.Info("Policy activated in enforcement scanner", 
+
+	sm.logger.Info("Policy activated in enforcement scanner",
 		"policy_id", activatedEvent.PolicyID,
 		"total_active", len(sm.activePolicies))
-	
+
 	return nil
 }
 
@@ -104,34 +104,34 @@ func (sm *ScannerManager) handlePolicyDeactivated(ctx context.Context, event eve
 	if !ok {
 		return fmt.Errorf("invalid event type for policy deactivation")
 	}
-	
-	sm.logger.Info("Processing policy deactivation event", 
-		"policy_id", deactivatedEvent.PolicyID, 
+
+	sm.logger.Info("Processing policy deactivation event",
+		"policy_id", deactivatedEvent.PolicyID,
 		"policy_name", deactivatedEvent.PolicyData.Name)
-	
+
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	// Remove policy from active set
 	delete(sm.activePolicies, deactivatedEvent.PolicyID)
-	
+
 	// Reload scanner with remaining active policies
 	if err := sm.reloadScannerLocked(); err != nil {
 		sm.logger.Error("Failed to reload scanner after policy deactivation", "error", err)
 		return err
 	}
-	
-	sm.logger.Info("Policy deactivated in enforcement scanner", 
+
+	sm.logger.Info("Policy deactivated in enforcement scanner",
 		"policy_id", deactivatedEvent.PolicyID,
 		"total_active", len(sm.activePolicies))
-	
+
 	return nil
 }
 
 // reloadScannerLocked rebuilds and reloads the scanner (must be called with lock held)
 func (sm *ScannerManager) reloadScannerLocked() error {
 	var rulePacks []rules.RulePack
-	
+
 	for policyID, policy := range sm.activePolicies {
 		rulepack, err := sm.convertPolicyToRulePack(policy)
 		if err != nil {
@@ -144,9 +144,9 @@ func (sm *ScannerManager) reloadScannerLocked() error {
 		}
 		rulePacks = append(rulePacks, *rulepack)
 	}
-	
+
 	sm.logger.Info("Reloading scanner", "rulepack_count", len(rulePacks))
-	
+
 	// Reload scanner with new RulePacks
 	sm.scanner.LoadRulePacks(rulePacks)
 	return nil
@@ -170,12 +170,12 @@ func (sm *ScannerManager) convertPolicyToRulePack(policy *types.Policy) (*rules.
 		}
 		return &rulepack, nil
 	}
-	
+
 	// If not valid RulePack YAML, try to parse as simple rules structure
 	var simpleRules struct {
 		Rules []rules.Rule `yaml:"rules" json:"rules"`
 	}
-	
+
 	if err := yaml.Unmarshal([]byte(policy.Content), &simpleRules); err == nil && len(simpleRules.Rules) > 0 {
 		// Create RulePack from simple rules
 		rulepack = rules.RulePack{
@@ -190,7 +190,7 @@ func (sm *ScannerManager) convertPolicyToRulePack(policy *types.Policy) (*rules.
 		}
 		return &rulepack, nil
 	}
-	
+
 	// If neither format works, create a simple keyword-based rule
 	// This handles cases where policy content is just text or simple format
 	rulepack = rules.RulePack{
@@ -215,7 +215,7 @@ func (sm *ScannerManager) convertPolicyToRulePack(policy *types.Policy) (*rules.
 			},
 		},
 	}
-	
+
 	return &rulepack, nil
 }
 
@@ -226,9 +226,9 @@ func (sm *ScannerManager) ScanReader(ctx context.Context, reader interface{}, in
 	scanner := sm.scanner
 	policyCount := len(sm.activePolicies)
 	sm.mu.RUnlock()
-	
+
 	sm.logger.Debug("Scanning with event-driven scanner", "active_policies", policyCount, "input_name", inputName)
-	
+
 	// Convert reader to the expected type and call scanner
 	// The scanner expects an io.Reader
 	if r, ok := reader.(interface{ Read([]byte) (int, error) }); ok {
@@ -236,6 +236,6 @@ func (sm *ScannerManager) ScanReader(ctx context.Context, reader interface{}, in
 		sm.logger.Debug("Scanner result", "violations", len(result.Violations), "error", err)
 		return result, err
 	}
-	
+
 	return pkg.ScanResult{}, fmt.Errorf("invalid reader type")
 }

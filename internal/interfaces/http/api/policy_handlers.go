@@ -27,7 +27,7 @@ func NewPolicyHandlers(policyService contracts.PolicyService) *PolicyHandlers {
 func (h *PolicyHandlers) RegisterRoutes(r chi.Router, opt Options) {
 	r.Route("/admin/policies", func(pr chi.Router) {
 		pr.Use(adminAuth(opt))
-		
+
 		pr.Get("/", h.ListPolicies)
 		pr.Post("/", h.CreatePolicy)
 		pr.Get("/{id}", h.GetPolicy)
@@ -48,7 +48,7 @@ func (h *PolicyHandlers) ListPolicies(w http.ResponseWriter, r *http.Request) {
 	// Get policies from service
 	policies, total, err := h.policyService.ListPolicies(r.Context(), filter)
 	if err != nil {
-		writeErrorJSON(w, http.StatusInternalServerError, "LIST_FAILED", 
+		writeErrorJSON(w, http.StatusInternalServerError, "LIST_FAILED",
 			"Failed to list policies", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -67,7 +67,7 @@ func (h *PolicyHandlers) ListPolicies(w http.ResponseWriter, r *http.Request) {
 func (h *PolicyHandlers) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	var req PolicyCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST",
 			"Invalid request body", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -78,7 +78,7 @@ func (h *PolicyHandlers) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	// Create policy via service
 	createdPolicy, err := h.policyService.CreatePolicy(r.Context(), policy)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "CREATE_FAILED", 
+		writeErrorJSON(w, http.StatusBadRequest, "CREATE_FAILED",
 			"Failed to create policy", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -92,7 +92,7 @@ func (h *PolicyHandlers) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 func (h *PolicyHandlers) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	policyIDStr := chi.URLParam(r, "id")
 	if policyIDStr == "" {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Policy ID is required", nil, r)
 		return
 	}
@@ -100,7 +100,7 @@ func (h *PolicyHandlers) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	// Parse UUID
 	policyID, err := uuid.Parse(policyIDStr)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Invalid policy ID format", map[string]interface{}{"policy_id": policyIDStr}, r)
 		return
 	}
@@ -108,7 +108,7 @@ func (h *PolicyHandlers) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	// Get policy from service
 	policy, err := h.policyService.GetPolicy(r.Context(), policyID)
 	if err != nil {
-		writeErrorJSON(w, http.StatusNotFound, "POLICY_NOT_FOUND", 
+		writeErrorJSON(w, http.StatusNotFound, "POLICY_NOT_FOUND",
 			"Policy not found", map[string]interface{}{"policy_id": policyID.String()}, r)
 		return
 	}
@@ -122,7 +122,7 @@ func (h *PolicyHandlers) GetPolicy(w http.ResponseWriter, r *http.Request) {
 func (h *PolicyHandlers) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	policyIDStr := chi.URLParam(r, "id")
 	if policyIDStr == "" {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Policy ID is required", nil, r)
 		return
 	}
@@ -130,14 +130,14 @@ func (h *PolicyHandlers) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	// Parse UUID
 	policyID, err := uuid.Parse(policyIDStr)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Invalid policy ID format", map[string]interface{}{"policy_id": policyIDStr}, r)
 		return
 	}
 
 	var req PolicyUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST",
 			"Invalid request body", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -148,7 +148,7 @@ func (h *PolicyHandlers) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	// Update policy via service
 	updatedPolicy, err := h.policyService.UpdatePolicy(r.Context(), policy)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "UPDATE_FAILED", 
+		writeErrorJSON(w, http.StatusBadRequest, "UPDATE_FAILED",
 			"Failed to update policy", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -162,7 +162,7 @@ func (h *PolicyHandlers) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 func (h *PolicyHandlers) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	policyIDStr := chi.URLParam(r, "id")
 	if policyIDStr == "" {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Policy ID is required", nil, r)
 		return
 	}
@@ -170,14 +170,14 @@ func (h *PolicyHandlers) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	// Parse UUID
 	policyID, err := uuid.Parse(policyIDStr)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Invalid policy ID format", map[string]interface{}{"policy_id": policyIDStr}, r)
 		return
 	}
 
 	// Delete policy via service
 	if err := h.policyService.DeletePolicy(r.Context(), policyID); err != nil {
-		writeErrorJSON(w, http.StatusNotFound, "DELETE_FAILED", 
+		writeErrorJSON(w, http.StatusNotFound, "DELETE_FAILED",
 			"Failed to delete policy", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -193,7 +193,7 @@ func (h *PolicyHandlers) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 func (h *PolicyHandlers) ActivatePolicy(w http.ResponseWriter, r *http.Request) {
 	policyIDStr := chi.URLParam(r, "id")
 	if policyIDStr == "" {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Policy ID is required", nil, r)
 		return
 	}
@@ -201,14 +201,14 @@ func (h *PolicyHandlers) ActivatePolicy(w http.ResponseWriter, r *http.Request) 
 	// Parse UUID
 	policyID, err := uuid.Parse(policyIDStr)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Invalid policy ID format", map[string]interface{}{"policy_id": policyIDStr}, r)
 		return
 	}
 
 	// Activate policy via service
 	if err := h.policyService.ActivatePolicy(r.Context(), policyID); err != nil {
-		writeErrorJSON(w, http.StatusInternalServerError, "ACTIVATION_FAILED", 
+		writeErrorJSON(w, http.StatusInternalServerError, "ACTIVATION_FAILED",
 			"Failed to activate policy", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -220,11 +220,11 @@ func (h *PolicyHandlers) ActivatePolicy(w http.ResponseWriter, r *http.Request) 
 	}, r)
 }
 
-// DeactivatePolicy handles POST /v1/admin/policies/{id}/deactivate  
+// DeactivatePolicy handles POST /v1/admin/policies/{id}/deactivate
 func (h *PolicyHandlers) DeactivatePolicy(w http.ResponseWriter, r *http.Request) {
 	policyIDStr := chi.URLParam(r, "id")
 	if policyIDStr == "" {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Policy ID is required", nil, r)
 		return
 	}
@@ -232,14 +232,14 @@ func (h *PolicyHandlers) DeactivatePolicy(w http.ResponseWriter, r *http.Request
 	// Parse UUID
 	policyID, err := uuid.Parse(policyIDStr)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Invalid policy ID format", map[string]interface{}{"policy_id": policyIDStr}, r)
 		return
 	}
 
 	// Deactivate policy via service
 	if err := h.policyService.DeactivatePolicy(r.Context(), policyID); err != nil {
-		writeErrorJSON(w, http.StatusInternalServerError, "DEACTIVATION_FAILED", 
+		writeErrorJSON(w, http.StatusInternalServerError, "DEACTIVATION_FAILED",
 			"Failed to deactivate policy", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -255,7 +255,7 @@ func (h *PolicyHandlers) DeactivatePolicy(w http.ResponseWriter, r *http.Request
 func (h *PolicyHandlers) TestPolicy(w http.ResponseWriter, r *http.Request) {
 	policyIDStr := chi.URLParam(r, "id")
 	if policyIDStr == "" {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Policy ID is required", nil, r)
 		return
 	}
@@ -263,14 +263,14 @@ func (h *PolicyHandlers) TestPolicy(w http.ResponseWriter, r *http.Request) {
 	// Parse UUID
 	policyID, err := uuid.Parse(policyIDStr)
 	if err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT",
 			"Invalid policy ID format", map[string]interface{}{"policy_id": policyIDStr}, r)
 		return
 	}
 
 	var req PolicyTestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST",
 			"Invalid request body", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -278,7 +278,7 @@ func (h *PolicyHandlers) TestPolicy(w http.ResponseWriter, r *http.Request) {
 	// Test policy via service
 	result, err := h.policyService.TestPolicy(r.Context(), policyID, req.Content)
 	if err != nil {
-		writeErrorJSON(w, http.StatusInternalServerError, "TEST_FAILED", 
+		writeErrorJSON(w, http.StatusInternalServerError, "TEST_FAILED",
 			"Failed to test policy", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -291,7 +291,7 @@ func (h *PolicyHandlers) TestPolicy(w http.ResponseWriter, r *http.Request) {
 func (h *PolicyHandlers) ValidatePolicy(w http.ResponseWriter, r *http.Request) {
 	var req PolicyValidateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST", 
+		writeErrorJSON(w, http.StatusBadRequest, "INVALID_REQUEST",
 			"Invalid request body", map[string]interface{}{"error": err.Error()}, r)
 		return
 	}
@@ -319,9 +319,9 @@ func (h *PolicyHandlers) ValidatePolicy(w http.ResponseWriter, r *http.Request) 
 
 func (h *PolicyHandlers) parseListFilter(r *http.Request) map[string]interface{} {
 	filter := make(map[string]interface{})
-	
+
 	query := r.URL.Query()
-	
+
 	// Parse limit
 	if limitStr := query.Get("limit"); limitStr != "" {
 		if limit, err := strconv.Atoi(limitStr); err == nil && limit > 0 && limit <= 1000 {
@@ -330,28 +330,28 @@ func (h *PolicyHandlers) parseListFilter(r *http.Request) map[string]interface{}
 			filter["limit"] = 50 // default
 		}
 	}
-	
+
 	// Parse type filter
 	if policyType := query.Get("type"); policyType != "" {
 		filter["type"] = types.PolicyType(policyType)
 	}
-	
+
 	// Parse name filter
 	if name := query.Get("name"); name != "" {
 		filter["name"] = name
 	}
-	
+
 	return filter
 }
 
 func (h *PolicyHandlers) convertPolicyToResponse(policy *types.Policy) PolicyResponse {
 	return PolicyResponse{
-		ID:          policy.ID.String(),
-		Name:        policy.Name,
-		Version:     policy.Version,
-		Type:        string(policy.Type),
-		CreatedAt:   policy.CreatedAt,
-		UpdatedAt:   policy.UpdatedAt,
+		ID:        policy.ID.String(),
+		Name:      policy.Name,
+		Version:   policy.Version,
+		Type:      string(policy.Type),
+		CreatedAt: policy.CreatedAt,
+		UpdatedAt: policy.UpdatedAt,
 	}
 }
 

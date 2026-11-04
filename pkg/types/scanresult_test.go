@@ -30,23 +30,23 @@ func TestScanResult_ShouldBlock(t *testing.T) {
 
 func TestScanInfo_Serialization(t *testing.T) {
 	scanInfo := ScanInfo{
-		TotalViolations:   3,
-		ScanStatus:        "success",
-		ScanDurationMs:    150,
-		RulesProcessed:    25,
-		RulesSkipped:      2,
-		RulesTimedOut:     1,
-		Level1DurationMs:  50,
-		Level2DurationMs:  75,
-		Level3DurationMs:  25,
-		CacheHits:         12,
-		CacheMisses:       8,
-		ShouldBlock:       true,
-		BlockReason:       "high-severity-rule",
-		HighestSeverity:   "CRITICAL",
-		TriggerRuleCount:  3,
-		PeakMemoryBytes:   1024 * 1024,
-		CPUTimeMs:         145,
+		TotalViolations:  3,
+		ScanStatus:       "success",
+		ScanDurationMs:   150,
+		RulesProcessed:   25,
+		RulesSkipped:     2,
+		RulesTimedOut:    1,
+		Level1DurationMs: 50,
+		Level2DurationMs: 75,
+		Level3DurationMs: 25,
+		CacheHits:        12,
+		CacheMisses:      8,
+		ShouldBlock:      true,
+		BlockReason:      "high-severity-rule",
+		HighestSeverity:  "CRITICAL",
+		TriggerRuleCount: 3,
+		PeakMemoryBytes:  1024 * 1024,
+		CPUTimeMs:        145,
 	}
 
 	// Test JSON marshaling
@@ -120,7 +120,7 @@ func TestScanResult_CompleteSerialization(t *testing.T) {
 func TestScanInfo_DefaultValues(t *testing.T) {
 	// Test zero values work correctly
 	scanInfo := ScanInfo{}
-	
+
 	assert.Equal(t, 0, scanInfo.TotalViolations)
 	assert.Equal(t, "", scanInfo.ScanStatus)
 	assert.Equal(t, false, scanInfo.ShouldBlock)

@@ -1,24 +1,24 @@
 package api
 
 import (
-	"time"
 	"github.com/google/uuid"
+	"time"
 )
 
 // PolicyCreateRequest represents a request to create a new policy
 type PolicyCreateRequest struct {
-	Name        string `json:"name" validate:"required,min=1,max=100"`
-	Description string `json:"description,omitempty" validate:"max=500"`
-	Content     string `json:"content" validate:"required"`
-	Type        string `json:"type" validate:"required,oneof=builtin custom managed"`
+	Name        string   `json:"name" validate:"required,min=1,max=100"`
+	Description string   `json:"description,omitempty" validate:"max=500"`
+	Content     string   `json:"content" validate:"required"`
+	Type        string   `json:"type" validate:"required,oneof=builtin custom managed"`
 	Tags        []string `json:"tags,omitempty"`
 }
 
-// PolicyUpdateRequest represents a request to update an existing policy  
+// PolicyUpdateRequest represents a request to update an existing policy
 type PolicyUpdateRequest struct {
-	Name        string `json:"name" validate:"required,min=1,max=100"`
-	Description string `json:"description,omitempty" validate:"max=500"`
-	Content     string `json:"content" validate:"required"`
+	Name        string   `json:"name" validate:"required,min=1,max=100"`
+	Description string   `json:"description,omitempty" validate:"max=500"`
+	Content     string   `json:"content" validate:"required"`
 	Tags        []string `json:"tags,omitempty"`
 }
 
@@ -57,7 +57,6 @@ type PolicyListResponse struct {
 	TotalCount int              `json:"total_count"`
 	Pagination *Pagination      `json:"pagination,omitempty"`
 }
-
 
 // PolicyActionResponse represents the result of a policy action (activate/deactivate/delete)
 type PolicyActionResponse struct {

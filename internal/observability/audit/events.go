@@ -42,7 +42,7 @@ func CreateEnforcementEvent(action string, requestID uuid.UUID, decision types.E
 		"processed_at": decision.ProcessedAt,
 		"latency_ms":   decision.Latency.Milliseconds(),
 	}
-	
+
 	return CreateSecurityEvent(action, events.ObjectTypeRequest, requestID, metadata)
 }
 
@@ -74,6 +74,6 @@ func LogEnforcementEvent(ctx context.Context, service *Service, action string, r
 		"processed_at": decision.ProcessedAt,
 		"latency_ms":   decision.Latency.Milliseconds(),
 	}
-	
+
 	return LogSecurityEvent(ctx, service, action, events.ObjectTypeRequest, requestID, metadata)
 }

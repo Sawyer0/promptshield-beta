@@ -30,31 +30,31 @@ type Metrics struct {
 // ScanInfo captures comprehensive scan metadata for security gateways.
 type ScanInfo struct {
 	// Summary statistics
-	TotalViolations  int    `json:"total_violations"`
-	ScanStatus       string `json:"scan_status"`        // "success", "timeout", "error", "partial"
-	ScanDurationMs   int64  `json:"scan_duration_ms"`
-	
+	TotalViolations int    `json:"total_violations"`
+	ScanStatus      string `json:"scan_status"` // "success", "timeout", "error", "partial"
+	ScanDurationMs  int64  `json:"scan_duration_ms"`
+
 	// Rule evaluation statistics
-	RulesProcessed   int `json:"rules_processed"`
-	RulesSkipped     int `json:"rules_skipped,omitempty"`
-	RulesTimedOut    int `json:"rules_timed_out,omitempty"`
-	RulesErrored     int `json:"rules_errored,omitempty"`
-	
+	RulesProcessed int `json:"rules_processed"`
+	RulesSkipped   int `json:"rules_skipped,omitempty"`
+	RulesTimedOut  int `json:"rules_timed_out,omitempty"`
+	RulesErrored   int `json:"rules_errored,omitempty"`
+
 	// Performance breakdown by rule level
 	Level1DurationMs int64 `json:"level1_duration_ms,omitempty"` // Keywords
 	Level2DurationMs int64 `json:"level2_duration_ms,omitempty"` // Regex
 	Level3DurationMs int64 `json:"level3_duration_ms,omitempty"` // Semantic/LLM
-	
+
 	// Cache efficiency
 	CacheHits   int `json:"cache_hits,omitempty"`
 	CacheMisses int `json:"cache_misses,omitempty"`
-	
+
 	// Decision metadata
-	ShouldBlock       bool   `json:"should_block"`
-	BlockReason       string `json:"block_reason,omitempty"`       // Rule ID or reason for blocking
-	HighestSeverity   string `json:"highest_severity,omitempty"`   // Highest severity found
-	TriggerRuleCount  int    `json:"trigger_rule_count"`           // Number of rules that triggered
-	
+	ShouldBlock      bool   `json:"should_block"`
+	BlockReason      string `json:"block_reason,omitempty"`     // Rule ID or reason for blocking
+	HighestSeverity  string `json:"highest_severity,omitempty"` // Highest severity found
+	TriggerRuleCount int    `json:"trigger_rule_count"`         // Number of rules that triggered
+
 	// Resource usage
 	PeakMemoryBytes int64 `json:"peak_memory_bytes,omitempty"`
 	CPUTimeMs       int64 `json:"cpu_time_ms,omitempty"`

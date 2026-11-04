@@ -36,13 +36,13 @@ func ParseDuration(s string) (time.Duration, error) {
 	if d, err := time.ParseDuration(s); err == nil {
 		return d, nil
 	}
-	
+
 	// Extended format support
 	s = strings.ToLower(strings.TrimSpace(s))
-	
+
 	var total time.Duration
 	var current strings.Builder
-	
+
 	for i, r := range s {
 		if r >= '0' && r <= '9' || r == '.' {
 			current.WriteRune(r)
@@ -50,17 +50,17 @@ func ParseDuration(s string) (time.Duration, error) {
 			if current.Len() == 0 {
 				return 0, fmt.Errorf("invalid duration format: %s", s)
 			}
-			
+
 			valueStr := current.String()
 			value, err := strconv.ParseFloat(valueStr, 64)
 			if err != nil {
 				return 0, fmt.Errorf("invalid number in duration: %s", valueStr)
 			}
-			
+
 			// Find unit
 			unit := s[i:]
 			var duration time.Duration
-			
+
 			switch {
 			case strings.HasPrefix(unit, "ns") || strings.HasPrefix(unit, "nanosecond"):
 				duration = time.Duration(value)
@@ -81,10 +81,10 @@ func ParseDuration(s string) (time.Duration, error) {
 			default:
 				return 0, fmt.Errorf("unknown time unit: %s", unit)
 			}
-			
+
 			total += duration
 			current.Reset()
-			
+
 			// Skip the unit
 			for j := i; j < len(s); j++ {
 				if s[j] >= '0' && s[j] <= '9' {
@@ -98,7 +98,7 @@ func ParseDuration(s string) (time.Duration, error) {
 			i = -1 // Reset loop
 		}
 	}
-	
+
 	return total, nil
 }
 
@@ -201,13 +201,13 @@ func EndOfYear(t time.Time) time.Time {
 func Age(birthDate time.Time) int {
 	now := time.Now()
 	age := now.Year() - birthDate.Year()
-	
+
 	// Adjust if birthday hasn't occurred this year
-	if now.Month() < birthDate.Month() || 
+	if now.Month() < birthDate.Month() ||
 		(now.Month() == birthDate.Month() && now.Day() < birthDate.Day()) {
 		age--
 	}
-	
+
 	return age
 }
 
@@ -383,13 +383,13 @@ func ParseCommonFormats(timeStr string) (time.Time, error) {
 		"2006/01/02",
 		"2006/01/02 15:04:05",
 	}
-	
+
 	for _, format := range formats {
 		if t, err := time.Parse(format, timeStr); err == nil {
 			return t, nil
 		}
 	}
-	
+
 	return time.Time{}, fmt.Errorf("unable to parse time: %s", timeStr)
 }
 
@@ -397,12 +397,12 @@ func ParseCommonFormats(timeStr string) (time.Time, error) {
 func FormatRelative(t time.Time) string {
 	now := time.Now()
 	diff := now.Sub(t)
-	
+
 	if diff < 0 {
 		diff = -diff
 		return formatRelativeFuture(diff)
 	}
-	
+
 	return formatRelativePast(diff)
 }
 
@@ -438,7 +438,7 @@ func formatRelativePast(d time.Duration) string {
 		}
 		return fmt.Sprintf("%d months ago", months)
 	}
-	
+
 	years := int(d.Hours() / (24 * 365))
 	if years == 1 {
 		return "1 year ago"
@@ -478,7 +478,7 @@ func formatRelativeFuture(d time.Duration) string {
 		}
 		return fmt.Sprintf("in %d months", months)
 	}
-	
+
 	years := int(d.Hours() / (24 * 365))
 	if years == 1 {
 		return "in 1 year"

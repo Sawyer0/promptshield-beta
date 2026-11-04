@@ -7,7 +7,7 @@ import "time"
 type LLMRequest struct {
 	Model       string                 `json:"model"`
 	Messages    []ChatMessage          `json:"messages,omitempty"`
-	Prompt      string                 `json:"prompt,omitempty"`     // For completion endpoints
+	Prompt      string                 `json:"prompt,omitempty"` // For completion endpoints
 	MaxTokens   int                    `json:"max_tokens,omitempty"`
 	Temperature float64                `json:"temperature,omitempty"`
 	Stream      bool                   `json:"stream,omitempty"`
@@ -17,7 +17,7 @@ type LLMRequest struct {
 // ChatMessage represents a chat message
 // Consolidates ChatMessage definitions from proxy.go and llm_clients.go
 type ChatMessage struct {
-	Role    string `json:"role"`    // system, user, assistant
+	Role    string `json:"role"` // system, user, assistant
 	Content string `json:"content"`
 }
 

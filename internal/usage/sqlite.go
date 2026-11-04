@@ -114,9 +114,9 @@ func (s *SQLiteStore) RecordTokens(ctx context.Context, record Record) error {
 	if model == "" {
 		model = "unknown"
 	}
-	
+
 	ts := floorToMinute(record.Timestamp).Unix()
-	
+
 	// Determine decision column
 	var col string
 	switch record.Decision {
@@ -129,7 +129,7 @@ func (s *SQLiteStore) RecordTokens(ctx context.Context, record Record) error {
 	default:
 		col = "allow"
 	}
-	
+
 	q := fmt.Sprintf(` //nolint:gosec // Column names are from closed set (allow/quarantine/deny), not user input
 INSERT INTO usage_tokens(tenant, route, provider, model, ts_minute, %s, bytes, prompt_tokens, completion_tokens, total_tokens)
 VALUES(?,?,?,?,?,?,?,?,?,?)
@@ -141,8 +141,8 @@ DO UPDATE SET
 	completion_tokens = usage_tokens.completion_tokens + excluded.completion_tokens,
 	total_tokens = usage_tokens.total_tokens + excluded.total_tokens
 `, col, col, col, col)
-	
-	_, err := s.db.ExecContext(ctx, q, tenant, route, provider, model, ts, 1, record.Bytes, 
+
+	_, err := s.db.ExecContext(ctx, q, tenant, route, provider, model, ts, 1, record.Bytes,
 		record.PromptTokens, record.CompletionTokens, record.TotalTokens)
 	if err != nil {
 		return fmt.Errorf("record token usage: %w", err)

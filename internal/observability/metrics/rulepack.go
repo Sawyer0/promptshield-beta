@@ -20,12 +20,12 @@ var (
 	)
 )
 
-func IncRulepackActivations() { 
-	RulepackActivations.Inc() 
+func IncRulepackActivations() {
+	RulepackActivations.Inc()
 }
 
-func IncRulepackValidationFailures() { 
-	RulepackValidationFailures.Inc() 
+func IncRulepackValidationFailures() {
+	RulepackValidationFailures.Inc()
 }
 
 func init() {

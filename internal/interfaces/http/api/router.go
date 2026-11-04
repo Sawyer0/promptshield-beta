@@ -456,10 +456,10 @@ func registerPolicyHandlers(r chi.Router, opt Options) {
 		println("WARNING: PolicyService is nil, skipping policy endpoint registration")
 		return
 	}
-	
+
 	// Create policy handlers with the policy service
 	handlers := NewPolicyHandlers(opt.PolicyService)
-	
+
 	// Register routes
 	handlers.RegisterRoutes(r, opt)
 	println("INFO: Policy endpoints registered at /admin/policies")

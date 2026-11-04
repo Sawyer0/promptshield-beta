@@ -18,11 +18,11 @@ import (
 func TestAsyncScanEndpoint(t *testing.T) {
 	cleanup := withAsyncJobsLicense(t)
 	defer cleanup()
-	
+
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
-	
+
 	// Create test router with default job manager
 	router := NewMux(Options{
 		RulepackService: rulepackService,
@@ -93,11 +93,11 @@ func TestAsyncScanEndpoint(t *testing.T) {
 func TestJobListEndpoint(t *testing.T) {
 	cleanup := withAsyncJobsLicense(t)
 	defer cleanup()
-	
+
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
-	
+
 	router := NewMux(Options{
 		RulepackService: rulepackService,
 	})

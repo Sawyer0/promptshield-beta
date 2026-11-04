@@ -56,8 +56,8 @@ type APITokenRepository interface {
 
 // RateLimitResult represents the result of a rate limit check
 type RateLimitResult struct {
-	Allowed                     bool
-	RequestsPerMinuteRemaining  int
-	RequestsPerHourRemaining    int
-	RetryAfter                  time.Duration
+	Allowed                    bool
+	RequestsPerMinuteRemaining int
+	RequestsPerHourRemaining   int
+	RetryAfter                 time.Duration
 }

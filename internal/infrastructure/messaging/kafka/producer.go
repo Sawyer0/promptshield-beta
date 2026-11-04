@@ -11,7 +11,7 @@ import (
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/compress"
 	"github.com/segmentio/kafka-go/sasl/plain"
-	
+
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/errors"
 	"github.com/promptshield/promptshield/internal/shared/types"
@@ -19,12 +19,12 @@ import (
 
 // Producer implements contracts.MessageProducer for Kafka
 type Producer struct {
-	writer   *kafka.Writer
-	brokers  []string
-	config   *ProducerConfig
-	mu       sync.RWMutex
-	stats    map[string]interface{}
-	closed   bool
+	writer  *kafka.Writer
+	brokers []string
+	config  *ProducerConfig
+	mu      sync.RWMutex
+	stats   map[string]interface{}
+	closed  bool
 }
 
 // ProducerConfig contains Kafka producer configuration
@@ -63,7 +63,7 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 	if config == nil {
 		return nil, errors.ConfigurationError("kafka", "producer config is required")
 	}
-	
+
 	if len(config.Brokers) == 0 {
 		// Try to get from environment
 		brokers := os.Getenv("PS_KAFKA_BROKERS")
@@ -72,7 +72,7 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 		}
 		config.Brokers = []string{brokers}
 	}
-	
+
 	// Set defaults
 	if config.BatchSize == 0 {
 		config.BatchSize = 100
@@ -86,13 +86,13 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 	if config.MaxAttempts == 0 {
 		config.MaxAttempts = 3
 	}
-	
+
 	p := &Producer{
 		brokers: config.Brokers,
 		config:  config,
 		stats:   make(map[string]interface{}),
 	}
-	
+
 	// Configure writer
 	writerConfig := kafka.WriterConfig{
 		Brokers:      config.Brokers,
@@ -104,7 +104,7 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 		BatchTimeout: config.BatchTimeout,
 		Async:        config.Async,
 	}
-	
+
 	// Configure compression using newer API
 	switch config.Compression {
 	case "gzip":
@@ -116,7 +116,7 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 	case "zstd":
 		writerConfig.CompressionCodec = &compress.ZstdCodec
 	}
-	
+
 	// Configure TLS
 	if config.TLS != nil && config.TLS.Enabled {
 		dialer := &kafka.Dialer{
@@ -126,7 +126,7 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 				InsecureSkipVerify: config.TLS.InsecureSkipVerify,
 			},
 		}
-		
+
 		// Configure SASL if enabled
 		if config.SASL != nil && config.SASL.Enabled {
 			mechanism := plain.Mechanism{
@@ -135,10 +135,10 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 			}
 			dialer.SASLMechanism = mechanism
 		}
-		
+
 		writerConfig.Dialer = dialer
 	}
-	
+
 	// Error logger
 	writerConfig.ErrorLogger = kafka.LoggerFunc(func(msg string, args ...interface{}) {
 		// Update error stats
@@ -148,16 +148,16 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 		p.stats["last_error_time"] = time.Now()
 		p.mu.Unlock()
 	})
-	
+
 	p.writer = kafka.NewWriter(writerConfig)
-	
+
 	// Initialize stats
 	p.stats["messages_sent"] = 0
 	p.stats["bytes_sent"] = 0
 	p.stats["errors"] = 0
 	p.stats["connected"] = true
 	p.stats["started_at"] = time.Now()
-	
+
 	return p, nil
 }
 
@@ -165,11 +165,11 @@ func NewProducer(config *ProducerConfig) (contracts.MessageProducer, error) {
 func (p *Producer) Connect(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.closed {
 		return errors.ServiceUnavailable("kafka producer is closed")
 	}
-	
+
 	p.stats["connected"] = true
 	p.stats["connected_at"] = time.Now()
 	return nil
@@ -179,15 +179,15 @@ func (p *Producer) Connect(ctx context.Context) error {
 func (p *Producer) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.closed {
 		return nil
 	}
-	
+
 	p.closed = true
 	p.stats["connected"] = false
 	p.stats["closed_at"] = time.Now()
-	
+
 	if p.writer != nil {
 		return p.writer.Close()
 	}
@@ -205,13 +205,13 @@ func (p *Producer) IsConnected() bool {
 func (p *Producer) GetStats() map[string]interface{} {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	// Create a copy of stats
 	stats := make(map[string]interface{})
 	for k, v := range p.stats {
 		stats[k] = v
 	}
-	
+
 	// Add writer stats if available
 	if p.writer != nil {
 		writerStats := p.writer.Stats()
@@ -222,7 +222,7 @@ func (p *Producer) GetStats() map[string]interface{} {
 		stats["writer_batch_count"] = writerStats.Messages
 		stats["writer_batch_bytes"] = writerStats.BatchBytes
 	}
-	
+
 	return stats
 }
 
@@ -234,7 +234,7 @@ func (p *Producer) Publish(ctx context.Context, topic string, message []byte, he
 		return nil, errors.ServiceUnavailable("kafka producer is closed")
 	}
 	p.mu.RUnlock()
-	
+
 	// Convert headers
 	var kafkaHeaders []kafka.Header
 	if headers != nil {
@@ -245,7 +245,7 @@ func (p *Producer) Publish(ctx context.Context, topic string, message []byte, he
 			})
 		}
 	}
-	
+
 	// Create message
 	msg := kafka.Message{
 		Topic:   topic,
@@ -253,20 +253,20 @@ func (p *Producer) Publish(ctx context.Context, topic string, message []byte, he
 		Headers: kafkaHeaders,
 		Time:    time.Now(),
 	}
-	
+
 	// Write message
 	err := p.writer.WriteMessages(ctx, msg)
 	if err != nil {
 		return nil, errors.ServiceUnavailable(fmt.Sprintf("failed to publish to Kafka: %v", err))
 	}
-	
+
 	// Update stats
 	p.mu.Lock()
 	p.stats["messages_sent"] = p.stats["messages_sent"].(int) + 1
 	p.stats["bytes_sent"] = p.stats["bytes_sent"].(int) + len(message)
 	p.stats["last_publish_time"] = time.Now()
 	p.mu.Unlock()
-	
+
 	return &types.PublishResult{
 		MessageID: fmt.Sprintf("%s-%d", topic, time.Now().UnixNano()),
 		Metadata: types.MessageMetadata{
@@ -286,7 +286,7 @@ func (p *Producer) PublishBatch(ctx context.Context, messages []types.QueueMessa
 		return nil, errors.ServiceUnavailable("kafka producer is closed")
 	}
 	p.mu.RUnlock()
-	
+
 	// Convert to Kafka messages
 	kafkaMessages := make([]kafka.Message, 0, len(messages))
 	for _, msg := range messages {
@@ -297,7 +297,7 @@ func (p *Producer) PublishBatch(ctx context.Context, messages []types.QueueMessa
 				Value: []byte(v),
 			})
 		}
-		
+
 		kafkaMessages = append(kafkaMessages, kafka.Message{
 			Topic:   msg.Type, // Use Type as topic
 			Key:     []byte(msg.ID),
@@ -306,18 +306,18 @@ func (p *Producer) PublishBatch(ctx context.Context, messages []types.QueueMessa
 			Time:    msg.CreatedAt,
 		})
 	}
-	
+
 	// Write batch
 	err := p.writer.WriteMessages(ctx, kafkaMessages...)
 	if err != nil {
 		return nil, errors.ServiceUnavailable(fmt.Sprintf("failed to publish batch to Kafka: %v", err))
 	}
-	
+
 	// Create results
 	results := make([]*types.PublishResult, len(messages))
 	now := time.Now()
 	totalBytes := 0
-	
+
 	for i, msg := range messages {
 		results[i] = &types.PublishResult{
 			MessageID: msg.ID,
@@ -328,7 +328,7 @@ func (p *Producer) PublishBatch(ctx context.Context, messages []types.QueueMessa
 		}
 		totalBytes += len(msg.Payload)
 	}
-	
+
 	// Update stats
 	p.mu.Lock()
 	p.stats["messages_sent"] = p.stats["messages_sent"].(int) + len(messages)
@@ -336,14 +336,14 @@ func (p *Producer) PublishBatch(ctx context.Context, messages []types.QueueMessa
 	p.stats["last_batch_size"] = len(messages)
 	p.stats["last_batch_time"] = now
 	p.mu.Unlock()
-	
+
 	return results, nil
 }
 
 // PublishAsync publishes a message asynchronously
 func (p *Producer) PublishAsync(ctx context.Context, topic string, message []byte, headers types.MessageHeaders) <-chan *types.PublishResult {
 	resultChan := make(chan *types.PublishResult, 1)
-	
+
 	go func() {
 		defer close(resultChan)
 		result, err := p.Publish(ctx, topic, message, headers)
@@ -360,6 +360,6 @@ func (p *Producer) PublishAsync(ctx context.Context, topic string, message []byt
 		}
 		resultChan <- result
 	}()
-	
+
 	return resultChan
 }

@@ -21,11 +21,11 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "low-only", Level: 1, Severity: "INFO", Keywords: []string{"low"}},
 			},
 		}
-		
+
 		highPriorityPack := RulePack{
 			Metadata: Metadata{Name: "high"},
 			Composition: &Composition{
-				Strategy: "priority_order", 
+				Strategy: "priority_order",
 				Priority: 10, // Higher priority
 			},
 			Rules: []Rule{
@@ -33,15 +33,15 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "high-only", Level: 1, Severity: "HIGH", Keywords: []string{"high"}},
 			},
 		}
-		
+
 		// Test both orders to ensure priority wins regardless of slice order
 		result1 := MergePacksPriorityOrder([]RulePack{lowPriorityPack, highPriorityPack})
 		result2 := MergePacksPriorityOrder([]RulePack{highPriorityPack, lowPriorityPack})
-		
+
 		// Both should produce identical results
 		require.Len(t, result1, 3)
 		require.Len(t, result2, 3)
-		
+
 		// Find the shared rule
 		var sharedRule1, sharedRule2 *Rule
 		for i := range result1 {
@@ -54,18 +54,18 @@ func TestPriorityBasedMerging(t *testing.T) {
 				sharedRule2 = &result2[i]
 			}
 		}
-		
+
 		require.NotNil(t, sharedRule1)
 		require.NotNil(t, sharedRule2)
-		
+
 		// High priority pack should win (CRITICAL severity)
 		assert.Equal(t, "CRITICAL", sharedRule1.Severity)
 		assert.Equal(t, "CRITICAL", sharedRule2.Severity)
-		
+
 		// Results should be identical regardless of input order
 		assert.Equal(t, result1, result2)
 	})
-	
+
 	t.Run("DefaultPriorityZero", func(t *testing.T) {
 		packWithPriority := RulePack{
 			Metadata: Metadata{Name: "priority"},
@@ -77,7 +77,7 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "shared", Level: 1, Severity: "HIGH", Keywords: []string{"test"}},
 			},
 		}
-		
+
 		packWithoutPriority := RulePack{
 			Metadata: Metadata{Name: "default"},
 			// No composition = priority 0
@@ -85,14 +85,14 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "shared", Level: 1, Severity: "LOW", Keywords: []string{"test"}},
 			},
 		}
-		
+
 		result := MergePacksPriorityOrder([]RulePack{packWithoutPriority, packWithPriority})
-		
+
 		require.Len(t, result, 1)
 		// Pack with explicit priority 5 should win over default priority 0
 		assert.Equal(t, "HIGH", result[0].Severity)
 	})
-	
+
 	t.Run("SamePriorityFallsBackToName", func(t *testing.T) {
 		pack1 := RulePack{
 			Metadata: Metadata{Name: "zebra"}, // Comes last alphabetically
@@ -104,7 +104,7 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "shared", Level: 1, Severity: "LOW", Keywords: []string{"test"}},
 			},
 		}
-		
+
 		pack2 := RulePack{
 			Metadata: Metadata{Name: "alpha"}, // Comes first alphabetically
 			Composition: &Composition{
@@ -115,14 +115,14 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "shared", Level: 1, Severity: "HIGH", Keywords: []string{"test"}},
 			},
 		}
-		
+
 		result := MergePacksPriorityOrder([]RulePack{pack1, pack2})
-		
+
 		require.Len(t, result, 1)
 		// "alpha" should win due to alphabetical sorting when priorities are equal
 		assert.Equal(t, "HIGH", result[0].Severity)
 	})
-	
+
 	t.Run("PriorityWithExtends", func(t *testing.T) {
 		basePack := RulePack{
 			Metadata: Metadata{Name: "base"},
@@ -134,7 +134,7 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "shared", Level: 1, Severity: "LOW", Keywords: []string{"test"}},
 			},
 		}
-		
+
 		extendingPack := RulePack{
 			Metadata: Metadata{Name: "extending"},
 			Composition: &Composition{
@@ -146,11 +146,11 @@ func TestPriorityBasedMerging(t *testing.T) {
 				{ID: "shared", Level: 1, Severity: "CRITICAL", Keywords: []string{"test"}},
 			},
 		}
-		
+
 		result := MergePacksPriorityOrder([]RulePack{basePack, extendingPack})
-		
+
 		require.Len(t, result, 3)
-		
+
 		// Find shared rule
 		var sharedRule *Rule
 		for i := range result {
@@ -159,7 +159,7 @@ func TestPriorityBasedMerging(t *testing.T) {
 				break
 			}
 		}
-		
+
 		require.NotNil(t, sharedRule)
 		// Base pack wins due to extends semantics (first-wins after dependency resolution)
 		// This is correct behavior - extends dependencies are processed first regardless of priority
@@ -172,10 +172,10 @@ func TestGetPriorityHelper(t *testing.T) {
 		pack := RulePack{Metadata: Metadata{Name: "test"}}
 		assert.Equal(t, 0, getPriority(pack))
 	})
-	
+
 	t.Run("WithPriority", func(t *testing.T) {
 		pack := RulePack{
-			Metadata: Metadata{Name: "test"},
+			Metadata:    Metadata{Name: "test"},
 			Composition: &Composition{Priority: 42},
 		}
 		assert.Equal(t, 42, getPriority(pack))

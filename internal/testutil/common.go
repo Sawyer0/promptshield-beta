@@ -69,5 +69,3 @@ func AssertError(t *testing.T, err error, wantErr bool) {
 		t.Errorf("error = %v, wantErr = %v", err, wantErr)
 	}
 }
-
-

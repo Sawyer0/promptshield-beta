@@ -89,7 +89,7 @@ func sendImmediateResponseWithDetails(stream extproc.ExternalProcessor_ProcessSe
 	var body []byte
 
 	// Debug logging
-	logger := slog.With("component","grpc-enforcer")
+	logger := slog.With("component", "grpc-enforcer")
 	if scanResult != nil {
 		logger.Debug("sendImmediateResponseWithDetails called", "violations", len(scanResult.Violations))
 	} else {
@@ -196,7 +196,7 @@ func (s *Server) ReloadRules(ctx context.Context) error {
 	if len(packs) > 0 {
 		s.scReq.LoadRulePacks(packs)
 		s.scResp.LoadRulePacks(packs)
-		logger := slog.With("component","grpc-enforcer")
+		logger := slog.With("component", "grpc-enforcer")
 		logger.Info("Reloaded rulepacks from database", "count", len(packs))
 	}
 

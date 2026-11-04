@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	
+
 	"github.com/promptshield/promptshield/internal/audit"
 )
 
@@ -53,7 +53,7 @@ func TestEventStore_RecoveryAfterCrash(t *testing.T) {
 		// Read all events by checking file content
 		content, err := os.ReadFile(logPath)
 		require.NoError(t, err)
-		
+
 		lines := strings.Split(string(content), "\n")
 		validLines := 0
 		for _, line := range lines {
@@ -113,14 +113,14 @@ func TestEventStore_RecoveryAfterCrash(t *testing.T) {
 		err := os.WriteFile(logPath3, []byte(content), 0644)
 		require.NoError(t, err)
 
-		// Should handle corruption gracefully  
+		// Should handle corruption gracefully
 		store, err := Open(logPath3)
 		require.NoError(t, err)
 		defer store.Close()
 
 		// Check that store opened successfully despite corruption
 		assert.NotNil(t, store, "Store should open despite corruption")
-		
+
 		// The reindex process should have handled the corruption during Open()
 		t.Logf("Store opened successfully despite corrupted content")
 	})
@@ -184,7 +184,7 @@ func TestEventStore_Migration(t *testing.T) {
 	t.Run("MigrateV1ToV2Format", func(t *testing.T) {
 		// Create old format log file (V1)
 		oldLogPath := filepath.Join(tmpDir, "v1-format.log")
-		
+
 		// V1 format: Simple JSON lines without hash chaining
 		v1Content := strings.Join([]string{
 			`{"timestamp": "2024-01-01T00:00:00Z", "event": "scan", "result": "clean"}`,
@@ -208,7 +208,7 @@ func TestEventStore_Migration(t *testing.T) {
 		// Check that migration file was created
 		content, err := os.ReadFile(newLogPath)
 		require.NoError(t, err)
-		
+
 		lines := strings.Split(string(content), "\n")
 		validLines := 0
 		for _, line := range lines {
@@ -251,8 +251,8 @@ func TestEventStore_Migration(t *testing.T) {
 	t.Run("BackwardCompatibilityReading", func(t *testing.T) {
 		// Test that new EventStore can read logs from older versions
 		legacyFormats := map[string]string{
-			"simple": `{"event": "test"}`,
-			"with_hash": `{"event": "test", "hash": "abc123"}`,
+			"simple":        `{"event": "test"}`,
+			"with_hash":     `{"event": "test", "hash": "abc123"}`,
 			"with_metadata": `{"event": "test", "metadata": {"version": "1.0"}}`,
 		}
 
@@ -336,7 +336,7 @@ func TestEventStore_ConcurrentRecovery(t *testing.T) {
 	}
 
 	assert.NotEmpty(t, eventCounts, "At least one goroutine should succeed")
-	
+
 	// All successful reads should see the same number of events
 	expectedCount := 5
 	for i, count := range eventCounts {
@@ -366,7 +366,7 @@ func migrateEventStoreV1ToV2(oldPath, newPath string) error {
 		// In real implementation, would parse JSON and add fields
 		migrated := strings.TrimSuffix(line, "}")
 		migrated += `, "migrated": true, "migration_time": "` + time.Now().Format(time.RFC3339) + `"}`
-		
+
 		migratedLines = append(migratedLines, migrated)
 	}
 
@@ -420,7 +420,7 @@ func TestEventStore_IntegrityVerification(t *testing.T) {
 
 	t.Run("VerifyUntamperedLog", func(t *testing.T) {
 		cleanLogPath := filepath.Join(tmpDir, "clean-integrity.log")
-		
+
 		store, err := Open(cleanLogPath)
 		require.NoError(t, err)
 
@@ -444,4 +444,3 @@ func TestEventStore_IntegrityVerification(t *testing.T) {
 		t.Log("Clean log opened successfully")
 	})
 }
-

@@ -50,11 +50,11 @@ func TestCrashRecovery_PartialWrite(t *testing.T) {
 	// The reindex() method during Open() should fail when it hits the corrupted JSON
 	// because json.Decoder.Decode() will return a JSON syntax error
 	_, err = Open(storePath)
-	
+
 	// The actual implementation will fail to reindex due to JSON parse error
 	assert.Error(t, err, "Should fail to open corrupted store")
 	assert.Contains(t, err.Error(), "unexpected EOF", "Should be JSON parse error")
-	
+
 	// Verify we can create a new clean store
 	cleanPath := filepath.Join(tempDir, "clean-recovery.log")
 	cleanStore, err := Open(cleanPath)
@@ -272,7 +272,7 @@ func TestCrashRecovery_SequenceConsistencyAfterReopen(t *testing.T) {
 		event := createTestEvent(fixtures.TenantID1.String(), fmt.Sprintf("BATCH2_%d", i))
 		seq, err := store2.Append(context.Background(), event)
 		require.NoError(t, err)
-		
+
 		// Verify sequence numbers continue incrementing
 		assert.Greater(t, seq, lastSeq, "Sequence should increase after reopen")
 		lastSeq = seq
@@ -282,7 +282,7 @@ func TestCrashRecovery_SequenceConsistencyAfterReopen(t *testing.T) {
 	for i := uint64(1); i <= lastSeq; i++ {
 		rec, err := store2.Get(context.Background(), i)
 		require.NoError(t, err, "Should be able to read sequence %d", i)
-		assert.True(t, 
+		assert.True(t,
 			strings.Contains(rec.Event.Type, "BATCH1_") || strings.Contains(rec.Event.Type, "BATCH2_"),
 			"Event %d should have correct type: %s", i, rec.Event.Type)
 	}

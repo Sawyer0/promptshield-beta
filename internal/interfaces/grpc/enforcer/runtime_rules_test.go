@@ -78,7 +78,7 @@ func (m *mockRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID) ([]cont
 func TestEnforcer_RuntimeRuleLoading(t *testing.T) {
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 	packID := uuid.New()
-	
+
 	// Mock repository with active rulepack
 	repo := &mockRepo{}
 	repo.On("ListByTenant", mock.Anything, tenantID).Return([]contracts.RulepackInfo{
@@ -90,7 +90,7 @@ func TestEnforcer_RuntimeRuleLoading(t *testing.T) {
 			Active:      true,
 		},
 	}, nil)
-	
+
 	// Mock DSL content
 	dslContent := `
 metadata:
@@ -103,51 +103,51 @@ rules:
     severity: HIGH
     category: security
 `
-	
+
 	repo.On("GetActive", mock.Anything, packID).Return(json.RawMessage(dslContent), 1, nil)
-	
+
 	// Create enforcer with database repository
 	opts := Options{
 		Timeout:      100 * time.Millisecond,
 		RulepackRepo: repo,
 		TenantID:     tenantID,
 	}
-	
+
 	server := NewWithOptions(opts)
-	
+
 	// Verify server was created and rules loaded
 	assert.NotNil(t, server)
 	assert.Equal(t, tenantID, server.tenantID)
 	assert.Equal(t, repo, server.rulepackRepo)
-	
+
 	// Test runtime rule reload
 	ctx := context.Background()
 	err := server.ReloadRules(ctx)
 	assert.NoError(t, err)
-	
+
 	// Verify mocks were called
 	repo.AssertExpectations(t)
 }
 
 func TestEnforcer_FailOpenWhenNoDatabaseRules(t *testing.T) {
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	
+
 	// Mock repository with no active rulepacks
 	repo := &mockRepo{}
 	repo.On("ListByTenant", mock.Anything, tenantID).Return([]contracts.RulepackInfo{}, nil)
-	
+
 	// Create enforcer with database repository
 	opts := Options{
 		Timeout:      100 * time.Millisecond,
 		RulepackRepo: repo,
 		TenantID:     tenantID,
 	}
-	
+
 	server := NewWithOptions(opts)
-	
+
 	// Should fail-open (ready=true) even with no database rules
 	assert.True(t, server.ready)
-	
+
 	repo.AssertExpectations(t)
 }
 
@@ -157,9 +157,9 @@ func TestEnforcer_NoRepositoryFallsBackToFiles(t *testing.T) {
 		Timeout: 100 * time.Millisecond,
 		// No RulepackRepo provided
 	}
-	
+
 	server := NewWithOptions(opts)
-	
+
 	// Should still be created (may fail-open depending on file availability)
 	assert.NotNil(t, server)
 	assert.Nil(t, server.rulepackRepo)

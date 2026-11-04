@@ -36,10 +36,10 @@ func NewFileLogger(w io.Writer) *FileLogger { return &FileLogger{enc: jsonx.NewE
 func (l *FileLogger) Log(e Event) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-    // Always sanitize data before hashing/writing to ensure redaction
-    if e.Data != nil {
-        e.Data = SanitizeMap(e.Data)
-    }
+	// Always sanitize data before hashing/writing to ensure redaction
+	if e.Data != nil {
+		e.Data = SanitizeMap(e.Data)
+	}
 	e.Timestamp = time.Now().UTC()
 	e.PrevHash = l.prevSum
 	e.Hash = hashEvent(e)
