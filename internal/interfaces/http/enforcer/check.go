@@ -6,23 +6,24 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/promptshield/promptshield/internal/application/decisions"
 	"github.com/promptshield/promptshield/internal/encoding/jsonx"
-	"github.com/promptshield/promptshield/internal/scanner"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // checkHandlerConfig carries the state the /check handler needs from the mux.
 type checkHandlerConfig struct {
-	// scanners hands out *scanner.Scanner values preloaded with the active RulePacks.
-	scanners *sync.Pool
-	// hasRules reports whether any RulePack was loaded at startup.
-	hasRules bool
+	// scanners hands out scanners preloaded with the active RulePacks.
+	scanners *scannerPool
+	// hasRules reports whether any RulePack is active.
+	hasRules func() bool
 	// requireRules mirrors PS_REQUIRE_RULEPACK_AT_STARTUP.
 	requireRules bool
+	// record receives every decision (decision log and event stream). Optional.
+	record func(decisions.Record)
 }
 
 // newCheckHandler returns the POST /check handler used directly and by Envoy
@@ -53,8 +54,8 @@ func newCheckHandler(cfg checkHandlerConfig) http.HandlerFunc {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 		defer r.Body.Close()
 
-		sc := cfg.scanners.Get().(*scanner.Scanner)
-		defer cfg.scanners.Put(sc)
+		sc, release := cfg.scanners.get()
+		defer release()
 
 		res, err := sc.ScanReader(ctx, r.Body, "http:request")
 		if err != nil {
@@ -117,6 +118,21 @@ func newCheckHandler(cfg checkHandlerConfig) http.HandlerFunc {
 		w.WriteHeader(statusCode)
 		_ = jsonx.NewEncoder(w).Encode(map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": reqID})
 
+		if cfg.record != nil {
+			cfg.record(decisions.Record{
+				RequestID:  reqID,
+				Time:       start.UTC(),
+				Path:       r.URL.Path,
+				Decision:   decision,
+				Reason:     reason,
+				Status:     statusCode,
+				LatencyMs:  float64(time.Since(start).Microseconds()) / 1000.0,
+				BytesIn:    res.Metrics.BytesRead,
+				Violations: total,
+				Matches:    decisions.MatchesFrom(res.Violations),
+			})
+		}
+
 		if !metricsEnabled() {
 			return
 		}
@@ -124,7 +140,7 @@ func newCheckHandler(cfg checkHandlerConfig) http.HandlerFunc {
 		recordRequest(statusCode)
 		enforcerReqDuration.WithLabelValues("/check", decision).Observe(time.Since(start).Seconds())
 		switch {
-		case !cfg.hasRules:
+		case !cfg.hasRules():
 			policyBypass.WithLabelValues("no_rules").Inc()
 		case !cfg.requireRules:
 			policyBypass.WithLabelValues("config").Inc()

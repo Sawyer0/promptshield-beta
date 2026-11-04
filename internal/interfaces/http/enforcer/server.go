@@ -12,13 +12,14 @@ import (
 
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/promptshield/promptshield/internal/application/decisions"
+	"github.com/promptshield/promptshield/internal/application/rulesets"
 	"github.com/promptshield/promptshield/internal/application/services"
 	"github.com/promptshield/promptshield/internal/audit"
 	"github.com/promptshield/promptshield/internal/bootstrap"
@@ -26,10 +27,7 @@ import (
 	pg "github.com/promptshield/promptshield/internal/infrastructure/persistence/postgres"
 	"github.com/promptshield/promptshield/internal/interfaces/http/api"
 	"github.com/promptshield/promptshield/internal/observability/telemetry"
-	"github.com/promptshield/promptshield/internal/rules"
-	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/security/paths"
-	semopenai "github.com/promptshield/promptshield/internal/semantic/openai"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/types"
 	"github.com/promptshield/promptshield/internal/usage"
@@ -248,20 +246,21 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		r.Use(middleware.Recoverer)
 		r.Use(middleware.Timeout(10 * time.Second))
 	}
-	// preloadPacks declared early for readiness probe access; initialized later.
-	var preloadPacks []rules.RulePack
-	var scannerPool = &sync.Pool{}
-	// Preload rulepacks early so readiness probe has accurate state.
-	{
-		rulepackPath := os.Getenv("PS_ENFORCER_RULEPACK")
-
-		if rulepackPath != "" {
-			if packs, e := rules.LoadPacks(rulepackPath); e == nil {
-				preloadPacks = packs
-			} else {
-				slog.Error("failed to load rulepack", "path", rulepackPath, "error", e)
-			}
+	// Active RulePacks, shared by /check, /v1/check and the dashboard, and
+	// reloadable through POST /v1/rules/reload.
+	if apiOpt.ActiveRules == nil {
+		set, err := rulesets.NewSet(os.Getenv("PS_ENFORCER_RULEPACK"))
+		if err != nil {
+			slog.Error("failed to load rulepack", "path", os.Getenv("PS_ENFORCER_RULEPACK"), "error", err)
 		}
+		apiOpt.ActiveRules = set
+	}
+	// Share one event hub and decision log between /check and the v1 API.
+	if apiOpt.Events == nil {
+		apiOpt.Events = api.NewEventHub()
+	}
+	if apiOpt.Decisions == nil {
+		apiOpt.Decisions = decisions.NewLog(decisions.DefaultCapacity)
 	}
 	var maxStreamBytes int64
 	if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {
@@ -269,41 +268,8 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 			maxStreamBytes = n
 		}
 	}
-	scannerPool.New = func() any {
-		sc := scanner.ScanEngineCstor(0)
-		if maxStreamBytes > 0 {
-			sc.SetMaxStreamBytes(maxStreamBytes)
-		}
-		sc.SetQuarantineOnTimeout(true)
-		sc.SetQuarantineOnError(true)
-		if len(preloadPacks) > 0 {
-			sc.LoadRulePacks(preloadPacks)
-		}
-
-		// Initialize semantic analyzer if enabled
-		if os.Getenv("PS_SEMANTIC_ENABLED") == "true" {
-			provider := os.Getenv("PS_SEMANTIC_PROVIDER")
-			if provider == "openai" {
-				apiKey := os.Getenv("OPENAI_API_KEY")
-				if apiKey != "" {
-					analyzer := semopenai.New(semopenai.Options{
-						APIKey:            apiKey,
-						MaxConcurrency:    2,
-						CacheSize:         1000,
-						CacheTTL:          15 * time.Minute,
-						RequestsPerSecond: 10,
-						BurstSize:         20,
-					})
-					sc.SetSemanticAnalyzer(analyzer)
-					if logger := slog.With("component", "semantic"); logger != nil {
-						logger.Info("OpenAI semantic analyzer initialized")
-					}
-				}
-			}
-		}
-
-		return sc
-	}
+	scanners := newScannerPool(apiOpt.ActiveRules, maxStreamBytes)
+	hasRules := func() bool { return len(apiOpt.ActiveRules.Packs()) > 0 }
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -312,8 +278,7 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 	// Readiness gate: health plus rulepack/scanner ready
 	requireAtStartup := envBool("PS_REQUIRE_RULEPACK_AT_STARTUP")
 	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		hasActivePack := len(preloadPacks) > 0
-		ready := dbHealthy && (hasActivePack || !requireAtStartup)
+		ready := dbHealthy && (hasRules() || !requireAtStartup)
 		if !ready {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
@@ -332,9 +297,10 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 
 	// POST /check (and /check/* for Envoy ext_authz path_prefix forwarding)
 	check := newCheckHandler(checkHandlerConfig{
-		scanners:     scannerPool,
-		hasRules:     len(preloadPacks) > 0,
+		scanners:     scanners,
+		hasRules:     hasRules,
 		requireRules: requireAtStartup,
+		record:       func(rec decisions.Record) { api.RecordDecision(apiOpt, rec) },
 	})
 	r.Route("/check", func(cr chi.Router) {
 		cr.HandleFunc("/", check)
