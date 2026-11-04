@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
@@ -128,10 +129,15 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			decision = "quarantine"
 			reason = firstNonEmpty(firstRule, "signals_detected")
 		}
-		// Attach request id if available
-		if id := r.Header.Get("X-Request-ID"); id != "" {
-			w.Header().Set("x-ps-request-id", id)
+		// Request correlation id: caller's X-Request-ID, else the router's, else a new one.
+		reqID := r.Header.Get("X-Request-ID")
+		if reqID == "" {
+			reqID = middleware.GetReqID(r.Context())
 		}
+		if reqID == "" {
+			reqID = uuid.NewString()
+		}
+		w.Header().Set("x-ps-request-id", reqID)
 		w.Header().Set("x-ps-decision", decision)
 		w.Header().Set("x-ps-reason", reason)
 		w.Header().Set("content-type", "application/json")
@@ -140,7 +146,7 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			statusCode = http.StatusForbidden
 		}
 		w.WriteHeader(statusCode)
-		resp := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": r.Header.Get("X-Request-ID")}
+		resp := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": reqID}
 		_ = json.NewEncoder(w).Encode(resp)
 
 		// Publish decision event
