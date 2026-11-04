@@ -31,11 +31,6 @@ Note: the `gateway` binds `:9090`/`:9091` by default (non-loopback). You must pr
   - `X-PS-Token: <token>`
   - Also validated against `PS_ENFORCER_AUTH_TOKEN`
 
-- Optional OIDC (JWT validation):
-  - Enable by setting `PS_ENFORCER_OIDC_ISSUER` (e.g., "https://auth.example.com")
-  - Optionally set `PS_ENFORCER_OIDC_AUDIENCE` for audience validation
-  - Claims from the verified ID token are attached to request context and used for tenancy resolution.
-
 **Protected User Endpoints:**
 - `POST /v1/check` - Security decision API
 - `POST /v1/scan` - Batch scanning API
@@ -63,9 +58,7 @@ Note: the `gateway` binds `:9090`/`:9091` by default (non-loopback). You must pr
 
 ## Tenancy & Quotas
 
-- Tenancy resolution order:
-  1. OIDC JWT claims (`tid`, `tenant`, `org`, `azp`)
-  2. Header `x-tenant-id`
+- Tenancy is resolved from the `x-tenant-id` header.
 - Per-tenant quotas may be enforced when `Options.QuotaStore` is configured. Exceeding limits returns `429 RESOURCE_EXHAUSTED`.
 
 ## Limits & Budgets
