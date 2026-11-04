@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/promptshield/promptshield/internal/shared/types"
-	stringutil "github.com/promptshield/promptshield/internal/util/strings"
 )
 
 // createMeterProvider creates a meter provider instance
@@ -86,8 +85,8 @@ func createTracerProvider(ctx context.Context, config *types.TelemetryConfig, co
 // createResource creates OTel resource attributes
 func createResource(config *types.TelemetryConfig) (*resource.Resource, error) {
 	attrs := []attribute.KeyValue{
-		semconv.ServiceNameKey.String(stringutil.Coalesce(config.Service, "promptshield")),
-		semconv.ServiceVersionKey.String(stringutil.Coalesce(config.Version, "dev")),
+		semconv.ServiceNameKey.String(orDefault(config.Service, "promptshield")),
+		semconv.ServiceVersionKey.String(orDefault(config.Version, "dev")),
 	}
 	if config.MachineID != "" {
 		attrs = append(attrs, semconv.ServiceInstanceIDKey.String(config.MachineID))

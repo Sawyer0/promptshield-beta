@@ -1,5 +1,7 @@
 package metrics
 
+import "time"
+
 // Registry initialization package for PromptShield metrics.
 // Domain-specific metrics are defined in their respective subpackages:
 // - extproc.go: External processor (Envoy ext_proc) metrics
@@ -19,4 +21,9 @@ func init() {
 	// - llm.go
 	// - rulepack.go
 	// - stream.go
+}
+
+// observeDuration records d in seconds on a histogram or summary.
+func observeDuration(o interface{ Observe(float64) }, d time.Duration) {
+	o.Observe(d.Seconds())
 }

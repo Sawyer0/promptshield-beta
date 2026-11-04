@@ -4,26 +4,26 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/requestctx"
 	"github.com/promptshield/promptshield/internal/shared/types"
-	contextutil "github.com/promptshield/promptshield/internal/util/context"
 )
 
 // enrichEventFromContext adds context information to the audit event
 func enrichEventFromContext(ctx context.Context, event *types.AuditEvent) {
-	if requestID, ok := contextutil.GetRequestID(ctx); ok {
+	if requestID, ok := requestctx.GetRequestID(ctx); ok {
 		event.RequestID = requestID
 	}
-	if tenantID, ok := contextutil.GetTenantID(ctx); ok {
+	if tenantID, ok := requestctx.GetTenantID(ctx); ok {
 		if parsed, err := uuid.Parse(tenantID); err == nil {
 			event.TenantID = &parsed
 		}
 	}
-	if userID, ok := contextutil.GetUserID(ctx); ok {
+	if userID, ok := requestctx.GetUserID(ctx); ok {
 		if parsed, err := uuid.Parse(userID); err == nil {
 			event.ActorID = &parsed
 		}
 	}
-	if correlationID, ok := contextutil.GetCorrelationID(ctx); ok {
+	if correlationID, ok := requestctx.GetCorrelationID(ctx); ok {
 		if event.Metadata == nil {
 			event.Metadata = make(map[string]interface{})
 		}

@@ -10,7 +10,6 @@ import (
 
 	"github.com/promptshield/promptshield/internal/encoding/jsonx"
 	"github.com/promptshield/promptshield/internal/shared/types"
-	otelutil "github.com/promptshield/promptshield/internal/util/otel"
 )
 
 // eventExporter handles telemetry event exporting
@@ -65,7 +64,7 @@ func (e *eventExporter) exportEvent(ctx context.Context, event *types.TelemetryE
 
 // recordToMetrics records event to OTel metrics
 func (e *eventExporter) recordToMetrics(ctx context.Context, event *types.TelemetryEvent) error {
-	attrs := otelutil.ToAttributes(event.Payload, []string{"version", "os", "arch", "ci", "json_out", "output_format", "workers", "fail_on", "kind"})
+	attrs := toAttributes(event.Payload, []string{"version", "os", "arch", "ci", "json_out", "output_format", "workers", "fail_on", "kind"})
 
 	switch event.Type {
 	case "startup", "setup":

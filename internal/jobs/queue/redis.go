@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/promptshield/promptshield/internal/util/tracing"
+	"github.com/promptshield/promptshield/internal/observability/tracing"
 	redis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
 )

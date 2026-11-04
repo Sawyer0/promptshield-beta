@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/requestctx"
 	"github.com/promptshield/promptshield/internal/shared/contracts"
 	"github.com/promptshield/promptshield/internal/shared/events"
 	"github.com/promptshield/promptshield/internal/shared/types"
-	ctxutil "github.com/promptshield/promptshield/internal/util/context"
 )
 
 // PolicyServiceImpl implements the PolicyService interface
@@ -220,7 +220,7 @@ func (s *PolicyServiceImpl) ActivatePolicy(ctx context.Context, id uuid.UUID) er
 
 	// Publish policy activation event for real-time enforcement
 	var activatedBy *uuid.UUID
-	if userIDStr, ok := ctxutil.GetUserID(ctx); ok {
+	if userIDStr, ok := requestctx.GetUserID(ctx); ok {
 		if userID, err := uuid.Parse(userIDStr); err == nil {
 			activatedBy = &userID
 		}
@@ -291,7 +291,7 @@ func (s *PolicyServiceImpl) DeactivatePolicy(ctx context.Context, id uuid.UUID) 
 
 	// Publish policy deactivation event for real-time enforcement
 	var deactivatedBy *uuid.UUID
-	if userIDStr, ok := ctxutil.GetUserID(ctx); ok {
+	if userIDStr, ok := requestctx.GetUserID(ctx); ok {
 		if userID, err := uuid.Parse(userIDStr); err == nil {
 			deactivatedBy = &userID
 		}

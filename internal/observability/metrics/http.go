@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	timeutil "github.com/promptshield/promptshield/internal/util/time"
 )
 
 // HTTP API metrics
@@ -34,7 +33,7 @@ var (
 )
 
 func RecordScanDuration(mode string, duration time.Duration) {
-	timeutil.ObserveDuration(ScanRequestDuration.WithLabelValues(mode), duration)
+	observeDuration(ScanRequestDuration.WithLabelValues(mode), duration)
 }
 
 func init() {

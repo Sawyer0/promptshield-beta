@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	timeutil "github.com/promptshield/promptshield/internal/util/time"
 )
 
 // LLM Token Usage Metrics for billing/observability
@@ -62,7 +61,7 @@ var (
 )
 
 func RecordLLMLatency(provider, model string, duration time.Duration) {
-	timeutil.ObserveDuration(LLMLatency.WithLabelValues(provider, model), duration)
+	observeDuration(LLMLatency.WithLabelValues(provider, model), duration)
 }
 
 func init() {

@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/promptshield/promptshield/internal/domain"
-	"github.com/promptshield/promptshield/internal/util/tracing"
+	"github.com/promptshield/promptshield/internal/observability/tracing"
 	"go.opentelemetry.io/otel"
 )
 

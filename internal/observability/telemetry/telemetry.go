@@ -5,7 +5,7 @@ package telemetry
 // - collector.go: Main Collector implementing TelemetryCollector + tracing capabilities
 // - provider.go: Unified OpenTelemetry provider setup (meters + tracers, no global state)
 // - exporter.go: Event exporting to files and OTel collectors
-// - Helper functions moved to internal/util/tracing/ for span creation
+// - Helper functions moved to internal/observability/tracing for span creation
 
 // This unified approach eliminates duplication between telemetry and tracing
 // while providing both business analytics and technical debugging capabilities.
