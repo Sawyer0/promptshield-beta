@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/promptshield/promptshield/internal/encoding/jsonx"
-	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -41,18 +40,6 @@ func newCheckHandler(cfg checkHandlerConfig) http.HandlerFunc {
 			recordRequest(http.StatusUnauthorized)
 			return
 		}
-		if !license.IsLicensed() {
-			w.Header().Set("X-PromptShield-License", "EVALUATION")
-			if !license.AllowEvalRequest() {
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
-				recordRequest(http.StatusTooManyRequests)
-				return
-			}
-		} else {
-			w.Header().Set("X-PromptShield-License", "LICENSED")
-		}
-
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		start := time.Now()

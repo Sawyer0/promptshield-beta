@@ -365,5 +365,5 @@ Interested in contributing? Check out:
 
 ### License
 
-Copyright © 2025 Dawan Sawyer.
+Apache License 2.0. See [LICENSE](LICENSE).
 

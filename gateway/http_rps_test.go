@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,11 +21,6 @@ import (
 // TestHTTP_SustainedRPS measures sustained RPS of /check under concurrency.
 // To enforce an assertion for 12k RPS, set PS_ENFORCE_RPS=1.
 func TestHTTP_SustainedRPS(t *testing.T) {
-	// Bypass evaluation limiter with a dummy enterprise license
-	payload := `{"org":"Perf","tier":"enterprise","expires_at":"2099-01-01T00:00:00Z","entitlements":{}}`
-	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
-	os.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
-
 	// Start in-memory HTTP server with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)
@@ -94,11 +88,6 @@ func TestHTTP_SustainedRPS(t *testing.T) {
 // TestHTTP_P95_Sub300ms measures P95 latency on 64KB bodies to exercise streaming path.
 // To enforce an assertion, set PS_ENFORCE_P95=1.
 func TestHTTP_P95_Sub300ms(t *testing.T) {
-	// Bypass evaluation limiter
-	payload := `{"org":"SLA","tier":"enterprise","expires_at":"2099-01-01T00:00:00Z","entitlements":{}}`
-	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
-	os.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
-
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)

@@ -11,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/domain"
-	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/version"
 )
 
@@ -62,15 +61,14 @@ type SystemStats struct {
 
 // SystemInfo represents general system information
 type SystemInfo struct {
-	Version   string                 `json:"version"`
-	Commit    string                 `json:"commit"`
-	BuildDate string                 `json:"build_date"`
-	GoVersion string                 `json:"go_version"`
-	Platform  string                 `json:"platform"`
-	StartTime time.Time              `json:"start_time"`
-	Uptime    string                 `json:"uptime"`
-	License   map[string]interface{} `json:"license"`
-	Features  SystemFeatures         `json:"features"`
+	Version   string         `json:"version"`
+	Commit    string         `json:"commit"`
+	BuildDate string         `json:"build_date"`
+	GoVersion string         `json:"go_version"`
+	Platform  string         `json:"platform"`
+	StartTime time.Time      `json:"start_time"`
+	Uptime    string         `json:"uptime"`
+	Features  SystemFeatures `json:"features"`
 }
 
 // SystemStatus represents comprehensive system health status
@@ -107,12 +105,9 @@ var systemStartTime = time.Now()
 // getFeaturesHandler handles GET /v1/admin/system/features
 func getFeaturesHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Ensure license state is loaded
-		_ = license.IsLicensed()
-
 		features := SystemFeatures{
-			AsyncJobs:        license.HasFeature("async_jobs"),
-			L3Semantic:       license.HasFeature("l3_semantic"),
+			AsyncJobs:        true,
+			L3Semantic:       true,
 			TenantManagement: opt.TenantRepository != nil,
 			AuditLogging:     opt.AuditRepository != nil,
 			UsageTracking:    opt.UsageStore != nil,
@@ -195,10 +190,6 @@ func shutdownSystemHandler(opt Options) http.HandlerFunc {
 // getSystemInfoHandler handles GET /v1/admin/system/info
 func getSystemInfoHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Get license information
-		licenseInfo := license.Info()
-		entitlements, _ := license.Entitlement()
-
 		info := SystemInfo{
 			Version:   version.Version,
 			Commit:    version.Commit,
@@ -207,16 +198,9 @@ func getSystemInfoHandler(opt Options) http.HandlerFunc {
 			Platform:  runtime.GOOS + "/" + runtime.GOARCH,
 			StartTime: systemStartTime,
 			Uptime:    time.Since(systemStartTime).String(),
-			License: map[string]interface{}{
-				"org":          licenseInfo.Organization,
-				"tier":         licenseInfo.Tier,
-				"expires_at":   licenseInfo.ExpiresAt,
-				"licensed":     license.IsLicensed(),
-				"entitlements": entitlements,
-			},
 			Features: SystemFeatures{
-				AsyncJobs:        license.HasFeature("async_jobs"),
-				L3Semantic:       license.HasFeature("l3_semantic"),
+				AsyncJobs:        true,
+				L3Semantic:       true,
 				TenantManagement: opt.TenantRepository != nil,
 				AuditLogging:     opt.AuditRepository != nil,
 				UsageTracking:    opt.UsageStore != nil,
@@ -257,32 +241,6 @@ func getSystemStatusHandler(opt Options) http.HandlerFunc {
 					Message:   "Database connectivity OK",
 					LastCheck: now,
 				}
-			}
-		}
-
-		// License health
-		if license.IsLicensed() {
-			licenseInfo := license.Info()
-			if time.Now().After(licenseInfo.ExpiresAt) {
-				components["license"] = ComponentStatus{
-					Status:    "unhealthy",
-					Message:   "License expired",
-					LastCheck: now,
-					Details:   map[string]interface{}{"expires_at": licenseInfo.ExpiresAt},
-				}
-			} else {
-				components["license"] = ComponentStatus{
-					Status:    "healthy",
-					Message:   "License valid",
-					LastCheck: now,
-					Details:   map[string]interface{}{"expires_at": licenseInfo.ExpiresAt},
-				}
-			}
-		} else {
-			components["license"] = ComponentStatus{
-				Status:    "degraded",
-				Message:   "No license configured",
-				LastCheck: now,
 			}
 		}
 

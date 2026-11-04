@@ -104,7 +104,6 @@ This document describes the complete technical stack used by PromptShield, deriv
   - Decisions: allow/quarantine/deny (stub), emits headers `x-ps-decision`, `x-ps-reason`
   - TLS/mTLS: `PS_ENFORCER_TLS_MODE=auto|require|disable` (default `auto`);
     auto-detects certs at `/tls/server.crt` + `/tls/server.key` when envs unset; mTLS via `PS_ENFORCER_TLS_CLIENT_CA`
-  - Licensing: Evaluation vs licensed headers via `internal/license`
 - **gRPC Enforcer (Envoy ext_proc)** (`internal/interfaces/grpc/enforcer`)
   - API: Envoy `ext_proc v3` (`envoyproxy/go-control-plane`)
   - Interceptors: recovery + logging + `otelgrpc` stats handler
@@ -115,11 +114,9 @@ This document describes the complete technical stack used by PromptShield, deriv
 
 ## Security & Privacy
 
-- **Secrets storage**: OS keyring for provider API keys (`99designs/keyring v1.2.2`)
 - **Redaction**: Tokens and secrets masked everywhere (logs, audit)
 - **Input validation**: Path traversal, null-byte, symlink policy, broad glob guard
 - **Network**: TLS/mTLS support in HTTP/gRPC enforcers
-- **License-aware limits**: Evaluation-mode rate limiting headers in HTTP enforcer
 
 ## Testing & Quality
 

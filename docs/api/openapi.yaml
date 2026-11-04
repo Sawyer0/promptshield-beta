@@ -172,9 +172,9 @@ paths:
                 description: NDJSON stream of decision events
   /v1/scan/async:
     post:
-      summary: Start an async scan job (licensed feature)
+      summary: Start an async scan job
       description: |
-        Starts an asynchronous scan job. Requires a license with the `async_jobs` feature.
+        Starts an asynchronous scan job.
         Returns a job identifier if accepted.
       operationId: postScanAsync
       security:
@@ -190,12 +190,6 @@ paths:
                 properties:
                   job_id:
                     type: string
-        '403':
-          description: Feature not available
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
   /v1/rulepacks:
     get:
       summary: List available rulepacks
@@ -504,36 +498,6 @@ paths:
       responses:
         '202':
           description: Shutdown initiated
-  /v1/license:
-    get:
-      summary: Get license info and entitlements
-      operationId: getLicense
-      responses:
-        '200':
-          description: License info
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/License'
-    post:
-      summary: Set/rotate license (admin)
-      operationId: postLicense
-      security:
-        - bearerAuth: []
-        - xPSAdminToken: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                key:
-                  type: string
-              required: [key]
-      responses:
-        '204':
-          description: Updated
 components:
   securitySchemes:
     bearerAuth:
@@ -628,30 +592,6 @@ components:
           type: integer
         response_timeout_ms:
           type: integer
-    License:
-      type: object
-      properties:
-        org:
-          type: string
-        tier:
-          type: string
-        expires_at:
-          type: string
-          format: date-time
-        licensed:
-          type: boolean
-        entitlements:
-          $ref: '#/components/schemas/Entitlements'
-    Entitlements:
-      type: object
-      properties:
-        max_rps:
-          type: number
-          format: float
-        features:
-          type: object
-          additionalProperties:
-            type: boolean
     ScanReport:
       type: object
       properties:

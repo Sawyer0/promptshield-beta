@@ -49,8 +49,6 @@ Note: the `gateway` binds `:9090`/`:9091` by default (non-loopback). You must pr
   - `X-PS-Admin-Token: <admin-token>`
 
 **Protected Admin Endpoints:**
-- `GET /v1/license` - License and billing information
-- `POST /v1/license` - License key updates
 - `GET /v1/usage` - Usage and billing data
 - `GET /v1/stats` - Performance statistics
 - `GET /v1/events` - Real-time event stream

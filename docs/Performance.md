@@ -98,7 +98,6 @@ URL=http://127.0.0.1:9090/check R=800 CONNS=100 TIMEOUT=5s DUR=20s bash tools/mi
 ```
 
 Notes:
-- Ensure license is set for unrestricted testing (evaluation mode is heavily rate‑limited): `PROMPTSHIELD_LICENSE_KEY=...` (env‑based)
 - For end‑to‑end runs, tune edge timeouts and limits:
   - In `envoy-config.yaml`, `ext_proc.message_timeout: 5.000s`
   - Keep `ext_authz` enabled in production; you may disable during synthetic load tests to focus on streaming costs
@@ -136,7 +135,6 @@ Environment: WSL2 Ubuntu, Intel(R) Core(TM) Ultra 5 125U, Go 1.25.0.
 Enforcer flags/env during tests:
 - `PS_ENFORCER_FAST=1` `PS_ENFORCER_DISABLE_METRICS=1` `PS_ENFORCER_DISABLE_TRACING=1`
 - `GOMAXPROCS=$(nproc)` and `ulimit -n 65535`
-- License set to unlimited RPS (base64url token with `entitlements.max_rps=0`)
 
 Measured with `wrk` (each 30s):
 

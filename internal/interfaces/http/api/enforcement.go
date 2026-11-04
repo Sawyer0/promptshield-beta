@@ -15,7 +15,6 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
@@ -33,16 +32,6 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 				_, _ = w.Write([]byte("unauthorized"))
 				return
 			}
-		}
-		if !license.IsLicensed() {
-			w.Header().Set("X-PromptShield-License", "EVALUATION")
-			if !license.AllowEvalRequest() {
-				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte("Rate limit exceeded in evaluation mode"))
-				return
-			}
-		} else {
-			w.Header().Set("X-PromptShield-License", "LICENSED")
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -80,7 +69,6 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			// Quarantine behavior consistent with runtime defaults
 			sc.SetQuarantineOnTimeout(true)
 			sc.SetQuarantineOnError(true)
-			// Async scan gating is handled at handler level; L3 gating occurs in scanner via license entitlements
 			rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
 			if rulepack != "" {
 				if packs, e := rules.LoadPacks(rulepack); e == nil {

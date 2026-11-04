@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/contracts"
 	nats "github.com/promptshield/promptshield/internal/infrastructure/messaging/nats"
-	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"golang.org/x/time/rate"
@@ -143,16 +142,8 @@ func NewWithOptions(opt Options) *Server {
 		}
 	}
 
-	// rate‐limiter based on license or env
-	if ent, ok := license.Entitlement(); ok && ent.MaxRPS > 0 {
-		burst := 1
-		if b := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); b != "" {
-			if n, err := strconv.Atoi(b); err == nil && n > 0 {
-				burst = n
-			}
-		}
-		s.limiter = rate.NewLimiter(rate.Limit(ent.MaxRPS), burst)
-	} else if rpsStr := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); rpsStr != "" {
+	// Optional rate limiter from env
+	if rpsStr := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS")); rpsStr != "" {
 		if r, err := strconv.ParseFloat(rpsStr, 64); err == nil && r > 0 {
 			burst := 1
 			if b := strings.TrimSpace(os.Getenv("PS_ENFORCER_RPS_BURST")); b != "" {

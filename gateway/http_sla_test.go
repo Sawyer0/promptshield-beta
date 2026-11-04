@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,11 +28,6 @@ func TestHTTPCheck_SLA(t *testing.T) {
 			minMBps = f
 		}
 	}
-	// Bypass evaluation rate limit by setting a dummy license token
-	payload := `{"org":"SLA","tier":"enterprise","expires_at":"2099-01-01T00:00:00Z","entitlements":{}}`
-	enc := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
-	t.Setenv("PROMPTSHIELD_LICENSE_KEY", enc)
-
 	// Setup with mock RulepackService
 	mockRepo := &mocks.MockRulepackRepository{}
 	rulepackService := services.RulepackServiceCstor(mockRepo, nil)

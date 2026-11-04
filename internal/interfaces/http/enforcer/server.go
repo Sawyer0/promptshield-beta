@@ -248,8 +248,6 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		r.Use(middleware.Recoverer)
 		r.Use(middleware.Timeout(10 * time.Second))
 	}
-	// Global HTTP rate limiter from license entitlements; fallback to unlimited
-	// Must be registered before any routes on chi mux
 	// preloadPacks declared early for readiness probe access; initialized later.
 	var preloadPacks []rules.RulePack
 	var scannerPool = &sync.Pool{}

@@ -17,7 +17,6 @@ import (
 	"github.com/promptshield/promptshield/internal/jobs"
 	"github.com/promptshield/promptshield/internal/jobs/processors"
 	q "github.com/promptshield/promptshield/internal/jobs/queue"
-	"github.com/promptshield/promptshield/internal/license"
 	"github.com/promptshield/promptshield/internal/scanner"
 	"github.com/promptshield/promptshield/internal/usage"
 	"github.com/promptshield/promptshield/internal/version"
@@ -175,38 +174,6 @@ func NewMux(opt Options) http.Handler {
 		})
 	})
 
-	// License (GET is public; POST rotates license and is admin-protected)
-	r.Get("/license", func(w http.ResponseWriter, r *http.Request) {
-		l := license.Info()
-		ent, _ := license.Entitlement()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"org":          l.Organization,
-			"tier":         l.Tier,
-			"expires_at":   l.ExpiresAt,
-			"licensed":     license.IsLicensed(),
-			"entitlements": ent,
-		})
-	})
-	r.Group(func(a chi.Router) {
-		a.Use(adminAuth(opt))
-		a.Post("/license", func(w http.ResponseWriter, r *http.Request) {
-			key := r.FormValue("key")
-			if key == "" {
-				var body struct {
-					Key string `json:"key"`
-				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				key = body.Key
-			}
-			if key == "" {
-				writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing key", nil)
-				return
-			}
-			_ = os.Setenv("PROMPTSHIELD_LICENSE_KEY", key)
-			w.WriteHeader(http.StatusNoContent)
-		})
-	})
-
 	// Security Gateway decision endpoints (simple token auth + basic rate limiting)
 	r.Group(func(g chi.Router) {
 		// Simple token-based user auth
@@ -219,13 +186,6 @@ func NewMux(opt Options) http.Handler {
 		g.Post("/scan", scanHandler(opt))
 	})
 	scanAsync := func(w http.ResponseWriter, r *http.Request) {
-		// Ensure license state is loaded before feature check
-		_ = license.IsLicensed()
-		if !license.HasFeature("async_jobs") {
-			writeError(w, http.StatusForbidden, "UNAUTHORIZED", "feature not available: async_jobs", nil)
-			return
-		}
-
 		// Read request body
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
