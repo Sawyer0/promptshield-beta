@@ -13,13 +13,9 @@ metadata:
     - litigation
     - compliance
 
-# Extends base PII detection with legal focus
-extends:
-  - path: ./pii-detection.yaml
-    override:
-      context:
-        document_type: "legal"
-        sensitivity_level: "privileged"
+# Import the base PII detection pack (legal focus)
+imports:
+  - ./pii-detection.yaml
 
 rules:
   # Level 1: Legal terminology and privilege markers
@@ -310,22 +306,17 @@ rules:
 # Composition settings
 composition:
   strategy: first_match  # Stop on first critical privilege detection
-  priority_order: ["legal-privilege-markers", "legal-privilege-analysis"]
   
 # Performance tuning
 performance:
-  buffer_bytes: 131072   # Large buffer for legal documents
-  chunk_overlap: 1024    # More overlap for context
   per_rule_timeout: 200ms
-  case_sensitive: false
-  whole_word: false
 
 # Legal industry context
 context:
   industry: "legal"
   document_classification: "privileged"
-  require_encryption: true
-  require_audit_log: true
+  require_encryption: "true"
+  require_audit_log: "true"
   retention_policy: "7_years"
   jurisdiction: "US"
 

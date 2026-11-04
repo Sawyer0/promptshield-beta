@@ -151,9 +151,9 @@ rules:
       - regex: "\\b[0-9]{9}\\b"
       # Generic alphanumeric passport
       - regex: "\\b[A-Z]{1,2}[0-9]{6,9}\\b"
-    when:
-      - passport
-      - travel_document
+    # Broad pattern: off by default. Turn it on with an override
+    # (rule_id: pii-passport-pattern, enabled: true) for traffic where it applies.
+    enabled: false
     response:
       action: warn
       message: "Potential passport number detected"
@@ -170,9 +170,9 @@ rules:
       - regex: "\\b[0-9]{3}[-\\s]?[0-9]{3}[-\\s]?[0-9]{3}\\b"
       # Generic alphanumeric
       - regex: "\\b[A-Z]{1,2}[-\\s]?[0-9]{6,8}\\b"
-    when:
-      - drivers_license
-      - identification
+    # Broad pattern: off by default. Turn it on with an override
+    # (rule_id: pii-drivers-license-pattern, enabled: true) for traffic where it applies.
+    enabled: false
     response:
       action: warn
       message: "Potential driver's license number detected"
@@ -189,10 +189,9 @@ rules:
       - regex: "\\b(?:0[1-9]|[12][0-9]|3[01])[-/](?:0[1-9]|1[0-2])[-/](?:19|20)\\d{2}\\b"
       # YYYY-MM-DD
       - regex: "\\b(?:19|20)\\d{2}[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12][0-9]|3[01])\\b"
-    when:
-      - birth
-      - dob
-      - birthday
+    # Broad pattern: off by default. Turn it on with an override
+    # (rule_id: pii-date-of-birth, enabled: true) for traffic where it applies.
+    enabled: false
     response:
       action: flag
       message: "Date of birth pattern detected"
@@ -262,11 +261,7 @@ composition:
   
 # Performance tuning
 performance:
-  buffer_bytes: 65536    # Larger buffer for document scanning
-  chunk_overlap: 512
   per_rule_timeout: 150ms
-  case_sensitive: false
-  whole_word: false
 
 # Context definitions for conditional rules
 context:

@@ -49,14 +49,16 @@ func TestCheckPatterns_ReportsEveryBadPattern(t *testing.T) {
 	require.NoError(t, CheckPatterns(RulePack{Rules: []Rule{{ID: "ok", Patterns: []Pattern{{Regex: `\b\d{3}-\d{2}-\d{4}\b`}}}}}))
 }
 
-// Every RulePack shipped in the repository must load: a regex RE2 cannot
-// compile would otherwise disable its rule.
+// Every RulePack shipped in the repository, docs samples included, must load
+// in the current format: a regex RE2 cannot compile would otherwise disable
+// its rule, and a sample in a stale format fails for anyone who copies it.
 func TestShippedRulePacksLoad(t *testing.T) {
 	var files []string
 	for _, pattern := range []string{
 		"../../rules/*.yaml",
 		"../../demo/rules.yaml",
 		"../../docs/examples/rulepacks/*.yaml",
+		"../../docs/samples/*.yaml",
 	} {
 		m, err := filepath.Glob(pattern)
 		require.NoError(t, err)
@@ -65,8 +67,11 @@ func TestShippedRulePacksLoad(t *testing.T) {
 	require.NotEmpty(t, files)
 	for _, f := range files {
 		t.Run(filepath.Base(f), func(t *testing.T) {
-			_, err := LoadPacks(f)
+			packs, err := LoadPacks(f)
 			require.NoError(t, err)
+			for _, p := range packs {
+				require.Equal(t, "RulePack", p.Kind, "%s is not a RulePack", p.SourcePath)
+			}
 		})
 	}
 }
