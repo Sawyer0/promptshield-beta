@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/promptshield/promptshield/internal/application/decisions"
 	"github.com/promptshield/promptshield/internal/jobs"
 	"github.com/promptshield/promptshield/internal/jobs/processors"
 	q "github.com/promptshield/promptshield/internal/jobs/queue"
@@ -52,6 +53,9 @@ func NewMux(opt Options) http.Handler {
 	}
 	if opt.Events == nil {
 		opt.Events = NewEventHub()
+	}
+	if opt.Decisions == nil {
+		opt.Decisions = decisions.NewLog(decisions.DefaultCapacity)
 	}
 	// usage store is optional; if unset, usage endpoint will report zeroes
 	// Quota store default: derive from entitlements/env if not provided
@@ -262,6 +266,8 @@ func NewMux(opt Options) http.Handler {
 	// Observability endpoints (admin-protected)
 	r.Group(func(a chi.Router) {
 		a.Use(adminAuth(opt))
+		mountDecisions(a, opt)
+		mountActiveRules(a, opt)
 		a.Get("/stats", func(w http.ResponseWriter, r *http.Request) {
 			// Summarize limited stats from Prometheus default gatherer
 			mf, _ := prometheus.DefaultGatherer.Gather()

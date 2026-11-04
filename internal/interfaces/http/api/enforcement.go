@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/promptshield/promptshield/internal/application/decisions"
 	"github.com/promptshield/promptshield/internal/observability/metrics"
 	"github.com/promptshield/promptshield/internal/rules"
 	"github.com/promptshield/promptshield/internal/scanner"
@@ -35,6 +36,7 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
+		start := time.Now()
 		// Stream request body directly; avoid temp files
 
 		maxBytes := int64(1 << 20)
@@ -69,8 +71,11 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 			// Quarantine behavior consistent with runtime defaults
 			sc.SetQuarantineOnTimeout(true)
 			sc.SetQuarantineOnError(true)
-			rulepack := os.Getenv("PS_ENFORCER_RULEPACK")
-			if rulepack != "" {
+			if opt.ActiveRules != nil {
+				if packs := opt.ActiveRules.Packs(); len(packs) > 0 {
+					sc.LoadRulePacks(packs)
+				}
+			} else if rulepack := os.Getenv("PS_ENFORCER_RULEPACK"); rulepack != "" {
 				if packs, e := rules.LoadPacks(rulepack); e == nil {
 					sc.LoadRulePacks(packs)
 				} else {
@@ -139,10 +144,18 @@ func checkHandlerVersioned(opt Options) http.HandlerFunc {
 		resp := map[string]any{"decision": decision, "reason": reason, "violations": total, "request_id": reqID}
 		_ = json.NewEncoder(w).Encode(resp)
 
-		// Publish decision event
-		if opt.Events != nil {
-			opt.Events.Publish(Event{Type: "decision", Data: resp})
-		}
+		RecordDecision(opt, decisions.Record{
+			RequestID:  reqID,
+			Time:       start.UTC(),
+			Path:       r.URL.Path,
+			Decision:   decision,
+			Reason:     reason,
+			Status:     statusCode,
+			LatencyMs:  float64(time.Since(start).Microseconds()) / 1000.0,
+			BytesIn:    res.Metrics.BytesRead,
+			Violations: total,
+			Matches:    decisions.MatchesFrom(res.Violations),
+		})
 		// Audit durable trail (best-effort)
 		if opt.AuditLogger != nil {
 			_ = opt.AuditLogger.LogWithContext(ctx, types.AuditEvent{
