@@ -3,15 +3,99 @@ info:
   title: PromptShield Gateway HTTP API
   version: 0.2.0
   description: |
-    Versioned HTTP surface of the PromptShield enforcer for health, decisions, configuration,
-    rulepack lifecycle, and observability. All stable endpoints are under /v1. Prometheus metrics
-    remain unversioned at /metrics.
+    HTTP surface of the PromptShield enforcer (ps-enforcer, default :9090) for health,
+    decisions, configuration, rulepack lifecycle, async jobs and observability. Versioned
+    endpoints are under /v1. The server root also serves /healthz, /readyz, /metrics
+    (when metrics are enabled) and POST /check, plus /check/* for Envoy ext_authz
+    path_prefix forwarding.
+
+    Decision endpoints (/v1/check, /v1/scan) require a token only when
+    PS_ENFORCER_AUTH_TOKEN is set. Admin endpoints require PS_ENFORCER_ADMIN_TOKEN, sent
+    as a bearer token or X-PS-Admin-Token; with no admin token configured they answer 401
+    unless insecure admin access is enabled.
+
+    Not covered here: the /v1/debug/* endpoints and the tenant, assignment, audit and
+    system admin routes.
 servers:
-  - url: https://enforcer.example.com
-    description: HTTPS with optional mTLS
   - url: http://localhost:9090
     description: Local development
 paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      operationId: getRootHealthz
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+  /readyz:
+    get:
+      summary: Readiness probe
+      description: |
+        Not ready when the database is unhealthy, or when PS_REQUIRE_RULEPACK_AT_STARTUP is
+        set and no rulepack was loaded at startup.
+      operationId: getRootReadyz
+      responses:
+        '200':
+          description: Ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+        '503':
+          description: Not ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not ready
+  /metrics:
+    get:
+      summary: Prometheus metrics (when metrics are enabled)
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+  /check:
+    post:
+      summary: Decision endpoint at the server root (Envoy ext_authz target)
+      description: |
+        Same decision contract as /v1/check, scanned against the rulepack loaded from
+        PS_ENFORCER_RULEPACK. Any sub-path (/check/{path}) is accepted so Envoy can forward
+        the original request path.
+      operationId: postRootCheck
+      requestBody:
+        required: false
+        content:
+          text/plain:
+            schema:
+              type: string
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '403':
+          description: Quarantine or deny
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
   /v1/healthz:
     get:
       summary: Liveness probe
@@ -30,30 +114,19 @@ paths:
       operationId: getReadyz
       responses:
         '200':
-          description: Ready (policy/rulepack loaded)
+          description: Ready
           content:
             text/plain:
               schema:
                 type: string
                 example: ready
         '503':
-          description: Not Ready
+          description: Not ready
           content:
             text/plain:
               schema:
                 type: string
-                example: not ready: rulepack not loaded
-  /metrics:
-    get:
-      summary: Prometheus metrics endpoint
-      operationId: getMetrics
-      responses:
-        '200':
-          description: Prometheus text format
-          content:
-            text/plain:
-              schema:
-                type: string
+                example: 'not ready: rulepack not loaded'
   /v1/version:
     get:
       summary: Version information
@@ -69,23 +142,24 @@ paths:
     post:
       summary: Evaluate a small payload against rules and return a decision
       description: |
-        Returns allow/quarantine/deny with reason and violation count. Intended for small bodies
-        (default cap 1MB; configurable via PS_ENFORCER_MAX_BODY_BYTES). Headers include
-        x-ps-decision, x-ps-reason, and x-ps-request-id.
+        Returns allow/quarantine/deny with reason and violation count. Intended for small
+        bodies (default cap 1MB; configurable via PS_ENFORCER_MAX_BODY_BYTES). Responses carry
+        x-ps-decision, x-ps-reason and x-ps-request-id headers.
       operationId: postCheck
       security:
+        - {}
         - bearerAuth: []
         - xPSToken: []
       requestBody:
         required: false
         content:
+          text/plain:
+            schema:
+              type: string
           application/json:
             schema:
               type: object
               additionalProperties: true
-          text/plain:
-            schema:
-              type: string
       responses:
         '200':
           description: Allowed
@@ -96,7 +170,7 @@ paths:
             x-ps-decision:
               schema:
                 type: string
-                enum: [allow, quarantine, deny]
+                enum: [allow]
             x-ps-reason:
               schema:
                 type: string
@@ -105,7 +179,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Decision'
         '403':
-          description: Quarantine or Deny
+          description: Quarantine or deny
           headers:
             x-ps-request-id:
               schema:
@@ -122,22 +196,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/Decision'
         '400':
-          description: Bad Request (body too large or invalid)
+          description: Body too large or invalid
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
-          description: Unauthorized (missing/invalid token)
-        '500':
-          description: Internal Error
+          description: PS_ENFORCER_AUTH_TOKEN is set and the token is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/scan:
     post:
       summary: Scan larger payloads; aggregate JSON or NDJSON stream
       description: |
-        Accepts application/json (aggregate) or application/x-ndjson (stream). When aggregate=true (default),
-        returns a JSON report of per-record decisions. For NDJSON, the response is an event stream.
+        Accepts text/plain, application/json or application/x-ndjson. By default
+        (aggregate=true) it returns a JSON report of decisions. With application/x-ndjson
+        input and aggregate=false the response is an NDJSON stream of decision events.
       operationId: postScan
+      security:
+        - {}
+        - bearerAuth: []
+        - xPSToken: []
       parameters:
         - in: query
           name: aggregate
@@ -145,12 +226,12 @@ paths:
             type: boolean
             default: true
           description: Return aggregate JSON when true; NDJSON stream when false
-      security:
-        - bearerAuth: []
-        - xPSToken: []
       requestBody:
         required: true
         content:
+          text/plain:
+            schema:
+              type: string
           application/json:
             schema:
               type: object
@@ -170,16 +251,43 @@ paths:
               schema:
                 type: string
                 description: NDJSON stream of decision events
+        '401':
+          description: PS_ENFORCER_AUTH_TOKEN is set and the token is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/scan/async:
     post:
       summary: Start an async scan job
       description: |
-        Starts an asynchronous scan job.
-        Returns a job identifier if accepted.
+        Queues the request body for scanning and returns a job id; poll /v1/jobs/{jobID}
+        for the result. Also served at the legacy alias /v1/scan:async.
       operationId: postScanAsync
-      security:
-        - bearerAuth: []
-        - xPSToken: []
+      parameters:
+        - in: query
+          name: format
+          schema:
+            type: string
+            default: json
+          description: Output format recorded with the job
+        - in: query
+          name: fail_on
+          schema:
+            type: string
+          description: Severity threshold recorded with the job
+        - in: query
+          name: input_name
+          schema:
+            type: string
+            default: http-request
+          description: Input name recorded with the job
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
       responses:
         '202':
           description: Accepted
@@ -190,9 +298,82 @@ paths:
                 properties:
                   job_id:
                     type: string
+                  status:
+                    type: string
+                    enum: [pending]
+        '400':
+          description: Body could not be read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Job submission failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/jobs:
+    get:
+      summary: List async jobs
+      operationId: listJobs
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, running, completed, cancelled, failed]
+      responses:
+        '200':
+          description: Jobs list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+  /v1/jobs/{jobID}:
+    parameters:
+      - in: path
+        name: jobID
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get job status
+      operationId: getJob
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Cancel a job
+      operationId: deleteJob
+      responses:
+        '204':
+          description: Cancelled
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/rulepacks:
     get:
-      summary: List available rulepacks
+      summary: List uploaded rulepacks
+      description: Returns null when no rulepack has been uploaded.
       operationId: listRulepacks
       responses:
         '200':
@@ -201,6 +382,7 @@ paths:
             application/json:
               schema:
                 type: array
+                nullable: true
                 items:
                   $ref: '#/components/schemas/RulepackMeta'
     post:
@@ -209,6 +391,18 @@ paths:
       security:
         - bearerAuth: []
         - xPSAdminToken: []
+      parameters:
+        - in: query
+          name: activate
+          schema:
+            type: boolean
+            default: false
+          description: Activate the uploaded rulepack
+        - in: header
+          name: Idempotency-Key
+          schema:
+            type: string
+          description: Repeating a key returns the first response with 200 and X-Idempotency-Cache HIT
       requestBody:
         required: true
         content:
@@ -230,9 +424,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RulepackMeta'
+        '200':
+          description: Idempotent replay of an earlier upload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RulepackMeta'
+        '400':
+          description: Invalid rulepack or form
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A rulepack with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/rulepacks/active:
     get:
-      summary: Get active rulepack
+      summary: Get the active rulepack
+      description: Returns an object with empty fields when no rulepack is active.
       operationId: getActiveRulepack
       responses:
         '200':
@@ -242,11 +457,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/RulepackMeta'
     put:
-      summary: Set active rulepack (admin)
+      summary: Set the active rulepack (admin)
       operationId: setActiveRulepack
       security:
         - bearerAuth: []
         - xPSAdminToken: []
+      parameters:
+        - in: header
+          name: If-Match
+          required: true
+          schema:
+            type: string
+          description: ETag of the currently active version (for example "3"), or * to skip the check
       requestBody:
         required: true
         content:
@@ -256,14 +478,39 @@ paths:
               properties:
                 id:
                   type: string
+                  format: uuid
               required: [id]
       responses:
         '200':
           description: Active rulepack
+          headers:
+            ETag:
+              schema:
+                type: string
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RulepackMeta'
+        '400':
+          description: Missing or invalid id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '412':
+          description: If-Match does not match the active version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: If-Match header missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/rulepacks/validate:
     post:
       summary: Validate a rulepack (admin)
@@ -289,15 +536,19 @@ paths:
                     type: boolean
                   warnings:
                     type: array
+                    nullable: true
                     items:
                       type: string
                   errors:
                     type: array
+                    nullable: true
                     items:
                       type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/rulepacks/reload:
     post:
-      summary: Reload rulepack from configured path (admin)
+      summary: Reload a rulepack from the configured path (admin)
       operationId: reloadRulepack
       security:
         - bearerAuth: []
@@ -307,7 +558,7 @@ paths:
           name: path
           schema:
             type: string
-          description: Optional path override to load rulepack from
+          description: Optional path override to load the rulepack from
       responses:
         '200':
           description: Active rulepack
@@ -315,9 +566,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RulepackMeta'
+        '400':
+          description: No path configured, unreadable file or invalid rulepack
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A rulepack with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/rulepacks/{id}:
     delete:
-      summary: Delete a rulepack (admin; for uploaded packs)
+      summary: Delete an uploaded rulepack (admin)
       operationId: deleteRulepack
       security:
         - bearerAuth: []
@@ -328,12 +593,27 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
       responses:
         '204':
           description: Deleted
+        '400':
+          description: Invalid id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Rulepack not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/config:
     get:
-      summary: Get runtime configuration snapshot
+      summary: Get the runtime configuration
       operationId: getConfig
       responses:
         '200':
@@ -343,7 +623,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RuntimeConfig'
     put:
-      summary: Update runtime configuration (admin)
+      summary: Update the runtime configuration (admin)
       operationId: putConfig
       security:
         - bearerAuth: []
@@ -361,9 +641,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RuntimeConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/config/reset:
     post:
-      summary: Reset runtime configuration to defaults (admin)
+      summary: Reset the runtime configuration to defaults (admin)
       operationId: resetConfig
       security:
         - bearerAuth: []
@@ -375,16 +657,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RuntimeConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/events:
     get:
-      summary: Server-Sent Events (decision and system events)
+      summary: Server-Sent Events for decisions and system events (admin)
       operationId: getEvents
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
       parameters:
         - in: query
           name: types
           schema:
             type: string
-          description: Comma-separated list of event types (e.g., decision,quarantine,deny)
+          description: Comma-separated event types (for example decision,quarantine,deny)
       responses:
         '200':
           description: Event stream
@@ -392,67 +679,15 @@ paths:
             text/event-stream:
               schema:
                 type: string
-  /v1/jobs:
-    get:
-      summary: List async jobs
-      operationId: listJobs
-      parameters:
-        - in: query
-          name: status
-          schema:
-            type: string
-            enum: [pending, running, completed, canceled, failed]
-      responses:
-        '200':
-          description: Jobs list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  jobs:
-                    type: array
-                    items:
-                      type: object
-  /v1/jobs/{job_id}:
-    get:
-      summary: Get job status
-      operationId: getJob
-      parameters:
-        - in: path
-          name: job_id
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Job status
-          content:
-            application/json:
-              schema:
-                type: object
-        '404':
-          description: Job not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    delete:
-      summary: Cancel a job
-      operationId: deleteJob
-      parameters:
-        - in: path
-          name: job_id
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: Canceled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/stats:
     get:
-      summary: Summary statistics
+      summary: Summary statistics (admin)
       operationId: getStats
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
       responses:
         '200':
           description: Stats
@@ -460,10 +695,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Stats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/usage:
     get:
-      summary: Usage summary (billable units)
+      summary: Usage over the last hour (admin)
       operationId: getUsage
+      security:
+        - bearerAuth: []
+        - xPSAdminToken: []
       responses:
         '200':
           description: Usage summary
@@ -471,6 +711,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Usage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/admin/drain:
     post:
       summary: Begin graceful drain (admin)
@@ -481,6 +723,8 @@ paths:
       responses:
         '202':
           description: Drain initiated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/admin/shutdown:
     post:
       summary: Graceful shutdown (admin)
@@ -498,6 +742,8 @@ paths:
       responses:
         '202':
           description: Shutdown initiated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 components:
   securitySchemes:
     bearerAuth:
@@ -511,16 +757,29 @@ components:
       type: apiKey
       in: header
       name: X-PS-Admin-Token
+  responses:
+    Unauthorized:
+      description: Admin token missing or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
   schemas:
     Error:
       type: object
       properties:
-        code:
-          type: string
-          enum: [INVALID_ARGUMENT, UNAUTHORIZED, NOT_FOUND, INTERNAL]
-        message:
-          type: string
-        details:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: UNAUTHORIZED
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+        meta:
           type: object
           additionalProperties: true
     Decision:
@@ -531,6 +790,7 @@ components:
           enum: [allow, quarantine, deny]
         reason:
           type: string
+          description: Matching rule id, or no_signals
         violations:
           type: integer
           format: int32
@@ -558,6 +818,39 @@ components:
           type: string
         active:
           type: boolean
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          example: scan
+        status:
+          type: string
+          enum: [pending, running, completed, cancelled, failed]
+        input:
+          type: string
+          format: byte
+        result:
+          type: object
+          additionalProperties: true
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        progress:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties: true
     RuntimeConfig:
       type: object
       properties:
@@ -629,4 +922,3 @@ components:
           type: integer
         bytes:
           type: integer
-
