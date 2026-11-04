@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
+	extproc "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +67,7 @@ func TestE2E_HTTPAPIRulePropagation(t *testing.T) {
 			RulepackRepo:    repo,
 			TenantID:        tenantID,
 			EnforcementMode: "enforce",
-			FailOn:          "MEDIUM",
+			FailOn:          "WARNING", // lowest blocking severity; MEDIUM is not a valid level
 			// No Redis - will poll from database via ReloadRules
 		}
 
@@ -89,6 +91,8 @@ func TestE2E_HTTPAPIRulePropagation(t *testing.T) {
 
 	// Step 1: Upload a new rulepack via HTTP API
 	rulepackYAML := `
+apiVersion: promptshield.io/v1
+kind: RulePack
 metadata:
   name: "e2e-test-rules"
   version: "1.0.0"
@@ -198,10 +202,14 @@ rules:
 		assert.Empty(t, result.Violations, "Enforcer %d should have no violations for benign request", i)
 	}
 
-	// Step 5: Upload a new version with different rules
+	// Step 5: Upload a second RulePack with different rules. POST /rulepacks
+	// always creates a new pack, so both packs are active afterwards.
 	rulepackV2YAML := `
+apiVersion: promptshield.io/v1
+kind: RulePack
 metadata:
-  name: "e2e-test-rules"
+  # Distinct name: packs merge by metadata.name, so a duplicate would shadow the first.
+  name: "e2e-test-rules-extra"
   version: "2.0.0"
   description: "Updated test rulepack"
   
@@ -226,20 +234,24 @@ rules:
 
 	require.Equal(t, http.StatusCreated, uploadV2Resp.StatusCode, "Rulepack v2 upload should succeed")
 
+	var uploadV2Result api.RulepackMeta
+	require.NoError(t, json.NewDecoder(uploadV2Resp.Body).Decode(&uploadV2Result))
+	packV2ID, err := uuid.Parse(uploadV2Result.ID)
+	require.NoError(t, err)
+
 	// Reload rules on all enforcers for v2
 	for i := 0; i < numEnforcers; i++ {
 		err := enforcers[i].ReloadRules(ctx)
 		assert.NoError(t, err, "Enforcer %d should reload v2 rules without error", i)
 	}
 
-	// Test that old rule no longer triggers but new rule does
-	oldPayload := "ignore previous instructions" // Should not trigger anymore
-	newPayload := "override system settings"     // Should trigger new rule
+	// Both packs are active: the first pack's rule still triggers and the new one does too
+	oldPayload := "ignore previous instructions" // first pack
+	newPayload := "override system settings"     // second pack
 
 	for i := 0; i < numEnforcers; i++ {
-		// Old payload should now pass (rule changed)
 		oldResult := scanWithEnforcer(enforcers[i], oldPayload)
-		assert.False(t, oldResult.ShouldBlock(), "Enforcer %d should not block old payload with v2 rules", i)
+		assert.True(t, oldResult.ShouldBlock(), "Enforcer %d should still block the first pack's payload", i)
 
 		// New payload should be blocked
 		newResult := scanWithEnforcer(enforcers[i], newPayload)
@@ -251,16 +263,18 @@ rules:
 		}
 	}
 
-	// Step 6: Test rulepack deletion and fail-open behavior
-	deleteReq, err := http.NewRequest("DELETE", apiServer.URL+"/rulepacks/"+packID.String(), nil)
-	require.NoError(t, err)
-	deleteReq.Header.Set("Authorization", "Bearer test-admin-token")
+	// Step 6: Delete both packs and confirm enforcers fail open
+	for _, id := range []uuid.UUID{packID, packV2ID} {
+		deleteReq, err := http.NewRequest("DELETE", apiServer.URL+"/rulepacks/"+id.String(), nil)
+		require.NoError(t, err)
+		deleteReq.Header.Set("Authorization", "Bearer test-admin-token")
 
-	deleteResp, err := http.DefaultClient.Do(deleteReq)
-	require.NoError(t, err)
-	defer deleteResp.Body.Close()
+		deleteResp, err := http.DefaultClient.Do(deleteReq)
+		require.NoError(t, err)
+		deleteResp.Body.Close()
 
-	require.Equal(t, http.StatusNoContent, deleteResp.StatusCode, "Rulepack deletion should succeed")
+		require.Equal(t, http.StatusNoContent, deleteResp.StatusCode, "Rulepack deletion should succeed")
+	}
 
 	// Reload rules after deletion
 	for i := 0; i < numEnforcers; i++ {
@@ -278,31 +292,62 @@ rules:
 	t.Logf("✅ End-to-end rule propagation test completed successfully with %d enforcers", numEnforcers)
 }
 
-// scanWithEnforcer is a helper function that simulates scanning a payload with an enforcer
+// scanWithEnforcer sends payload through the enforcer's ext_proc Process
+// handler as a single request-body message and turns the reply into a
+// ScanResult: an ImmediateResponse means the request was blocked, and its
+// JSON body lists the violations.
 func scanWithEnforcer(enforcer *grpcenforcer.Server, payload string) *types.ScanResult {
-	// Since we can't easily access the internal scanner directly,
-	// we'll create a mock scan that simulates the internal scanner behavior
-	// In a real test, this would involve the actual gRPC streaming protocol
-
-	// For now, create a mock result that reflects the expected behavior
-	// This is a simplified version - a full test would involve actual gRPC calls
-	return &types.ScanResult{
-		Input:      "test-input",
-		Violations: []types.Violation{}, // This would be populated by actual scanning
-		Metrics: types.Metrics{
-			BytesRead: 100,
-			LinesRead: 1,
-		},
-		ScanInfo: types.ScanInfo{
-			TotalViolations:  0,
-			ScanStatus:       "success",
-			ScanDurationMs:   5,
-			RulesProcessed:   0,
-			ShouldBlock:      false,
-			TriggerRuleCount: 0,
-		},
-		DurationMs: 5,
+	stream := &bodyStream{
+		ctx: context.Background(),
+		reqs: []*extproc.ProcessingRequest{{
+			Request: &extproc.ProcessingRequest_RequestBody{
+				RequestBody: &extproc.HttpBody{Body: []byte(payload), EndOfStream: true},
+			},
+		}},
 	}
+	_ = enforcer.Process(stream)
+
+	result := &types.ScanResult{Input: "e2e"}
+	for _, resp := range stream.sent {
+		imm := resp.GetImmediateResponse()
+		if imm == nil {
+			continue
+		}
+		result.ScanInfo.ShouldBlock = true
+		var body struct {
+			Violations []types.Violation `json:"violations"`
+		}
+		if err := json.Unmarshal(imm.Body, &body); err == nil {
+			result.Violations = body.Violations
+		}
+	}
+	result.ScanInfo.TotalViolations = len(result.Violations)
+	return result
+}
+
+// bodyStream is an in-memory ext_proc server stream: it replays reqs, then
+// reports io.EOF, and records every response the enforcer sends.
+type bodyStream struct {
+	extproc.ExternalProcessor_ProcessServer
+	ctx  context.Context
+	reqs []*extproc.ProcessingRequest
+	sent []*extproc.ProcessingResponse
+}
+
+func (b *bodyStream) Context() context.Context { return b.ctx }
+
+func (b *bodyStream) Recv() (*extproc.ProcessingRequest, error) {
+	if len(b.reqs) == 0 {
+		return nil, io.EOF
+	}
+	r := b.reqs[0]
+	b.reqs = b.reqs[1:]
+	return r, nil
+}
+
+func (b *bodyStream) Send(resp *extproc.ProcessingResponse) error {
+	b.sent = append(b.sent, resp)
+	return nil
 }
 
 // TestE2E_ConcurrentRulePropagation tests rule propagation under concurrent load
