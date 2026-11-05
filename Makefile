@@ -8,6 +8,7 @@ DATE?=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 MODE ?= observe
 
 .PHONY: build build-enforcer run tidy fmt lint test bench bench-quick bench-large \
+	dashboard dashboard-test dashboard-e2e dashboard-run \
 	help demo demo-observe demo-enforce demo-stop status logs health \
 	prompt clean-prompt inj-prompt ssn-prompt api-key-response direct-allow direct-deny
 
@@ -32,6 +33,29 @@ lint:
 test:
 	go test ./...
 
+# -------------------------------
+# Operator dashboard (web/dashboard, embedded into the gateway at /dashboard)
+# -------------------------------
+
+DASHBOARD_DIR=web/dashboard
+DASHBOARD_TOKEN?=dev-admin-token
+
+dashboard:
+	cd $(DASHBOARD_DIR) && npm ci && npm run build
+
+dashboard-test:
+	cd $(DASHBOARD_DIR) && npm run typecheck && npm run lint && npm test
+
+dashboard-e2e: dashboard
+	go build -o bin/ps-gateway-e2e ./gateway
+	cd $(DASHBOARD_DIR) && npm run e2e
+
+# Builds the gateway with the dashboard embedded and runs it on :9090 with a sample rulepack.
+dashboard-run: dashboard
+	go build -o bin/ps-gateway ./gateway
+	PS_ENFORCER_TLS_MODE=disable PS_ENFORCER_MODE=enforce PS_ENFORCER_ADMIN_TOKEN=$(DASHBOARD_TOKEN) \
+	PS_ENFORCER_RULEPACK=rules/prompt-injection.yaml ./bin/ps-gateway
+
 bench:
 	go test -run '^$' -bench '.' -benchmem ./...
 
@@ -48,6 +72,10 @@ bench-large:
 
 help:
 	@echo "Targets:"
+	@echo "  dashboard       - Build the operator dashboard into the gateway embed dir"
+	@echo "  dashboard-run   - Build and run the gateway with the dashboard at http://127.0.0.1:9090/dashboard/"
+	@echo "  dashboard-test  - Typecheck, lint, and unit test the dashboard"
+	@echo "  dashboard-e2e   - Run Playwright against the real gateway binary"
 	@echo "  demo            - Start Envoy + PromptShield enforcer + backend (MODE=observe|enforce)"
 	@echo "  demo-observe    - Start stack in observe mode"
 	@echo "  demo-enforce    - Start stack in enforce mode"
