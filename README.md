@@ -132,17 +132,22 @@ The gateway serves an operator dashboard at `/dashboard/`, built from
 - a prompt tester that sends text through `POST /check`;
 - gateway health and readiness.
 
-Every data call uses the admin token (`PS_ENFORCER_ADMIN_TOKEN`), sent as a
-bearer header and kept in the tab's session storage; without it the API
-answers 401. The page itself is static and served with a strict
-Content-Security-Policy. The gateway keeps the last `PS_DECISION_LOG_SIZE`
-decisions (default 500, accepted range 10-50000) in memory only: nothing is
-written to disk, so the history starts empty after a restart. An invalid value
-is logged and the default is used. `GET /v1/decisions` returns at most 500
+The dashboard is on by default and sits behind admin auth: `/dashboard/`
+serves only the static app, and every data call it makes uses the admin token
+(`PS_ENFORCER_ADMIN_TOKEN`), sent as a bearer header and kept in the tab's
+session storage. Without the right token the API answers 401, and with no
+admin token configured the admin API stays closed (unless
+`PS_ENFORCER_ALLOW_INSECURE_ADMIN` is set for local demos). The page is served
+with a strict Content-Security-Policy. Set `PS_DASHBOARD_DISABLED=true` to
+remove the `/dashboard` route entirely.
+
+The gateway keeps the last `PS_DECISION_LOG_SIZE` decisions (default 500,
+accepted range 10-50000) in memory only: nothing is written to disk, so the
+history starts empty after a restart. An invalid value is logged and the
+default is used. `GET /v1/decisions` returns at most 500
 per request; a larger log also feeds the stats and detail lookups. The gateway
 never stores or shows prompt text: decisions and events carry the request id,
-outcome, matched rule ids and their configured messages, sizes, and timing. Set `PS_DASHBOARD_DISABLED=true` to turn the
-route off.
+outcome, matched rule ids and their configured messages, sizes, and timing.
 
 Run it locally (Node 20.19+ and Go 1.24+):
 
