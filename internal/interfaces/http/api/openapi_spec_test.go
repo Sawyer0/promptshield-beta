@@ -85,3 +85,49 @@ func TestOpenAPISpecMatchesRouter(t *testing.T) {
 		t.Errorf("openapi.yaml documents routes that do not exist: %v", stale)
 	}
 }
+
+// TestOpenAPIDocumentsDecisionPaging keeps the spec's query parameters for
+// GET /v1/decisions in step with parseDecisionQuery, including the cursor.
+func TestOpenAPIDocumentsDecisionPaging(t *testing.T) {
+	data, err := os.ReadFile("../../../../docs/api/openapi.yaml")
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+	var spec struct {
+		Paths struct {
+			Decisions map[string]struct {
+				Parameters []struct {
+					Name string `yaml:"name"`
+					In   string `yaml:"in"`
+				} `yaml:"parameters"`
+				Responses map[string]struct {
+					Content map[string]struct {
+						Schema struct {
+							Properties map[string]struct {
+								Properties map[string]any `yaml:"properties"`
+							} `yaml:"properties"`
+						} `yaml:"schema"`
+					} `yaml:"content"`
+				} `yaml:"responses"`
+			} `yaml:"/v1/decisions"`
+		} `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(data, &spec); err != nil {
+		t.Fatalf("spec is not valid YAML: %v", err)
+	}
+	op := spec.Paths.Decisions["get"]
+	var params []string
+	for _, p := range op.Parameters {
+		if p.In == "query" {
+			params = append(params, p.Name)
+		}
+	}
+	sort.Strings(params)
+	if strings.Join(params, ",") != "before,decision,limit" {
+		t.Errorf("GET /v1/decisions query parameters = %v, want before, decision, limit", params)
+	}
+	body := op.Responses["200"].Content["application/json"].Schema.Properties["data"].Properties
+	if _, ok := body["next"]; !ok {
+		t.Errorf("GET /v1/decisions 200 response does not document the next cursor")
+	}
+}

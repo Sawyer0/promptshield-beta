@@ -26,7 +26,8 @@ func RecordDecision(opt Options, rec decisions.Record) {
 // mountDecisions registers the decision history endpoints. Callers apply
 // admin auth.
 //
-//	GET /decisions?limit=&decision=  recent decisions, newest first
+//	GET /decisions?limit=&decision=&before=  recent decisions, newest first;
+//	                                          "next" is the before value for the next page
 //	GET /decisions/stats             lifetime counts and latency percentiles
 //	GET /decisions/{requestID}       one decision
 func mountDecisions(r chi.Router, opt Options) {
@@ -36,7 +37,12 @@ func mountDecisions(r chi.Router, opt Options) {
 			writeErrorJSON(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error(), nil, req)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"decisions": opt.Decisions.Recent(q)}, req)
+		page := opt.Decisions.Page(q)
+		var next *int64
+		if page.Next > 0 {
+			next = &page.Next
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"decisions": page.Records, "next": next}, req)
 	})
 	r.Get("/decisions/stats", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, opt.Decisions.Stats(), req)
@@ -70,6 +76,13 @@ func parseDecisionQuery(req *http.Request) (decisions.Query, error) {
 			return q, queryError("limit must be an integer between 1 and 500")
 		}
 		q.Limit = n
+	}
+	if v := strings.TrimSpace(req.URL.Query().Get("before")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 1 {
+			return q, queryError("before must be a positive integer cursor from a previous response's next")
+		}
+		q.Before = n
 	}
 	switch d := strings.TrimSpace(req.URL.Query().Get("decision")); d {
 	case "", decisions.Allow, decisions.Deny, decisions.Quarantine:

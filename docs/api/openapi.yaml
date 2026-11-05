@@ -686,8 +686,13 @@ paths:
     get:
       summary: Recent enforcement decisions, newest first (admin)
       description: >-
-        Served from a bounded in-memory log (500 records). Both /check and
-        /v1/check record here. Prompt content is never stored.
+        Served from a bounded in-memory log (PS_DECISION_LOG_SIZE records,
+        default 500). Both /check and /v1/check record here. Prompt content is
+        never stored. Results are paged with a cursor: pass the previous
+        response's next as before to get the next older page; next is null on
+        the last page. Each decision's seq never changes, so decisions recorded
+        while paging do not shift later pages; decisions evicted from the log
+        are no longer returned.
       operationId: listDecisions
       security:
         - bearerAuth: []
@@ -705,6 +710,15 @@ paths:
           schema:
             type: string
             enum: [allow, quarantine, deny]
+        - name: before
+          in: query
+          description: >-
+            Cursor: return only decisions with seq below this value. Use the
+            next value from the previous page. Must be a positive integer.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
       responses:
         '200':
           description: Decisions
@@ -715,11 +729,17 @@ paths:
                 properties:
                   data:
                     type: object
+                    required: [decisions, next]
                     properties:
                       decisions:
                         type: array
                         items:
                           $ref: '#/components/schemas/DecisionRecord'
+                      next:
+                        type: integer
+                        format: int64
+                        nullable: true
+                        description: before value for the next older page, or null on the last page
                   meta:
                     type: object
                     additionalProperties: true
@@ -1597,6 +1617,10 @@ components:
     DecisionRecord:
       type: object
       properties:
+        seq:
+          type: integer
+          format: int64
+          description: Position in the decision log, increasing by one per decision; the paging cursor
         request_id:
           type: string
         time:
