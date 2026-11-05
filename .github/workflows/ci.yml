@@ -68,3 +68,29 @@ jobs:
           name: playwright-report
           path: web/dashboard/playwright-report
           retention-days: 7
+
+  docker-image:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILDKIT: '1'
+      SMOKE_TOKEN: ci-smoke-token
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the gateway image (local only, never pushed)
+        run: docker build -f Dockerfile.gateway -t ps-gateway:ci .
+      - name: Start the container
+        run: |
+          docker run -d --name ps-gateway -p 127.0.0.1:9090:9090 \
+            -e PS_ENFORCER_TLS_MODE=disable -e PS_ENFORCER_GRPC_TLS_MODE=disable \
+            -e PS_ENFORCER_ADMIN_TOKEN="$SMOKE_TOKEN" \
+            -e PS_ENFORCER_RULEPACK=/rules/prompt-injection.yaml \
+            -e PS_ENFORCER_MODE=enforce -e PS_REQUIRE_RULEPACK_AT_STARTUP=true \
+            -e PS_TELEMETRY=false \
+            -v "$PWD/rules:/rules:ro" ps-gateway:ci
+      - name: Smoke-test the dashboard and admin API in the container
+        run: scripts/smoke-gateway.sh http://127.0.0.1:9090 "$SMOKE_TOKEN"
+      - name: Image health check command works
+        run: docker exec ps-gateway wget -qO- http://127.0.0.1:9090/healthz
+      - name: Container logs
+        if: always()
+        run: docker logs ps-gateway 2>&1 | tail -n 100
