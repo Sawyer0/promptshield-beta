@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/promptshield/promptshield/internal/application/decisions"
 	"github.com/promptshield/promptshield/internal/encoding/jsonx"
 	"go.opentelemetry.io/otel/trace"
@@ -152,4 +153,17 @@ func recordRequest(code int) {
 	if metricsEnabled() {
 		enforcerRequests.WithLabelValues("/check", strconv.Itoa(code)).Inc()
 	}
+}
+
+func generateRequestID() string {
+	return uuid.NewString()
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
