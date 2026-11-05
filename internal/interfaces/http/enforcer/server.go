@@ -115,7 +115,7 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		apiOpt.Events = api.NewEventHub()
 	}
 	if apiOpt.Decisions == nil {
-		apiOpt.Decisions = decisions.NewLog(decisions.DefaultCapacity)
+		apiOpt.Decisions = decisions.NewLogFromEnv()
 	}
 	var maxStreamBytes int64
 	if v := os.Getenv("PS_ENFORCER_MAX_STREAM_BYTES"); v != "" {

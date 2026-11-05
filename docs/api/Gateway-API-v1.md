@@ -105,7 +105,7 @@
   - `decision` events carry `request_id, time, path, decision, reason, status, latency_ms, bytes_in, violations, matches[]` for both `/check` and `/v1/check`
   - If the connection drops, clients reconnect and re-sync from `/v1/decisions`
 - GET `/v1/decisions` (admin)
-  - Recent decisions, newest first, from a 500-entry in-memory log; `?limit=1..500` (default 100), `?decision=allow|quarantine|deny`
+  - Recent decisions, newest first, from an in-memory log of `PS_DECISION_LOG_SIZE` entries (default 500, 10-50000, never written to disk); `?limit=1..500` per request (default 100), `?decision=allow|quarantine|deny`
   - Prompt text is never stored
 - GET `/v1/decisions/{requestID}` (admin)
   - One retained decision; escape the `/` in router ids (`host%2Fabc-000001`); 404 once evicted
