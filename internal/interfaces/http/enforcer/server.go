@@ -99,7 +99,7 @@ func NewMuxWithOptions(apiOpt api.Options) http.Handler {
 		r.Use(middleware.RequestID)
 		r.Use(middleware.RealIP)
 		r.Use(middleware.Recoverer)
-		r.Use(middleware.Timeout(10 * time.Second))
+		r.Use(api.RequestTimeout(10 * time.Second)) // /v1/events is exempt
 	}
 	// Active RulePacks, shared by /check, /v1/check and the dashboard, and
 	// reloadable through POST /v1/rules/reload.

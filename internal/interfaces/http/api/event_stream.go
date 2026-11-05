@@ -3,11 +3,17 @@ package api
 import (
 	"net/http"
 	"strings"
+	"time"
 )
 
 // eventStreamHandler serves GET /events as Server-Sent Events from opt.Events.
 func eventStreamHandler(opt Options) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// The server's read and write timeouts would cut the stream; lift
+		// them for this connection only (no-op when unsupported).
+		rc := http.NewResponseController(w)
+		_ = rc.SetReadDeadline(time.Time{})
+		_ = rc.SetWriteDeadline(time.Time{})
 		var flusher http.Flusher
 		if f, ok := w.(http.Flusher); ok {
 			flusher = f

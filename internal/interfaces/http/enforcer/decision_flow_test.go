@@ -48,6 +48,15 @@ type decisionList struct {
 
 func newFlowServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
+	path := setFlowEnv(t)
+	srv := httptest.NewServer(NewMux())
+	t.Cleanup(srv.Close)
+	return srv, path
+}
+
+// setFlowEnv writes flowPackV1 and points the gateway env at it.
+func setFlowEnv(t *testing.T) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "rules.yaml")
 	if err := os.WriteFile(path, []byte(flowPackV1), 0o600); err != nil {
 		t.Fatal(err)
@@ -55,9 +64,7 @@ func newFlowServer(t *testing.T) (*httptest.Server, string) {
 	t.Setenv("PS_ENFORCER_RULEPACK", path)
 	t.Setenv("PS_ENFORCER_ADMIN_TOKEN", "flow-admin")
 	t.Setenv("PS_ENFORCER_MODE", "enforce")
-	srv := httptest.NewServer(NewMux())
-	t.Cleanup(srv.Close)
-	return srv, path
+	return path
 }
 
 func postCheck(t *testing.T, srv *httptest.Server, body string) (int, string) {

@@ -15,7 +15,8 @@ import (
 func NewMux(opt Options) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.Timeout(10 * time.Second))
+	// The SSE stream at /events is exempt; it lives as long as the client.
+	r.Use(RequestTimeout(10 * time.Second))
 	r.Use(versionHeader("1"))
 	// Error recovery and structured error handling
 	r.Use(errorRecoveryMiddleware)

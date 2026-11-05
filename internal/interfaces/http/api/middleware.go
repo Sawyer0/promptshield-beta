@@ -61,6 +61,9 @@ func (b *bytesCounter) Flush() {
 	}
 }
 
+// Unwrap exposes the underlying writer to http.ResponseController.
+func (b *bytesCounter) Unwrap() http.ResponseWriter { return b.ResponseWriter }
+
 // captureBytesMiddleware accounts for request and response bytes regardless of Content-Length.
 func captureBytesMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

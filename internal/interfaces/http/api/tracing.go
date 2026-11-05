@@ -69,3 +69,6 @@ func (w *tracingResponseWriter) WriteHeader(statusCode int) {
 func (w *tracingResponseWriter) Write(data []byte) (int, error) {
 	return w.ResponseWriter.Write(data)
 }
+
+// Unwrap exposes the underlying writer to http.ResponseController.
+func (w *tracingResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }

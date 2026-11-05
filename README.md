@@ -122,7 +122,8 @@ The gateway serves an operator dashboard at `/dashboard/`, built from
 `go:embed`. It shows:
 
 - a live decision feed over `/v1/events`, filterable by outcome and searchable
-  by request id, rule, or reason;
+  by request id, rule, or reason (the stream is exempt from the gateway's 10s
+  request timeout and stays open as long as the tab does);
 - overview stats from `/v1/decisions/stats`: requests, blocked or quarantined
   share, allowed share, p50/p95 scan latency, and the decision mix;
 - a decision detail panel (`/v1/decisions/{id}`) with the rules that matched;
