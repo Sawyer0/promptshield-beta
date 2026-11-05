@@ -16,6 +16,9 @@ type Query struct {
 	Limit int
 	// Decision keeps only records with this outcome when set.
 	Decision string
+	// Before keeps only records with a sequence number below it when set,
+	// so a listing can resume where an earlier one stopped.
+	Before int64
 }
 
 // Stats summarises decisions since the log was created. Counts are lifetime
@@ -57,19 +60,21 @@ func NewLog(capacity int) *Log {
 	}
 }
 
-// Add stores a record, evicting the oldest one when the log is full.
+// Add stores a record, evicting the oldest one when the log is full. It
+// assigns the record's sequence number: one more than the previous record's.
 func (l *Log) Add(r Record) {
 	if r.Time.IsZero() {
 		r.Time = l.now().UTC()
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.total++
+	r.Seq = l.total
 	l.buf[l.next] = r
 	l.next = (l.next + 1) % len(l.buf)
 	if l.size < len(l.buf) {
 		l.size++
 	}
-	l.total++
 	l.counts[r.Decision]++
 }
 
@@ -77,14 +82,26 @@ func (l *Log) Add(r Record) {
 func (l *Log) Recent(q Query) []Record {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	out := make([]Record, 0, l.size)
-	for i := 1; i <= l.size; i++ {
+	return l.scan(q, q.Limit)
+}
+
+// scan collects up to limit matching records (all when limit <= 0), newest
+// first. The newest retained record has sequence number l.total and each
+// older slot is one less, so Before maps straight to a starting offset.
+// Callers hold l.mu.
+func (l *Log) scan(q Query, limit int) []Record {
+	start := 1
+	if q.Before > 0 {
+		start = max(1, int(l.total-q.Before+2))
+	}
+	out := make([]Record, 0, min(l.size, max(limit, 0)))
+	for i := start; i <= l.size; i++ {
 		r := l.buf[(l.next-i+len(l.buf))%len(l.buf)]
 		if q.Decision != "" && r.Decision != q.Decision {
 			continue
 		}
 		out = append(out, r)
-		if q.Limit > 0 && len(out) == q.Limit {
+		if limit > 0 && len(out) == limit {
 			break
 		}
 	}

@@ -27,6 +27,9 @@ type Match struct {
 
 // Record is the outcome of a single enforcement decision.
 type Record struct {
+	// Seq is assigned by Log.Add and increases by one per decision; it is
+	// the paging cursor for GET /v1/decisions.
+	Seq        int64     `json:"seq"`
 	RequestID  string    `json:"request_id"`
 	Time       time.Time `json:"time"`
 	Path       string    `json:"path"`
@@ -59,6 +62,7 @@ func MatchesFrom(violations []pkg.Violation) []Match {
 // existing SSE consumers keep working.
 func (r Record) EventData() map[string]any {
 	return map[string]any{
+		"seq":        r.Seq,
 		"request_id": r.RequestID,
 		"time":       r.Time.UTC().Format(time.RFC3339Nano),
 		"path":       r.Path,

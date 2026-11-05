@@ -145,7 +145,9 @@ The gateway keeps the last `PS_DECISION_LOG_SIZE` decisions (default 500,
 accepted range 10-50000) in memory only: nothing is written to disk, so the
 history starts empty after a restart. An invalid value is logged and the
 default is used. `GET /v1/decisions` returns at most 500
-per request; a larger log also feeds the stats and detail lookups. The gateway
+per request and pages through the rest with a cursor: pass the response's
+`next` as `before` (`/v1/decisions?limit=500&before=1234`) until `next` is
+null. The gateway
 never stores or shows prompt text: decisions and events carry the request id,
 outcome, matched rule ids and their configured messages, sizes, and timing.
 
