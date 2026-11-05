@@ -133,7 +133,7 @@ test('captures the README screenshot', async ({ page, request }) => {
   for (const p of prompts) await sendCheck(request, p);
   await signIn(page);
   await expect(page.getByTestId('decision-row').first()).toBeVisible();
-  await page.getByRole('button', { name: /Inspect decision/ }).nth(1).click();
+  await page.getByTestId('decision-row').filter({ hasText: 'secrets-aws-key' }).getByRole('button').click();
   await expect(page.getByTestId('detail-request-id')).toBeVisible();
   await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
 });
