@@ -185,7 +185,11 @@ The gateway refuses plain HTTP on a non-loopback address, so either keep
 `PS_ENFORCER_TLS_MODE=disable` behind a TLS-terminating proxy or mount a
 certificate at `/tls/server.crt` and `/tls/server.key`. RulePacks are not
 baked into the image; mount them at `/rules`. Port 9091 is the gRPC
-`ext_proc` server.
+`ext_proc` server. `scripts/smoke-gateway.sh http://127.0.0.1:9090 change-me`
+checks a running container: health, the dashboard HTML and bundle, a blocked
+`/check`, and the admin API with and without the token. CI builds the image
+and runs that script against the container on every pull request; nothing is
+pushed to a registry.
 
 ## RulePacks
 
@@ -209,8 +213,9 @@ go test -short ./...      # skips the slower timing and soak tests
 ```
 
 CI runs build, vet, golangci-lint and `go test -race ./...` on every pull
-request, plus a dashboard job: typecheck, lint, unit tests, build, and the
-Playwright suite against the real gateway.
+request, plus a dashboard job (typecheck, lint, unit tests, build, and the
+Playwright suite against the real gateway) and a Docker job that builds
+`Dockerfile.gateway` and smoke-tests the running container.
 
 ## Performance
 
