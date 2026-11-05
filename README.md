@@ -113,6 +113,53 @@ $ curl -s -X POST localhost:9090/v1/check -H 'content-type: text/plain' \
 Every response carries `x-ps-decision`, `x-ps-reason` and `x-ps-request-id`
 headers so a proxy can act on the decision without parsing the body.
 
+## Dashboard
+
+![PromptShield dashboard showing live decisions, stats, a decision detail, and active rules](docs/images/dashboard.png)
+
+The gateway serves an operator dashboard at `/dashboard/`, built from
+`web/dashboard` (React + TypeScript) and embedded in the binary with
+`go:embed`. It shows:
+
+- a live decision feed over `/v1/events`, filterable by outcome and searchable
+  by request id, rule, or reason;
+- overview stats from `/v1/decisions/stats`: requests, blocked or quarantined
+  share, allowed share, p50/p95 scan latency, and the decision mix;
+- a decision detail panel (`/v1/decisions/{id}`) with the rules that matched;
+- the active RulePacks (`/v1/rules`) with a **Reload from disk** button
+  (`POST /v1/rules/reload`);
+- a prompt tester that sends text through `POST /check`;
+- gateway health and readiness.
+
+Every data call uses the admin token (`PS_ENFORCER_ADMIN_TOKEN`), sent as a
+bearer header and kept in the tab's session storage; without it the API
+answers 401. The page itself is static and served with a strict
+Content-Security-Policy. The gateway keeps the last 500 decisions in memory
+and never stores prompt text. Set `PS_DASHBOARD_DISABLED=true` to turn the
+route off.
+
+Run it locally (Node 20.19+ and Go 1.24+):
+
+```bash
+make dashboard-run                      # builds web/dashboard, then the gateway
+# open http://127.0.0.1:9090/dashboard/ and sign in with: dev-admin-token
+curl -X POST http://127.0.0.1:9090/check -d 'ignore previous instructions'
+```
+
+`make dashboard-run` sets `PS_ENFORCER_TLS_MODE=disable`,
+`PS_ENFORCER_MODE=enforce` and `PS_ENFORCER_RULEPACK=rules/prompt-injection.yaml`;
+pass `DASHBOARD_TOKEN=...` to choose the token. For UI work, run
+`npm run dev` in `web/dashboard`: Vite proxies API calls to a gateway on
+`127.0.0.1:9090` (override with `PS_GATEWAY_URL`). A gateway built without
+`make dashboard` answers `/dashboard/` with 503 and a hint.
+
+Tests: `make dashboard-test` (typecheck, ESLint, Vitest unit and component
+tests) and `make dashboard-e2e` (Playwright starts the real gateway binary
+with `web/dashboard/e2e/fixtures/rulepack.yaml`, sends allowed and blocked
+requests, and checks the live feed, stats, detail view, reload, and 401s).
+Refresh the screenshot above with
+`UPDATE_SCREENSHOT=1 npx playwright test -g "README screenshot"`.
+
 ## RulePacks
 
 A RulePack is a YAML file with `apiVersion`, `kind: RulePack`, `metadata` and
@@ -135,7 +182,8 @@ go test -short ./...      # skips the slower timing and soak tests
 ```
 
 CI runs build, vet, golangci-lint and `go test -race ./...` on every pull
-request.
+request, plus a dashboard job: typecheck, lint, unit tests, build, and the
+Playwright suite against the real gateway.
 
 ## Performance
 
@@ -151,8 +199,9 @@ rough local figure, not a production SLA.
 - Metrics: `docs/api/metrics.md`
 - Runtime architecture: `docs/Runtime-Architecture.md`
 
-The earlier web dashboard prototype (`frontend/`) has been removed from this
-repository.
+The earlier dashboard prototype (`frontend/`, an Express server with no UI)
+was removed; `web/dashboard` replaces it and reads only real gateway
+endpoints.
 
 ## License
 

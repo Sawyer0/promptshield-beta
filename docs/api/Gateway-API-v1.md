@@ -99,8 +99,21 @@
   - Restore defaults to env-backed values; 200 snapshot
 
 #### Observability & Admin
-- GET `/v1/events` (SSE)
-  - Streams decision events; optional filter via `?types=decision,quarantine,deny`
+- GET `/v1/events` (SSE, admin)
+  - Streams events; filter by event type with `?types=decision,rules_reloaded`
+  - `decision` events carry `request_id, time, path, decision, reason, status, latency_ms, bytes_in, violations, matches[]` for both `/check` and `/v1/check`
+  - The router's 10s request timeout closes streams; clients reconnect and re-sync from `/v1/decisions`
+- GET `/v1/decisions` (admin)
+  - Recent decisions, newest first, from a 500-entry in-memory log; `?limit=1..500` (default 100), `?decision=allow|quarantine|deny`
+  - Prompt text is never stored
+- GET `/v1/decisions/{requestID}` (admin)
+  - One retained decision; escape the `/` in router ids (`host%2Fabc-000001`); 404 once evicted
+- GET `/v1/decisions/stats` (admin)
+  - `{ total, by_decision, block_rate, latency_p50_ms, latency_p95_ms, last_minute, retained, capacity, since }`
+- GET `/v1/rules` (admin)
+  - The RulePacks `/check` enforces (from `PS_ENFORCER_RULEPACK`): pack metadata and per-rule id, severity, action, and keyword/pattern counts (not the terms)
+- POST `/v1/rules/reload` (admin)
+  - Re-reads `PS_ENFORCER_RULEPACK` and swaps it in without a restart; 422 `RULEPACK_INVALID` keeps the previous rules; emits `rules_reloaded`
 - GET `/v1/stats`
   - Summary JSON from Prometheus counters/histograms
 - GET `/v1/usage`
