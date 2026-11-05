@@ -3,6 +3,7 @@
 // maps failures to typed errors, and decodes every payload.
 import type {
   CheckResult,
+  DecisionPage,
   DecisionQuery,
   DecisionRecord,
   DecisionStats,
@@ -12,7 +13,7 @@ import type {
 import {
   decodeCheckResult,
   decodeDecision,
-  decodeDecisionList,
+  decodeDecisionPage,
   decodeRulesSnapshot,
   decodeStats,
   decodeVersion,
@@ -67,12 +68,13 @@ export class GatewayClient {
     return `${this.baseUrl}${path}`;
   }
 
-  async listDecisions(query: DecisionQuery = {}): Promise<DecisionRecord[]> {
+  async listDecisions(query: DecisionQuery = {}): Promise<DecisionPage> {
     const params = new URLSearchParams();
     if (query.limit !== undefined) params.set('limit', String(query.limit));
     if (query.decision) params.set('decision', query.decision);
+    if (query.before !== undefined) params.set('before', String(query.before));
     const qs = params.toString();
-    return decodeDecisionList(await this.admin(`/v1/decisions${qs ? `?${qs}` : ''}`));
+    return decodeDecisionPage(await this.admin(`/v1/decisions${qs ? `?${qs}` : ''}`));
   }
 
   async getDecision(requestId: string): Promise<DecisionRecord> {

@@ -48,4 +48,21 @@ describe('DecisionFeed', () => {
     rerender(<DecisionFeed records={[]} status="live" error={null} selectedId={null} onSelect={vi.fn()} />);
     expect(screen.getByText(/Waiting for traffic/)).toBeInTheDocument();
   });
+
+  it('offers Load older only when older decisions exist, and reports progress and errors', async () => {
+    const load = vi.fn();
+    const props = { records, status: 'live' as const, error: null, selectedId: null, onSelect: vi.fn() };
+    const { rerender } = render(<DecisionFeed {...props} older={{ available: false, loading: false, error: null, load }} />);
+    expect(screen.queryByRole('button', { name: 'Load older' })).not.toBeInTheDocument();
+
+    rerender(<DecisionFeed {...props} older={{ available: true, loading: false, error: null, load }} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Load older' }));
+    expect(load).toHaveBeenCalledTimes(1);
+
+    rerender(<DecisionFeed {...props} older={{ available: true, loading: true, error: null, load }} />);
+    expect(screen.getByRole('button', { name: 'Loading older…' })).toBeDisabled();
+
+    rerender(<DecisionFeed {...props} older={{ available: true, loading: false, error: 'boom', load }} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load older decisions: boom');
+  });
 });

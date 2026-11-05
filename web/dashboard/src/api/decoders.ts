@@ -6,6 +6,7 @@ import {
   type ActiveRule,
   type CheckResult,
   type DecisionOutcome,
+  type DecisionPage,
   type DecisionRecord,
   type DecisionStats,
   type RuleMatch,
@@ -81,6 +82,7 @@ export function decodeDecision(value: unknown, path = 'decision'): DecisionRecor
   const matches = o.matches === null || o.matches === undefined ? [] : asArray(o.matches, `${path}.matches`);
   return {
     requestId: str(o, 'request_id', path),
+    seq: num(o, 'seq', path),
     time: str(o, 'time', path),
     path: str(o, 'path', path, ''),
     decision: decodeOutcome(o.decision, `${path}.decision`),
@@ -93,9 +95,13 @@ export function decodeDecision(value: unknown, path = 'decision'): DecisionRecor
   };
 }
 
-export function decodeDecisionList(value: unknown): DecisionRecord[] {
+export function decodeDecisionPage(value: unknown): DecisionPage {
   const o = asObject(value, 'data');
-  return asArray(o.decisions, 'data.decisions').map((d, i) => decodeDecision(d, `data.decisions[${i}]`));
+  const next = o.next === null || o.next === undefined ? null : num(o, 'next', 'data');
+  return {
+    records: asArray(o.decisions, 'data.decisions').map((d, i) => decodeDecision(d, `data.decisions[${i}]`)),
+    next,
+  };
 }
 
 export function decodeStats(value: unknown): DecisionStats {

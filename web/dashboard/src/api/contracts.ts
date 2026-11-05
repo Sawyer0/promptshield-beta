@@ -15,6 +15,8 @@ export interface RuleMatch {
 
 /** GET /v1/decisions, /v1/decisions/{id}, and "decision" SSE events. */
 export interface DecisionRecord {
+  /** Position in the gateway's decision log; the paging cursor. */
+  seq: number;
   requestId: string;
   time: string;
   path: string;
@@ -87,6 +89,15 @@ export interface CheckResult {
 export interface DecisionQuery {
   limit?: number;
   decision?: DecisionOutcome;
+  /** Only decisions with seq below this; a previous page's next. */
+  before?: number;
+}
+
+/** One page of GET /v1/decisions, newest first. */
+export interface DecisionPage {
+  records: DecisionRecord[];
+  /** The before value for the next older page, or null on the last page. */
+  next: number | null;
 }
 
 export type StreamStatus = 'connecting' | 'live' | 'reconnecting' | 'unauthorized' | 'closed';

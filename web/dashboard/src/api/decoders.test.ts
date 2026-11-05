@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { wireDecision } from '../../test/factories';
-import { DecodeError, decodeCheckResult, decodeDecision, decodeDecisionList, decodeRulesSnapshot, decodeStats, errorCodeOf } from './decoders';
+import { DecodeError, decodeCheckResult, decodeDecision, decodeDecisionPage, decodeRulesSnapshot, decodeStats, errorCodeOf } from './decoders';
 
 describe('decoders', () => {
   it('maps a wire decision to camelCase', () => {
@@ -16,7 +16,13 @@ describe('decoders', () => {
   });
 
   it('decodes lists, stats and rules', () => {
-    expect(decodeDecisionList({ decisions: [wireDecision('a', 'allow', 't')] })).toHaveLength(1);
+    expect(decodeDecisionPage({ decisions: [wireDecision('a', 'allow', 't', '', 7)], next: null })).toMatchObject({
+      records: [{ requestId: 'a', seq: 7 }],
+      next: null,
+    });
+    expect(decodeDecisionPage({ decisions: [], next: 42 }).next).toBe(42);
+    expect(() => decodeDecisionPage({ decisions: [], next: '42' })).toThrow(/data\.next/);
+    expect(() => decodeDecision({ ...wireDecision('a', 'allow', 't'), seq: undefined })).toThrow(/seq/);
     const stats = decodeStats({
       total: 3, by_decision: { allow: 2, deny: 1 }, block_rate: 0.33, latency_p50_ms: 1, latency_p95_ms: 2,
       last_minute: 3, retained: 3, capacity: 500, since: 's',

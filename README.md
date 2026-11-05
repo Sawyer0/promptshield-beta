@@ -147,7 +147,8 @@ history starts empty after a restart. An invalid value is logged and the
 default is used. `GET /v1/decisions` returns at most 500
 per request and pages through the rest with a cursor: pass the response's
 `next` as `before` (`/v1/decisions?limit=500&before=1234`) until `next` is
-null. The gateway
+null. The dashboard's "Load older" button under the decision list does the
+same, 100 decisions at a time. The gateway
 never stores or shows prompt text: decisions and events carry the request id,
 outcome, matched rule ids and their configured messages, sizes, and timing.
 
