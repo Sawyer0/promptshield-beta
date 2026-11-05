@@ -72,6 +72,10 @@ test.describe('live dashboard', () => {
     await expect(detail.getByText(/No longer retained/)).toHaveCount(0);
     await expect(detail).toContainText('Prompt injection: instruction override');
     await expect(detail).toContainText('POST /check → 403');
+    // Prompt text never reaches the dashboard: not the feed, stats, or detail.
+    for (const prompt of [BENIGN, INJECTION, SECRET, 'AKIAABCDEFGHIJKLMNOP']) {
+      await expect(page.locator('body')).not.toContainText(prompt);
+    }
     await page.keyboard.press('Escape');
     await expect(detail).toHaveCount(0);
   });
