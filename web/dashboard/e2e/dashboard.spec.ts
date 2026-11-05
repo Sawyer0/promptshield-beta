@@ -85,6 +85,33 @@ test.describe('live dashboard', () => {
     await expect(result).toContainText('HTTP 403');
     await expect(page.getByTestId('decision-row').first()).toContainText('pi-ignore-instructions');
   });
+
+  test('event stream stays Live past the 10s request timeout', async ({ page, request }) => {
+    test.setTimeout(60_000);
+    const streams: string[] = [];
+    page.on('request', (req) => {
+      if (new URL(req.url()).pathname === '/v1/events') streams.push(req.url());
+    });
+    await signIn(page);
+    const stream = page.getByRole('status').filter({ hasText: 'Event stream:' });
+
+    // Sample the indicator for 13s, past the gateway's 10s request and
+    // connection timeouts; any drop would show Reconnecting.
+    const seen = new Set<string>();
+    const until = Date.now() + 13_000;
+    while (Date.now() < until) {
+      seen.add((await stream.innerText()).trim());
+      await page.waitForTimeout(250);
+    }
+    expect([...seen]).toEqual(['Event stream: Live']);
+    expect(streams).toHaveLength(1);
+
+    // The original connection still delivers new decisions.
+    const blocked = await sendCheck(request, INJECTION);
+    expect(blocked.status).toBe(403);
+    await expect(page.getByRole('button', { name: `Inspect decision ${blocked.requestId}` })).toBeVisible();
+    expect(streams).toHaveLength(1);
+  });
 });
 
 test.describe('rules', () => {

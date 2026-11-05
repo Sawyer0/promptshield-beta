@@ -101,8 +101,9 @@
 #### Observability & Admin
 - GET `/v1/events` (SSE, admin)
   - Streams events; filter by event type with `?types=decision,rules_reloaded`
+  - Long-lived: exempt from the 10s request timeout and the server read/write timeouts that bound every other route
   - `decision` events carry `request_id, time, path, decision, reason, status, latency_ms, bytes_in, violations, matches[]` for both `/check` and `/v1/check`
-  - The router's 10s request timeout closes streams; clients reconnect and re-sync from `/v1/decisions`
+  - If the connection drops, clients reconnect and re-sync from `/v1/decisions`
 - GET `/v1/decisions` (admin)
   - Recent decisions, newest first, from a 500-entry in-memory log; `?limit=1..500` (default 100), `?decision=allow|quarantine|deny`
   - Prompt text is never stored

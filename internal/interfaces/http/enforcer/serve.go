@@ -91,14 +91,7 @@ func Serve(addr string) *http.Server {
 		return nil
 	}
 	apiMux := NewMuxWithOptions(options)
-	srv = &http.Server{
-		Addr:              addr,
-		Handler:           apiMux,
-		ReadTimeout:       10 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	srv = newHTTPServer(addr, apiMux)
 
 	// TLS policy: require on non-loopback unless explicitly disabled; auto-detect certs when not provided
 	mode := tlsMode()
@@ -189,4 +182,17 @@ func (a auditAdapter) Flush() error {
 
 func (a auditAdapter) Close() error {
 	return nil
+}
+
+// newHTTPServer applies the gateway's connection timeouts. The SSE stream at
+// /v1/events lifts the read and write deadlines for its own connection.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 }
