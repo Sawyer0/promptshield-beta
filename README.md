@@ -150,8 +150,9 @@ curl -X POST http://127.0.0.1:9090/check -d 'ignore previous instructions'
 `PS_ENFORCER_MODE=enforce` and `PS_ENFORCER_RULEPACK=rules/prompt-injection.yaml`;
 pass `DASHBOARD_TOKEN=...` to choose the token. For UI work, run
 `npm run dev` in `web/dashboard`: Vite proxies API calls to a gateway on
-`127.0.0.1:9090` (override with `PS_GATEWAY_URL`). A gateway built without
-`make dashboard` answers `/dashboard/` with 503 and a hint.
+`127.0.0.1:9090` (override with `PS_GATEWAY_URL`). A gateway built locally
+without `make dashboard` answers `/dashboard/` with 503 and a hint; the
+Docker image always includes the dashboard.
 
 Tests: `make dashboard-test` (typecheck, ESLint, Vitest unit and component
 tests) and `make dashboard-e2e` (Playwright starts the real gateway binary
@@ -159,6 +160,32 @@ with `web/dashboard/e2e/fixtures/rulepack.yaml`, sends allowed and blocked
 requests, and checks the live feed, stats, detail view, reload, and 401s).
 Refresh the screenshot above with
 `UPDATE_SCREENSHOT=1 npx playwright test -g "README screenshot"`.
+
+## Docker
+
+`Dockerfile.gateway` builds the gateway image in three stages: a Node stage
+runs `npm ci` and `npm run build` for `web/dashboard`, a Go stage embeds that
+build with `go:embed` and compiles `./gateway`, and a slim Debian stage runs
+it as a non-root user. The image always serves the real dashboard at
+`/dashboard/`; the build fails if the dashboard did not build.
+
+```bash
+docker build -f Dockerfile.gateway -t ps-gateway .
+
+docker run --rm -p 127.0.0.1:9090:9090 \
+  -e PS_ENFORCER_TLS_MODE=disable -e PS_ENFORCER_GRPC_TLS_MODE=disable \
+  -e PS_ENFORCER_ADMIN_TOKEN=change-me \
+  -e PS_ENFORCER_RULEPACK=/rules/prompt-injection.yaml \
+  -e PS_ENFORCER_MODE=enforce \
+  -v "$PWD/rules:/rules:ro" ps-gateway
+# open http://127.0.0.1:9090/dashboard/ and sign in with: change-me
+```
+
+The gateway refuses plain HTTP on a non-loopback address, so either keep
+`PS_ENFORCER_TLS_MODE=disable` behind a TLS-terminating proxy or mount a
+certificate at `/tls/server.crt` and `/tls/server.key`. RulePacks are not
+baked into the image; mount them at `/rules`. Port 9091 is the gRPC
+`ext_proc` server.
 
 ## RulePacks
 

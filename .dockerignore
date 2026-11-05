@@ -1,0 +1,13 @@
+# Keep the build context small and reproducible: dependencies and build
+# output are produced inside the image, never copied from the host.
+.git
+/archive/
+/plan/
+/bin/
+web/dashboard/node_modules/
+web/dashboard/test-results/
+web/dashboard/playwright-report/
+web/dashboard/coverage/
+web/dashboard/.e2e-scratch/
+internal/interfaces/http/dashboard/dist/*
+!internal/interfaces/http/dashboard/dist/.gitkeep

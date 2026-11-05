@@ -4,6 +4,18 @@ ARG TARGETPLATFORM
 ARG TARGETOS
 ARG TARGETARCH
 
+# Operator dashboard: static assets, identical for every target platform.
+# The Vite build writes into the Go embed directory, mirrored here.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS dashboard
+WORKDIR /src/web/dashboard
+COPY web/dashboard/package.json web/dashboard/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
+COPY web/dashboard/ ./
+RUN mkdir -p /src/internal/interfaces/http/dashboard/dist && \
+    npm run build && \
+    test -s /src/internal/interfaces/http/dashboard/dist/index.html
+
 FROM --platform=$BUILDPLATFORM golang:1.25 AS builder
 ARG ENABLE_HYPERSCAN
 ARG TARGETOS
@@ -23,8 +35,10 @@ RUN if [ "$ENABLE_HYPERSCAN" = "1" ]; then \
       rm -rf /var/lib/apt/lists/*; \
     fi
 
-# Build gateway (optionally with Hyperscan)
+# Build gateway (optionally with Hyperscan) with the dashboard embedded
 COPY . .
+COPY --from=dashboard /src/internal/interfaces/http/dashboard/dist/ ./internal/interfaces/http/dashboard/dist/
+RUN test -s internal/interfaces/http/dashboard/dist/index.html
 RUN --mount=type=cache,target=/go/pkg/mod \
     if [ "$ENABLE_HYPERSCAN" = "1" ]; then \
       CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
