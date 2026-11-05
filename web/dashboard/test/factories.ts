@@ -2,6 +2,7 @@ import type { DecisionRecord, DecisionStats, RulesSnapshot } from '../src/api/co
 
 export function makeDecision(overrides: Partial<DecisionRecord> = {}): DecisionRecord {
   return {
+    seq: 0,
     requestId: 'req-1',
     time: '2026-11-04T12:00:00.000Z',
     path: '/check',
@@ -52,8 +53,9 @@ export function makeRules(overrides: Partial<RulesSnapshot> = {}): RulesSnapshot
 }
 
 /** Wire-format (snake_case) decision, as the gateway sends it. */
-export function wireDecision(id: string, decision: 'allow' | 'deny' | 'quarantine', time: string, rule = '') {
+export function wireDecision(id: string, decision: 'allow' | 'deny' | 'quarantine', time: string, rule = '', seq = 1) {
   return {
+    seq,
     request_id: id,
     time,
     path: '/check',

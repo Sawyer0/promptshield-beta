@@ -52,6 +52,7 @@ code, .mono { font-family: var(--mono); font-size: 0.85em; }
 .error { color: var(--deny); margin: 0.5rem 0; }
 .notice { background: var(--quarantine-bg); color: var(--text); padding: 0.5rem 0.75rem; border-radius: var(--radius); margin: 0.5rem 0; }
 .empty { color: var(--muted); padding: 1.5rem 0.5rem; text-align: center; }
+.feed__more { display: flex; justify-content: center; padding-top: 0.75rem; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .visually-hidden {

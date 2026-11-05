@@ -3,6 +3,7 @@ import type { DecisionRecord, StreamStatus } from '../../api/contracts';
 import { OutcomeBadge } from '../../display/OutcomeBadge';
 import { formatClock, formatLatency } from '../../display/format';
 import { filterDecisions, type FeedFilter } from '../../state/decisionMerge';
+import type { OlderDecisions } from '../../state/useDecisionFeed';
 import { FeedFilters } from './FeedFilters';
 
 interface DecisionFeedProps {
@@ -11,13 +12,14 @@ interface DecisionFeedProps {
   error: string | null;
   selectedId: string | null;
   onSelect: (record: DecisionRecord) => void;
+  older?: OlderDecisions;
 }
 
 function ruleOf(record: DecisionRecord): string {
   return record.matches[0]?.ruleId ?? (record.reason === 'no_signals' ? '—' : record.reason);
 }
 
-export function DecisionFeed({ records, status, error, selectedId, onSelect }: DecisionFeedProps) {
+export function DecisionFeed({ records, status, error, selectedId, onSelect, older }: DecisionFeedProps) {
   const [filter, setFilter] = useState<FeedFilter>({ outcome: 'all', search: '' });
   const visible = useMemo(() => filterDecisions(records, filter), [records, filter]);
 
@@ -87,6 +89,18 @@ export function DecisionFeed({ records, status, error, selectedId, onSelect }: D
           </p>
         )}
       </div>
+      {older?.error && (
+        <p className="error" role="alert">
+          Could not load older decisions: {older.error}
+        </p>
+      )}
+      {older?.available && (
+        <div className="feed__more">
+          <button type="button" className="button" onClick={older.load} disabled={older.loading} aria-busy={older.loading}>
+            {older.loading ? 'Loading older…' : 'Load older'}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -118,6 +118,51 @@ test.describe('live dashboard', () => {
   });
 });
 
+test.describe('history paging', () => {
+  test('Load older pages back past the first 100 decisions with no gaps or duplicates', async ({ page, request }) => {
+    test.setTimeout(60_000);
+    const sent: string[] = [];
+    for (let i = 0; i < 150; i++) {
+      const res = await sendCheck(request, `paging probe ${i}: what is ${i} plus ${i}?`);
+      expect(res.status).toBe(200);
+      sent.push(res.requestId);
+    }
+    const firstSent = sent[0] ?? '';
+    const lastSent = sent[sent.length - 1] ?? '';
+    const cursors: string[] = [];
+    page.on('request', (req) => {
+      const url = new URL(req.url());
+      if (url.pathname === '/v1/decisions' && url.searchParams.has('before')) cursors.push(url.search);
+    });
+
+    await signIn(page);
+    const rows = page.getByTestId('decision-row');
+    await expect(page.getByRole('button', { name: `Inspect decision ${lastSent}` })).toBeVisible();
+    await expect(rows).toHaveCount(100);
+    await expect(page.getByRole('button', { name: `Inspect decision ${firstSent}` })).toHaveCount(0);
+
+    const more = page.getByRole('button', { name: 'Load older' });
+    for (let pageNo = 0; pageNo < 10 && (await more.count()) > 0; pageNo++) {
+      const before = await rows.count();
+      await more.click();
+      await expect.poll(() => rows.count()).toBeGreaterThan(before);
+    }
+    await expect(more).toHaveCount(0);
+    expect(cursors.length).toBeGreaterThan(0);
+    expect(cursors.every((q) => /before=\d+/.test(q))).toBe(true);
+
+    // Every probe is listed exactly once, oldest included.
+    const labels = await page.getByRole('button', { name: /^Inspect decision / }).evaluateAll((els) =>
+      els.map((el) => el.getAttribute('aria-label') ?? ''),
+    );
+    const ids = labels.map((l) => l.replace('Inspect decision ', ''));
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of sent) expect(ids).toContain(id);
+    await expect(page.getByRole('button', { name: `Inspect decision ${firstSent}` })).toBeVisible();
+    await expect(page.getByTestId('feed-count')).toHaveText(`Showing ${ids.length} of ${ids.length}`);
+  });
+});
+
 test.describe('rules', () => {
   test.afterAll(() => writeFileSync(RULEPACK_PATH, readFileSync(RULEPACK_FIXTURE)));
 

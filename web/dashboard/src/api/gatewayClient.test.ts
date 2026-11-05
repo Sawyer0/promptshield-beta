@@ -13,8 +13,9 @@ describe('GatewayClient', () => {
       'GET /v1/decisions': () => envelope({ decisions: [wireDecision('a', 'allow', '2026-11-04T12:00:00Z')] }),
     });
     const client = new GatewayClient({ token: 'secret', baseUrl: 'http://gw/', fetchFn });
-    const list = await client.listDecisions({ limit: 25, decision: 'deny' });
-    expect(list[0]?.requestId).toBe('a');
+    const page = await client.listDecisions({ limit: 25, decision: 'deny' });
+    expect(page.records[0]?.requestId).toBe('a');
+    expect(page.next).toBeNull();
     expect(calls[0]?.url).toBe('http://gw/v1/decisions?limit=25&decision=deny');
     expect(headerOf(calls[0]?.init, 'Authorization')).toBe('Bearer secret');
   });

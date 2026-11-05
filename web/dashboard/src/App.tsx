@@ -42,6 +42,7 @@ function Dashboard() {
             error={feed.error}
             selectedId={selected?.requestId ?? null}
             onSelect={setSelected}
+            older={feed.older}
           />
           <div className="layout__side">
             {selected && <DecisionDetail record={selected} onClose={() => setSelected(null)} />}
