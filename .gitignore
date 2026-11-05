@@ -62,3 +62,4 @@ web/dashboard/node_modules/
 web/dashboard/test-results/
 web/dashboard/playwright-report/
 web/dashboard/coverage/
+web/dashboard/.e2e-scratch/
