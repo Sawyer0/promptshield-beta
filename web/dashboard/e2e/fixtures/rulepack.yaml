@@ -1,0 +1,29 @@
+apiVersion: promptshield.io/v1
+kind: RulePack
+metadata:
+  name: e2e-guardrails
+  version: 1.0.0
+  description: Small pack used by the dashboard end-to-end tests
+rules:
+  - id: pi-ignore-instructions
+    name: Instruction override
+    level: 1
+    severity: CRITICAL
+    category: prompt-injection
+    keywords:
+      - "ignore previous instructions"
+      - "disregard previous"
+    response:
+      action: block
+      message: "Prompt injection: instruction override"
+  - id: secrets-aws-key
+    name: AWS access key
+    level: 2
+    severity: HIGH
+    category: secrets
+    patterns:
+      - name: aws-access-key
+        regex: 'AKIA[0-9A-Z]{16}'
+    response:
+      action: block
+      message: "Credential detected: AWS access key"
