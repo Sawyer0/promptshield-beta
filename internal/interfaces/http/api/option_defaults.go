@@ -30,7 +30,7 @@ func withDefaults(opt Options) Options {
 		opt.Events = NewEventHub()
 	}
 	if opt.Decisions == nil {
-		opt.Decisions = decisions.NewLog(decisions.DefaultCapacity)
+		opt.Decisions = decisions.NewLogFromEnv()
 	}
 	// usage store is optional; if unset, usage endpoint will report zeroes
 	// Quota store default: derive from entitlements/env if not provided

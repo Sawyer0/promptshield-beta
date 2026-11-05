@@ -135,8 +135,12 @@ The gateway serves an operator dashboard at `/dashboard/`, built from
 Every data call uses the admin token (`PS_ENFORCER_ADMIN_TOKEN`), sent as a
 bearer header and kept in the tab's session storage; without it the API
 answers 401. The page itself is static and served with a strict
-Content-Security-Policy. The gateway keeps the last 500 decisions in memory
-and never stores prompt text. Set `PS_DASHBOARD_DISABLED=true` to turn the
+Content-Security-Policy. The gateway keeps the last `PS_DECISION_LOG_SIZE`
+decisions (default 500, accepted range 10-50000) in memory only: nothing is
+written to disk, so the history starts empty after a restart. An invalid value
+is logged and the default is used. `GET /v1/decisions` returns at most 500
+per request; a larger log also feeds the stats and detail lookups. The gateway
+never stores prompt text. Set `PS_DASHBOARD_DISABLED=true` to turn the
 route off.
 
 Run it locally (Node 20.19+ and Go 1.24+):
